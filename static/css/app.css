@@ -1567,6 +1567,26 @@ dialog.dialog::backdrop { background: rgba(15,23,42,.5); }
   padding: 8px 10px;
 }
 
+/* Pin the per-row action (ویرایش) column to the physical left edge so the
+   table's small horizontal overflow never clips its padding in RTL, which
+   previously made the edit link look cut in half against the panel border.
+   (In RTL the last column sits on the physical left, hence `left`, not the
+   inline-start property, which would resolve to the right edge.) */
+.table-plan-items th:last-child,
+.table-plan-items td.row-actions {
+  position: sticky;
+  left: 0;
+  background: #fff;
+  z-index: 2;
+}
+.panel-items-scroll thead th:last-child {
+  left: 0;
+  background: #c7d7ea;
+  z-index: 3;
+}
+.table-plan-items tbody tr:hover td.row-actions { background: #f8fafc; }
+.table-plan-items tr.row-edit td.row-actions { background: #fef9c3 !important; }
+
 /* Glass insight strip — width scales with --insight-scale (ضریب عرض).
    Outside the side-by-side workspace, pin to the left (RTL inline-end)
    so shrinking does not leave a gap on the left. */

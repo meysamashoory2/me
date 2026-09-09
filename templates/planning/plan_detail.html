@@ -8,6 +8,7 @@
 
 {% block topbar_actions %}
 <div class="topbar-actions">
+  <a class="btn btn-sm btn-ghost btn-back-list" href="{% url 'plan_list' %}">بازگشت به فهرست برنامه‌ها</a>
   {% if alarm_items %}
   <button type="button" class="btn btn-sm btn-warn" id="btn-check-alarms">بررسی هشدارها</button>
   {% endif %}
