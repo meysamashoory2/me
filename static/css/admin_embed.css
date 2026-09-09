@@ -148,8 +148,39 @@ body.admin-embed input[type="button"],
 body.admin-embed .submit-row input {
   border-radius: 8px;
 }
+/* Add button row: give «اضافه‌کردن …» its own full-width row so the filter
+   panel and results start BELOW it instead of being squeezed beside a floated
+   button, and turn the dim gray link into a clear, on-brand primary button. */
 body.admin-embed .object-tools {
-  margin-top: 0;
+  float: none !important;
+  margin: 6px 0 14px !important;
+  padding: 0;
+  min-height: 40px;
+  line-height: normal;
+  overflow: visible;
+  display: flex;
+  align-items: center;
+}
+body.admin-embed .object-tools li {
+  float: none;
+  display: inline-block;
+  margin: 0;
+}
+body.admin-embed .object-tools a:link,
+body.admin-embed .object-tools a:visited,
+body.admin-embed .object-tools a.addlink {
+  background: #4f46e5 !important;
+  color: #fff !important;
+  border-radius: 8px;
+  padding: 9px 18px !important;
+  font-size: 13px;
+  font-weight: 700;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.12);
+}
+body.admin-embed .object-tools a:hover,
+body.admin-embed .object-tools a.addlink:hover {
+  background: #4338ca !important;
+  color: #fff !important;
 }
 body.admin-embed #content a:link,
 body.admin-embed #content a:visited {
