@@ -41,7 +41,7 @@ class FlexibleTransferTests(TestCase):
     def test_destinations_include_raw_product_tabs(self):
         dests = {d["id"]: d for d in list_destinations_for_ui()}
         self.assertIn(DESTINATION_PRODUCT_DATA, dests)
-        self.assertNotIn("inventory_orders", dests)
+        self.assertIn("inventory_orders", dests)
         self.assertNotIn("vouchers", dests)
         products = dests[DESTINATION_PRODUCT_DATA]
         ids = [lv["id"] for lv in products["levels"]]
