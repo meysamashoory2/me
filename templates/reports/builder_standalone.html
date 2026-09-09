@@ -6,8 +6,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% if report %}{{ report.heading_label }}{% else %}گزارش جدید{% endif %}</title>
   <link rel="stylesheet" href="{% static 'css/report_app.css' %}?v=8">
+  <style>
+    :root { --table-row-height: {{ table_row_height_px|default:36 }}px; }
+    {{ table_layout_css|default:''|safe }}
+  </style>
 </head>
-<body class="report-app">
+<body class="report-app" data-table-section="reports"
+      style="--table-row-height: {{ table_row_height_px|default:36 }}px">
 <form method="post"
       id="report-builder-form"
       class="builder-compact"

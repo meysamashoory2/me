@@ -13,6 +13,7 @@
 </head>
 <body class="report-app"
       style="--table-row-height: {{ table_row_height_px|default:36 }}px"
+      data-table-section="reports"
       data-table-width-locks="{{ table_width_locks_json|default:'{}'|escape }}"
       data-list-url="{{ list_url|default:'' }}"
       data-report-id="{{ report.pk }}"

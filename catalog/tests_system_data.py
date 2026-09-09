@@ -197,3 +197,64 @@ class TableLayoutSettingsTests(TestCase):
         get = self.client.get(url, {"section": "planning"})
         self.assertContains(get, 'value="8"')
         self.assertContains(get, 'name="col_border" value="hide"')
+
+    def test_column_border_toggle_reaches_planning_and_history_pages(self):
+        from django.urls import reverse
+        from catalog.table_layout import COLUMN_BORDER_COLOR
+
+        self.client.login(username="admin", password="erp12345")
+        layout_url = reverse("system_table_layout")
+        show_rule = f"border-inline-end:1px solid {COLUMN_BORDER_COLOR} !important"
+        planning_show = '[data-table-section="planning"] table th:not(:last-child)'
+        history_show = '[data-table-section="history"] table th:not(:last-child)'
+
+        self.client.post(
+            layout_url,
+            {
+                "section": "planning",
+                "row_height_px": "36",
+                "col_border": "show",
+                "row_border": "show",
+                "header_border": "show",
+            },
+        )
+        self.client.post(
+            layout_url,
+            {
+                "section": "history",
+                "row_height_px": "36",
+                "col_border": "show",
+                "row_border": "show",
+                "header_border": "show",
+            },
+        )
+        plans = self.client.get(reverse("plan_list"))
+        self.assertEqual(plans.status_code, 200)
+        plans_html = plans.content.decode()
+        self.assertIn('data-table-section="planning"', plans_html)
+        self.assertIn(planning_show, plans_html)
+        self.assertIn(show_rule, plans_html)
+
+        history = self.client.get(reverse("production_history"))
+        self.assertEqual(history.status_code, 200)
+        history_html = history.content.decode()
+        self.assertIn('data-table-section="history"', history_html)
+        self.assertIn(history_show, history_html)
+
+        self.client.post(
+            layout_url,
+            {
+                "section": "planning",
+                "row_height_px": "36",
+                "col_border": "hide",
+                "row_border": "show",
+                "header_border": "show",
+            },
+        )
+        plans_hidden = self.client.get(reverse("plan_list")).content.decode()
+        self.assertNotIn(planning_show, plans_hidden)
+        self.assertIn('[data-table-section="planning"] table th,', plans_hidden)
+        self.assertIn("border-left:none !important", plans_hidden)
+        self.assertIn("border-inline-end:none !important", plans_hidden)
+        # History keeps its own painted rules.
+        self.assertIn(history_show, plans_hidden)

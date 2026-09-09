@@ -97,44 +97,43 @@ def locks_from_layouts(layouts: dict[str, dict[str, Any]]) -> dict[str, bool]:
     return {key: bool(cfg.get("width_locked")) for key, cfg in layouts.items()}
 
 
+# Visible vertical rules. The page stylesheet uses --line (#e2e8f0), which
+# disappears on white cells — "show column border" must paint its own stroke.
+COLUMN_BORDER_COLOR = "#94a3b8"
+
+
+def _section_cells(key: str, tags: tuple[str, ...], suffix: str = "") -> str:
+    parts: list[str] = []
+    for tag in tags:
+        sel = f"{tag}{suffix}"
+        parts.append(f'[data-table-section="{key}"] table {sel}')
+        parts.append(f'[data-table-section="{key}"] .table {sel}')
+        parts.append(f'[data-table-section="{key}"] .pcx-table {sel}')
+        parts.append(f'[data-table-section="{key}"].table {sel}')
+        parts.append(f'[data-table-section="{key}"].pcx-table {sel}')
+    return ",".join(parts)
+
+
 def css_for_layouts(layouts: dict[str, dict[str, Any]]) -> str:
     parts: list[str] = []
     for key, cfg in layouts.items():
         height = clamp_row_height(cfg.get("row_height_px"))
         parts.append(f'[data-table-section="{key}"]{{--table-row-height:{height}px;}}')
-        # Every cell (header + body): used for the vertical column separators,
-        # which visually span the whole table.
-        all_cells = (
-            f'[data-table-section="{key}"] .table th,'
-            f'[data-table-section="{key}"] .table td,'
-            f'[data-table-section="{key}"] .table thead th,'
-            f'[data-table-section="{key}"] .table tbody td,'
-            f'[data-table-section="{key}"].table th,'
-            f'[data-table-section="{key}"].table td,'
-            f'[data-table-section="{key}"] .pcx-table th,'
-            f'[data-table-section="{key}"] .pcx-table td'
-        )
-        # Body cells only: horizontal separators between data rows.
-        body_cells = (
-            f'[data-table-section="{key}"] .table td,'
-            f'[data-table-section="{key}"] .table tbody td,'
-            f'[data-table-section="{key}"].table td,'
-            f'[data-table-section="{key}"] .pcx-table td'
-        )
-        # Header cells only: the column-header (سرستون) border/underline.
-        header_cells = (
-            f'[data-table-section="{key}"] .table th,'
-            f'[data-table-section="{key}"] .table thead th,'
-            f'[data-table-section="{key}"].table th,'
-            f'[data-table-section="{key}"] .pcx-table th'
-        )
-        if not cfg.get("col_border", True):
+        all_cells = _section_cells(key, ("th", "td"))
+        body_cells = _section_cells(key, ("td",))
+        header_cells = _section_cells(key, ("th",))
+        if cfg.get("col_border", True):
+            between = _section_cells(key, ("th", "td"), ":not(:last-child)")
+            parts.append(
+                f"{between}{{border-inline-end:1px solid {COLUMN_BORDER_COLOR} !important;}}"
+            )
+        else:
             parts.append(
                 f"{all_cells}{{"
-                "border-left-color:transparent !important;"
-                "border-right-color:transparent !important;"
-                "border-inline-start-color:transparent !important;"
-                "border-inline-end-color:transparent !important;"
+                "border-left:none !important;"
+                "border-right:none !important;"
+                "border-inline-start:none !important;"
+                "border-inline-end:none !important;"
                 "}"
             )
         if not cfg.get("row_border", True):

@@ -5,6 +5,8 @@ from __future__ import annotations
 from django.test import SimpleTestCase
 
 from catalog.table_layout import (
+    COLUMN_BORDER_COLOR,
+    SECTION_CHOICES,
     clamp_row_height,
     css_for_layouts,
     default_width_locked,
@@ -54,10 +56,53 @@ class TableLayoutHelpersTests(SimpleTestCase):
             }
         )
         self.assertIn('[data-table-section="planning"]{--table-row-height:8px;}', css)
-        self.assertIn("border-left-color:transparent !important", css)
-        self.assertIn("border-right-color:transparent !important", css)
-        self.assertIn(".table thead th", css)
+        self.assertIn("border-left:none !important", css)
+        self.assertIn("border-right:none !important", css)
+        self.assertIn("border-inline-end:none !important", css)
+        self.assertIn('[data-table-section="planning"] table th', css)
         self.assertNotIn("border-bottom-color:transparent", css)
+        self.assertNotIn(
+            '[data-table-section="planning"] table th:not(:last-child)',
+            css,
+        )
+
+    def test_css_paints_column_borders_when_shown(self):
+        css = css_for_layouts(
+            {
+                "planning": {
+                    "row_height_px": 36,
+                    "col_border": True,
+                    "row_border": True,
+                    "header_border": True,
+                    "width_locked": True,
+                }
+            }
+        )
+        self.assertIn(
+            f"border-inline-end:1px solid {COLUMN_BORDER_COLOR} !important",
+            css,
+        )
+        self.assertIn(
+            '[data-table-section="planning"] table th:not(:last-child)',
+            css,
+        )
+        self.assertIn(
+            '[data-table-section="planning"] .pcx-table td:not(:last-child)',
+            css,
+        )
+        self.assertNotIn("border-left:none !important", css)
+
+    def test_css_default_layouts_paint_every_section(self):
+        css = css_for_layouts(normalize_all_layouts({}))
+        for key, _label in SECTION_CHOICES:
+            self.assertIn(
+                f'[data-table-section="{key}"] table th:not(:last-child)',
+                css,
+            )
+            self.assertNotIn(
+                f'[data-table-section="{key}"] table th{{border-left:none',
+                css,
+            )
 
     def test_css_row_border_hides_body_only(self):
         css = css_for_layouts(
@@ -75,6 +120,11 @@ class TableLayoutHelpersTests(SimpleTestCase):
         self.assertIn("border-bottom-color:transparent !important", css)
         # …but the header underline/shadow is its own control, untouched here.
         self.assertNotIn("box-shadow:none !important", css)
+        # Column borders still paint when that toggle is on.
+        self.assertIn(
+            f"border-inline-end:1px solid {COLUMN_BORDER_COLOR} !important",
+            css,
+        )
 
     def test_css_header_border_hides_header_shadow(self):
         css = css_for_layouts(
@@ -88,5 +138,5 @@ class TableLayoutHelpersTests(SimpleTestCase):
                 }
             }
         )
-        self.assertIn(".table thead th", css)
         self.assertIn("box-shadow:none !important", css)
+        self.assertIn(".table-scroll thead th", css)

@@ -5,6 +5,7 @@
 <span class="plan-heading-text">شماره برنامه {{ plan.program_number|program_no }} _ روز {{ plan.weekday_name }} {{ plan.date|jdate }} <span class="plan-status-inline">({% if editable %}در حال ویرایش{% else %}فقط مشاهده{% endif %})</span></span>
 {% endblock %}
 {% block nav_planning %}active{% endblock %}
+{% block table_section %}planning{% endblock %}
 
 {% block topbar_actions %}
 <div class="topbar-actions">
