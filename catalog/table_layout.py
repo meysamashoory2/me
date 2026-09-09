@@ -43,6 +43,7 @@ def default_layout(section_key: str) -> dict[str, Any]:
         "row_height_px": DEFAULT_ROW_HEIGHT,
         "col_border": True,
         "row_border": True,
+        "header_border": True,
         "width_locked": default_width_locked(section_key),
     }
 
@@ -57,6 +58,8 @@ def normalize_section_layout(section_key: str, raw: Any) -> dict[str, Any]:
         layout["col_border"] = bool(raw.get("col_border"))
     if "row_border" in raw:
         layout["row_border"] = bool(raw.get("row_border"))
+    if "header_border" in raw:
+        layout["header_border"] = bool(raw.get("header_border"))
     if "width_locked" in raw:
         layout["width_locked"] = bool(raw.get("width_locked"))
     return layout
@@ -99,7 +102,9 @@ def css_for_layouts(layouts: dict[str, dict[str, Any]]) -> str:
     for key, cfg in layouts.items():
         height = clamp_row_height(cfg.get("row_height_px"))
         parts.append(f'[data-table-section="{key}"]{{--table-row-height:{height}px;}}')
-        cells = (
+        # Every cell (header + body): used for the vertical column separators,
+        # which visually span the whole table.
+        all_cells = (
             f'[data-table-section="{key}"] .table th,'
             f'[data-table-section="{key}"] .table td,'
             f'[data-table-section="{key}"] .table thead th,'
@@ -109,9 +114,23 @@ def css_for_layouts(layouts: dict[str, dict[str, Any]]) -> str:
             f'[data-table-section="{key}"] .pcx-table th,'
             f'[data-table-section="{key}"] .pcx-table td'
         )
+        # Body cells only: horizontal separators between data rows.
+        body_cells = (
+            f'[data-table-section="{key}"] .table td,'
+            f'[data-table-section="{key}"] .table tbody td,'
+            f'[data-table-section="{key}"].table td,'
+            f'[data-table-section="{key}"] .pcx-table td'
+        )
+        # Header cells only: the column-header (سرستون) border/underline.
+        header_cells = (
+            f'[data-table-section="{key}"] .table th,'
+            f'[data-table-section="{key}"] .table thead th,'
+            f'[data-table-section="{key}"].table th,'
+            f'[data-table-section="{key}"] .pcx-table th'
+        )
         if not cfg.get("col_border", True):
             parts.append(
-                f"{cells}{{"
+                f"{all_cells}{{"
                 "border-left-color:transparent !important;"
                 "border-right-color:transparent !important;"
                 "border-inline-start-color:transparent !important;"
@@ -120,7 +139,14 @@ def css_for_layouts(layouts: dict[str, dict[str, Any]]) -> str:
             )
         if not cfg.get("row_border", True):
             parts.append(
-                f"{cells}{{"
+                f"{body_cells}{{"
+                "border-top-color:transparent !important;"
+                "border-bottom-color:transparent !important;"
+                "}"
+            )
+        if not cfg.get("header_border", True):
+            parts.append(
+                f"{header_cells}{{"
                 "border-top-color:transparent !important;"
                 "border-bottom-color:transparent !important;"
                 "}"

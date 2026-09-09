@@ -59,16 +59,34 @@ class TableLayoutHelpersTests(SimpleTestCase):
         self.assertIn(".table thead th", css)
         self.assertNotIn("border-bottom-color:transparent", css)
 
-    def test_css_hides_row_borders_including_header_shadow(self):
+    def test_css_row_border_hides_body_only(self):
         css = css_for_layouts(
             {
                 "reports": {
                     "row_height_px": 36,
                     "col_border": True,
                     "row_border": False,
+                    "header_border": True,
                     "width_locked": False,
                 }
             }
         )
+        # Body rows lose their horizontal separators…
         self.assertIn("border-bottom-color:transparent !important", css)
+        # …but the header underline/shadow is its own control, untouched here.
+        self.assertNotIn("box-shadow:none !important", css)
+
+    def test_css_header_border_hides_header_shadow(self):
+        css = css_for_layouts(
+            {
+                "reports": {
+                    "row_height_px": 36,
+                    "col_border": True,
+                    "row_border": True,
+                    "header_border": False,
+                    "width_locked": False,
+                }
+            }
+        )
+        self.assertIn(".table thead th", css)
         self.assertIn("box-shadow:none !important", css)

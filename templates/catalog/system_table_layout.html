@@ -54,6 +54,19 @@
           <span>مخفی کردن مرز ردیف</span>
         </label>
       </fieldset>
+      <fieldset class="layout-card">
+        <legend class="layout-card-title">مرز سرستون</legend>
+        <label class="layout-choice">
+          <input type="radio" name="header_border" value="show" {% if header_border %}checked{% endif %}
+                 {% if not can_edit %}disabled{% endif %}>
+          <span>نمایش مرز سرستون</span>
+        </label>
+        <label class="layout-choice">
+          <input type="radio" name="header_border" value="hide" {% if not header_border %}checked{% endif %}
+                 {% if not can_edit %}disabled{% endif %}>
+          <span>مخفی کردن مرز سرستون</span>
+        </label>
+      </fieldset>
       <label class="layout-card layout-card-check">
         <span class="layout-card-title layout-card-check-title">
           <input type="checkbox" name="width_locked" value="1" {% if width_locked %}checked{% endif %}

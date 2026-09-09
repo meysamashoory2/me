@@ -957,6 +957,7 @@ def system_table_layout(request: HttpRequest) -> HttpResponse:
             "row_height_px": clamp_row_height(request.POST.get("row_height_px")),
             "col_border": request.POST.get("col_border") == "show",
             "row_border": request.POST.get("row_border") == "show",
+            "header_border": request.POST.get("header_border") == "show",
             "width_locked": request.POST.get("width_locked") == "1",
         }
         settings.section_layouts = layouts
@@ -986,6 +987,7 @@ def system_table_layout(request: HttpRequest) -> HttpResponse:
             "row_height_px": current["row_height_px"],
             "col_border": current["col_border"],
             "row_border": current["row_border"],
+            "header_border": current["header_border"],
             "width_locked": current["width_locked"],
             "can_edit": _can_edit_naming(request.user),
         },
