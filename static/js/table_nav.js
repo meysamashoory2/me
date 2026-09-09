@@ -3,8 +3,10 @@
  * - Arrow keys move between cells/rows
  * - Selected row: blue highlight (.is-row-selected)
  * - Current cell: non-blue background (.is-cell-focus)
- * - First click selects; second click on the SAME selected row enters next level
+ * - Single click selects; DOUBLE-CLICK or ENTER enters next level
  *   (data-href or data-drill-index / erp-row-activate)
+ * - Activating a non-drillable row on a table that carries
+ *   data-lastlevel-msg dispatches `erp-row-inactive` so the page can show a hint
  * - Cursor: default on unselected rows; pointer on the selected row
  */
 (function () {
@@ -139,29 +141,57 @@
       selCol = cells.length ? Math.max(0, Math.min(ci, cells.length - 1)) : 0;
       paint(table, selRow, selCol);
     }
+    // Expose the per-table selector so pages can restore a selection
+    // (e.g. re-highlight the row a report was drilled from after going back).
+    table._erpNavSelect = selectAt;
 
-    table.addEventListener("click", function (e) {
-      if (e.target.closest(".col-ops, button, select, a, input, textarea, label")) return;
-      var td = e.target.closest("td, th");
-      if (!td || !table.contains(td)) return;
-      var tr = td.closest("tr");
-      if (!tr || !table.contains(tr)) return;
-      var rows = bodyRows(table);
-      var ri = rows.indexOf(tr);
-      if (ri < 0) return;
-      var cells = focusableCells(tr);
-      var ci = cells.indexOf(td);
-      if (ci < 0) ci = 0;
-
-      // Second click on the already-selected row → enter next level
-      if (ri === selRow && tr.classList.contains("is-row-selected") && rowCanActivate(tr)) {
-        e.preventDefault();
+    // Enter the next level for a drillable row; otherwise, if the table opts in
+    // with data-lastlevel-msg, tell the page so it can show an "آخرین سطح" hint.
+    function activateOrHint(tr) {
+      if (rowCanActivate(tr)) {
         activateRow(tr);
         return;
       }
+      var msg = table.getAttribute("data-lastlevel-msg");
+      if (msg != null) {
+        tr.dispatchEvent(new CustomEvent("erp-row-inactive", {
+          bubbles: true,
+          detail: { message: msg },
+        }));
+      }
+    }
 
-      selectAt(ri, ci);
+    function rowFromEvent(e) {
+      if (e.target.closest(".col-ops, button, select, a, input, textarea, label")) return null;
+      var td = e.target.closest("td, th");
+      if (!td || !table.contains(td)) return null;
+      var tr = td.closest("tr");
+      if (!tr || !table.contains(tr)) return null;
+      var rows = bodyRows(table);
+      var ri = rows.indexOf(tr);
+      if (ri < 0) return null;
+      var cells = focusableCells(tr);
+      var ci = cells.indexOf(td);
+      if (ci < 0) ci = 0;
+      return { tr: tr, ri: ri, ci: ci };
+    }
+
+    // Single click only selects the row (drilling now needs a double-click).
+    table.addEventListener("click", function (e) {
+      var hit = rowFromEvent(e);
+      if (!hit) return;
+      selectAt(hit.ri, hit.ci);
       table.focus({ preventScroll: true });
+    });
+
+    // Double click enters the next level (or hints when already at the last one).
+    table.addEventListener("dblclick", function (e) {
+      var hit = rowFromEvent(e);
+      if (!hit) return;
+      e.preventDefault();
+      selectAt(hit.ri, hit.ci);
+      table.focus({ preventScroll: true });
+      activateOrHint(hit.tr);
     });
 
     table.addEventListener("keydown", function (e) {
@@ -190,9 +220,9 @@
         selectAt(selRow, rtl ? selCol - 1 : selCol + 1);
       } else if (e.key === "Enter" || e.key === " ") {
         var tr = rows[selRow];
-        if (!tr || !rowCanActivate(tr)) return;
+        if (!tr) return;
         e.preventDefault();
-        activateRow(tr);
+        activateOrHint(tr);
       }
     });
   }
@@ -206,7 +236,16 @@
     ).forEach(bindTable);
   }
 
-  window.ERPTableNav = { init: init, bind: bindTable, activateRow: activateRow };
+  window.ERPTableNav = {
+    init: init,
+    bind: bindTable,
+    activateRow: activateRow,
+    select: function (table, ri, ci) {
+      if (table && typeof table._erpNavSelect === "function") {
+        table._erpNavSelect(ri, ci || 0);
+      }
+    },
+  };
 
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", function () { init(); });

@@ -143,7 +143,7 @@
   if (filterBtn) filterBtn.addEventListener("click", function () { filterPanel.hidden = !filterPanel.hidden; });
 
   document.querySelectorAll("#form-list-table tbody tr").forEach(function (tr) {
-    // Navigation: first click selects, second click on same row opens (handled by table_nav.js)
+    // Navigation: single click selects, double-click or Enter opens (handled by table_nav.js)
   });
 
   document.querySelectorAll("[data-ops]").forEach(function (sel) {

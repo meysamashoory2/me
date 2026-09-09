@@ -15,6 +15,7 @@
       style="--table-row-height: {{ table_row_height_px|default:36 }}px"
       data-table-width-locks="{{ table_width_locks_json|default:'{}'|escape }}"
       data-list-url="{{ list_url|default:'' }}"
+      data-report-id="{{ report.pk }}"
       data-report-level="{{ level|default:1 }}"
       data-can-go-back="{% if can_go_back %}1{% else %}0{% endif %}">
 <div class="rp-shell" id="report-viewer-shell">
@@ -60,7 +61,7 @@
     <div class="panel panel-list" id="report-print-area">
       <div class="panel-head panel-head-compact no-print panel-head-row">
         <div class="panel-head-start">
-          <h2 id="results-heading">نتایج (<span id="row-count">{{ rows|length }}</span> ردیف){% if deeper %} — برای ورود به سطح بعد روی ردیف دوبار کلیک کنید{% endif %}</h2>
+          <h2 id="results-heading">نتایج (<span id="row-count">{{ rows|length }}</span> ردیف){% if deeper %} — برای ورود به سطح بعد روی ردیف دوبار کلیک کنید یا اینتر بزنید{% endif %}</h2>
         </div>
         {% if can_edit_entry %}
         <div class="entry-edit-actions" id="entry-edit-actions">
@@ -76,7 +77,8 @@
       {% if headers %}
       <div class="table-scroll" data-table-section="reports">
         <table class="table table-nav-cells {% if deeper %}table-drill{% endif %}" id="report-data-table" tabindex="0"
-               data-editing="0" data-table-section="reports">
+               data-editing="0" data-table-section="reports"
+               data-lastlevel-msg="سطح جاری آخرین سطح می‌باشد">
           <thead>
             <tr>
               {% for cell in header_cells %}
@@ -158,7 +160,7 @@
 {% if runtime_params %}{{ runtime_params|json_script:"runtime-parameters" }}{% else %}<script id="runtime-parameters" type="application/json">[]</script>{% endif %}
 
 <script src="{% static 'js/number_normalize.js' %}?v=1"></script>
-<script src="{% static 'js/table_nav.js' %}?v=8"></script>
+<script src="{% static 'js/table_nav.js' %}?v=9"></script>
 <script src="{% static 'js/table_layout.js' %}?v=11"></script>
 <script src="{% static 'js/form_enter_nav.js' %}?v=2"></script>
 <script>
@@ -373,6 +375,17 @@
     return (td.textContent || "").trim();
   }
 
+  // Stable key for "which row was last opened at this exact level+path", so
+  // that returning to this level can re-highlight the row we drilled from.
+  function levelHighlightKey() {
+    var rid = document.body.getAttribute("data-report-id") || "";
+    var lvl = document.body.getAttribute("data-report-level") || "1";
+    var f = {};
+    try { f = JSON.parse(document.getElementById("report-filters").textContent || "{}"); } catch (e) { f = {}; }
+    var parts = Object.keys(f).sort().map(function (k) { return k + "=" + f[k]; });
+    return "erp-rpt-hl:" + rid + ":" + lvl + ":" + parts.join("&");
+  }
+
   function drillFromRow(tr) {
     if (editing) return;
     if (!tr || !tr.hasAttribute("data-drill-index")) return;
@@ -382,6 +395,8 @@
     var filters = JSON.parse(document.getElementById("report-filters").textContent || "{}");
     var level = {{ level }};
     var idx = parseInt(tr.getAttribute("data-drill-index"), 10);
+    // Remember the drilled row so this level highlights it on the way back.
+    try { sessionStorage.setItem(levelHighlightKey(), String(idx)); } catch (e) {}
     var payload = payloads[idx] || {};
     var params = new URLSearchParams();
     params.set("level", String(level + 1));
@@ -404,6 +419,29 @@
     if (!tr) tr = e.target;
     drillFromRow(tr);
   });
+
+  /* Last level: table_nav reports a non-drillable activation → show a hint. */
+  table.addEventListener("erp-row-inactive", function (e) {
+    if (editing) return;
+    toast((e.detail && e.detail.message) || "سطح جاری آخرین سطح می‌باشد");
+  });
+
+  /* Coming back from a deeper level: re-highlight the row we drilled from
+     (all rows of this level stay visible; only the source row is selected). */
+  function restoreDrillHighlight() {
+    if (editing) return;
+    var saved = null;
+    try { saved = sessionStorage.getItem(levelHighlightKey()); } catch (e) { saved = null; }
+    if (saved == null) return;
+    var idx = parseInt(saved, 10);
+    var list = dataRows();
+    if (isNaN(idx) || idx < 0 || idx >= list.length) return;
+    if (window.ERPTableNav && typeof window.ERPTableNav.select === "function") {
+      window.ERPTableNav.select(table, idx, 0);
+    } else {
+      list[idx].classList.add("is-row-selected");
+    }
+  }
 
   function makeEditableCell(td, meta, val) {
     td.setAttribute("data-orig", val);
@@ -591,6 +629,13 @@
   }
 
   refreshRows();
+  // table_nav binds the table on DOMContentLoaded, so restore the drilled-row
+  // selection only after that (otherwise ERPTableNav.select has nothing to paint).
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", restoreDrillHighlight);
+  } else {
+    restoreDrillHighlight();
+  }
   table.focus();
 })();
 </script>
