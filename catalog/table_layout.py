@@ -124,8 +124,16 @@ def css_for_layouts(layouts: dict[str, dict[str, Any]]) -> str:
         header_cells = _section_cells(key, ("th",))
         if cfg.get("col_border", True):
             between = _section_cells(key, ("th", "td"), ":not(:last-child)")
+            # Paint the stroke inside the cell. Adjacent cells with
+            # border-spacing:0 cover a real border; overflow:hidden clips it.
             parts.append(
-                f"{between}{{border-inline-end:1px solid {COLUMN_BORDER_COLOR} !important;}}"
+                f"{between}{{"
+                f"border-inline-end:1px solid {COLUMN_BORDER_COLOR} !important;"
+                f"background-image:linear-gradient({COLUMN_BORDER_COLOR},{COLUMN_BORDER_COLOR}) !important;"
+                "background-repeat:no-repeat !important;"
+                "background-size:1px 100% !important;"
+                "background-position:left center !important;"
+                "}"
             )
         else:
             parts.append(
@@ -134,6 +142,7 @@ def css_for_layouts(layouts: dict[str, dict[str, Any]]) -> str:
                 "border-right:none !important;"
                 "border-inline-start:none !important;"
                 "border-inline-end:none !important;"
+                "background-image:none !important;"
                 "}"
             )
         if not cfg.get("row_border", True):

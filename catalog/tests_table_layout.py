@@ -59,6 +59,7 @@ class TableLayoutHelpersTests(SimpleTestCase):
         self.assertIn("border-left:none !important", css)
         self.assertIn("border-right:none !important", css)
         self.assertIn("border-inline-end:none !important", css)
+        self.assertIn("background-image:none !important", css)
         self.assertIn('[data-table-section="planning"] table th', css)
         self.assertNotIn("border-bottom-color:transparent", css)
         self.assertNotIn(
@@ -83,6 +84,11 @@ class TableLayoutHelpersTests(SimpleTestCase):
             css,
         )
         self.assertIn(
+            f"background-image:linear-gradient({COLUMN_BORDER_COLOR},{COLUMN_BORDER_COLOR}) !important",
+            css,
+        )
+        self.assertIn("background-size:1px 100% !important", css)
+        self.assertIn(
             '[data-table-section="planning"] table th:not(:last-child)',
             css,
         )
@@ -91,6 +97,7 @@ class TableLayoutHelpersTests(SimpleTestCase):
             css,
         )
         self.assertNotIn("border-left:none !important", css)
+        self.assertNotIn("background-image:none !important", css)
 
     def test_css_default_layouts_paint_every_section(self):
         css = css_for_layouts(normalize_all_layouts({}))

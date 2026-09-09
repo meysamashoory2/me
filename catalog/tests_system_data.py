@@ -234,6 +234,10 @@ class TableLayoutSettingsTests(TestCase):
         self.assertIn('data-table-section="planning"', plans_html)
         self.assertIn(planning_show, plans_html)
         self.assertIn(show_rule, plans_html)
+        self.assertIn(
+            f"background-image:linear-gradient({COLUMN_BORDER_COLOR},{COLUMN_BORDER_COLOR}) !important",
+            plans_html,
+        )
 
         history = self.client.get(reverse("production_history"))
         self.assertEqual(history.status_code, 200)
@@ -256,5 +260,10 @@ class TableLayoutSettingsTests(TestCase):
         self.assertIn('[data-table-section="planning"] table th,', plans_hidden)
         self.assertIn("border-left:none !important", plans_hidden)
         self.assertIn("border-inline-end:none !important", plans_hidden)
+        self.assertIn("background-image:none !important", plans_hidden)
+        self.assertNotIn(
+            '[data-table-section="planning"] table th:not(:last-child)',
+            plans_hidden,
+        )
         # History keeps its own painted rules.
         self.assertIn(history_show, plans_hidden)
