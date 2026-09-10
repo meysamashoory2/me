@@ -4,6 +4,9 @@ asgiref==3.12.1
 sqlparse==0.5.5
 tzdata==2025.2
 
+# Database driver (PostgreSQL is the primary database)
+psycopg[binary]==3.3.5
+
 # Jalali (Shamsi) calendar support
 django-jalali==7.4.0
 jdatetime==5.3.0

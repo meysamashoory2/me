@@ -99,13 +99,30 @@ WSGI_APPLICATION = "erp.wsgi.application"
 
 
 # Database
-# Defaults to SQLite so the project runs with zero external dependencies.
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",
+# PostgreSQL is the primary database for both development and production.
+# All connection settings are read from environment variables so credentials
+# are never hard-coded (set them via the OS environment; see .env.example).
+# Set DB_ENGINE=sqlite only for a throwaway, dependency-free local run.
+DB_ENGINE = os.environ.get("DB_ENGINE", "postgresql").strip().lower()
+
+if DB_ENGINE in {"sqlite", "sqlite3"}:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": BASE_DIR / "db.sqlite3",
+        }
     }
-}
+else:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": os.environ.get("DB_NAME", "erp_db"),
+            "USER": os.environ.get("DB_USER", "erp_user"),
+            "PASSWORD": os.environ.get("DB_PASSWORD", ""),
+            "HOST": os.environ.get("DB_HOST", "127.0.0.1"),
+            "PORT": os.environ.get("DB_PORT", "5432"),
+        }
+    }
 
 
 # Password validation
