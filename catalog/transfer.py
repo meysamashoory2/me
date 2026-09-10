@@ -153,7 +153,7 @@ PRODUCT_CONSUMABLE_FIELDS: list[DestField] = [
 
 IO_ORDER_FIELDS: list[DestField] = [
     DestField("order_ref", "شماره سفارش", "string"),
-    DestField("product_code", "کد کالا", "string", required=True),
+    DestField("product_code", "کد کالا", "string", required=True, is_key=True),
     DestField("product_name", "نام کالا", "string"),
     DestField("quantity", "مقدار سفارش", "integer", required=True),
     DestField("delivery_date", "تاریخ تحویل", "date"),
@@ -164,7 +164,7 @@ IO_ORDER_FIELDS: list[DestField] = [
 ]
 
 IO_STOCK_FIELDS: list[DestField] = [
-    DestField("product_code", "کد کالا", "string", required=True),
+    DestField("product_code", "کد کالا", "string", required=True, is_key=True),
     DestField("product_name", "نام کالا", "string"),
     DestField("stock_finished", "موجودی محصول", "integer"),
     DestField("stock_unassembled", "موجودی مونتاژ‌نشده", "integer"),
@@ -172,10 +172,10 @@ IO_STOCK_FIELDS: list[DestField] = [
 ]
 
 IO_FORECAST_FIELDS: list[DestField] = [
-    DestField("product_code", "کد کالا", "string", required=True),
+    DestField("product_code", "کد کالا", "string", required=True, is_key=True),
     DestField("product_name", "نام کالا", "string"),
-    DestField("period_label", "دوره پیش‌بینی", "string"),
-    DestField("quantity", "مقدار پیش‌بینی", "integer"),
+    DestField("period_label", "دوره پیش‌بینی", "string", required=True, is_key=True),
+    DestField("quantity", "مقدار پیش‌بینی", "integer", required=True),
     DestField("notes", "توضیحات", "string"),
 ]
 
@@ -231,6 +231,31 @@ def list_destinations() -> list[dict[str, Any]]:
             "label": "دیتای محصولات",
             "schema_mode": SCHEMA_DYNAMIC,
             "levels": product_levels,
+        },
+        {
+            "id": DESTINATION_INVENTORY_ORDERS,
+            "label": "داده‌های ورودی برنامه‌ریزی",
+            "schema_mode": SCHEMA_FIXED,
+            "levels": [
+                {
+                    "id": LEVEL_IO_ORDERS,
+                    "label": "سفارشات",
+                    "fields": _fields_payload(IO_ORDER_FIELDS),
+                    "schema_mode": SCHEMA_FIXED,
+                },
+                {
+                    "id": LEVEL_IO_STOCK,
+                    "label": "موجودی محصولات",
+                    "fields": _fields_payload(IO_STOCK_FIELDS),
+                    "schema_mode": SCHEMA_FIXED,
+                },
+                {
+                    "id": LEVEL_IO_FORECAST,
+                    "label": "پیش‌بینی فروش",
+                    "fields": _fields_payload(IO_FORECAST_FIELDS),
+                    "schema_mode": SCHEMA_FIXED,
+                },
+            ],
         },
     ]
 
@@ -418,6 +443,16 @@ def _fixed_dest_has_rows(destination_id: str, level_id: str) -> bool:
         from production.models import ProductionHistoryRecord
 
         return ProductionHistoryRecord.objects.exists()
+    if destination_id == DESTINATION_INVENTORY_ORDERS:
+        from catalog.models import Product
+        from planning.models import CustomerOrder, SalesForecast
+
+        if level_id == LEVEL_IO_ORDERS:
+            return CustomerOrder.objects.exists()
+        if level_id == LEVEL_IO_STOCK:
+            return Product.objects.exists()
+        if level_id == LEVEL_IO_FORECAST:
+            return SalesForecast.objects.exists()
     return False
 
 
@@ -465,6 +500,14 @@ def _fields_for(destination_id: str, level_id: str) -> list[DestField]:
         if level_id == LEVEL_HISTORY_DAILY:
             return HISTORY_DAILY_FIELDS
         return HISTORY_LIST_FIELDS
+    if destination_id == DESTINATION_INVENTORY_ORDERS:
+        if level_id == LEVEL_IO_ORDERS:
+            return IO_ORDER_FIELDS
+        if level_id == LEVEL_IO_STOCK:
+            return IO_STOCK_FIELDS
+        if level_id == LEVEL_IO_FORECAST:
+            return IO_FORECAST_FIELDS
+        return []
     if destination_id in (DESTINATION_PRODUCT_DATA, DESTINATION_VOUCHERS):
         from catalog.flexible_data import load_schema_columns
 
@@ -1759,6 +1802,9 @@ def _transfer_flexible(
 _HANDLERS = {
     (DESTINATION_PRODUCTION_HISTORY, LEVEL_HISTORY_LIST): _transfer_history_list,
     (DESTINATION_PRODUCTION_HISTORY, LEVEL_HISTORY_DAILY): _transfer_history_daily,
+    (DESTINATION_INVENTORY_ORDERS, LEVEL_IO_ORDERS): _transfer_io_orders,
+    (DESTINATION_INVENTORY_ORDERS, LEVEL_IO_STOCK): _transfer_io_stock,
+    (DESTINATION_INVENTORY_ORDERS, LEVEL_IO_FORECAST): _transfer_io_forecast,
 }
 
 
@@ -1963,11 +2009,14 @@ def transfer_excel_table(
             kwargs["offset"] = offset
             kwargs["limit"] = limit
         result = handler(**kwargs)
-        result.redirect_url = (
-            reverse("excel_detail", args=[table.upload_id])
-            if table.upload_id
-            else reverse("excel_list")
-        )
+        if destination_id == DESTINATION_INVENTORY_ORDERS:
+            result.redirect_url = f"{reverse('inventory_orders')}?tab={level_id}"
+        else:
+            result.redirect_url = (
+                reverse("excel_detail", args=[table.upload_id])
+                if table.upload_id
+                else reverse("excel_list")
+            )
 
     result.mode = mode
     result.destination_id = destination_id

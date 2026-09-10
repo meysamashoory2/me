@@ -56,8 +56,10 @@ def upsert_order_from_values(
 
     order_ref = str(values.get("order_ref") or "").strip()
     product = Product.objects.filter(code=code).first()
+    if product is None:
+        raise ValueError(f"کد کالا «{code}» در دیتای محصولات تعریف نشده است.")
     name = str(values.get("product_name") or "").strip()
-    if not name and product:
+    if not name:
         name = product.name
 
     defaults = {
@@ -90,7 +92,7 @@ def upsert_order_from_values(
 def upsert_stock_from_values(
     values: dict[str, Any], *, update_only: bool = False
 ) -> Product | None:
-    """Update inventory / depot ceiling on an existing product (create if allowed)."""
+    """Update inventory / depot ceiling for a known catalog product."""
     code = str(values.get("code") or values.get("product_code") or "").strip()
     if not code:
         raise ValueError("کد کالا الزامی است.")
@@ -100,13 +102,7 @@ def upsert_stock_from_values(
     if product is None:
         if update_only:
             return None
-        from catalog.product_data import ensure_default_subgroup
-
-        product = Product.objects.create(
-            code=code,
-            name=name or code,
-            subgroup=ensure_default_subgroup(),
-        )
+        raise ValueError(f"کد کالا «{code}» در دیتای محصولات تعریف نشده است.")
     elif name:
         product.name = name
 
@@ -129,9 +125,13 @@ def upsert_forecast_from_values(
         raise ValueError("کد کالا الزامی است.")
     qty = _int(values.get("quantity"), 0) or 0
     period = str(values.get("period_label") or "").strip()
+    if not period:
+        raise ValueError("دوره پیش‌بینی الزامی است.")
     product = Product.objects.filter(code=code).first()
+    if product is None:
+        raise ValueError(f"کد کالا «{code}» در دیتای محصولات تعریف نشده است.")
     name = str(values.get("product_name") or "").strip()
-    if not name and product:
+    if not name:
         name = product.name
 
     defaults = {

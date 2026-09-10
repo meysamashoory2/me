@@ -6,9 +6,16 @@ from django.test import TestCase
 from django.urls import reverse
 
 from catalog.models import ExcelTable, ExcelUpload, Machine, Product, ProductBomLine
-from catalog.transfer import transfer_excel_table
+from catalog.transfer import (
+    DESTINATION_INVENTORY_ORDERS,
+    LEVEL_IO_FORECAST,
+    LEVEL_IO_ORDERS,
+    LEVEL_IO_STOCK,
+    list_destinations_for_ui,
+    transfer_excel_table,
+)
 from planning.inventory_orders import upsert_order_from_values, upsert_stock_from_values
-from planning.models import CustomerOrder, WeeklyPlan
+from planning.models import CustomerOrder, SalesForecast, WeeklyPlan
 from planning.systemic import build_systemic_proposals, create_systemic_plan
 
 
@@ -72,6 +79,83 @@ class InventoryOrdersSystemicTests(TestCase):
         )
         self.assertEqual(result.transferred, 1)
         self.assertIn("/data/products/", result.redirect_url)
+
+    def test_excel_transfer_populates_normalized_planning_inputs(self):
+        destination = {
+            item["id"]: item for item in list_destinations_for_ui()
+        }[DESTINATION_INVENTORY_ORDERS]
+        self.assertEqual(
+            {level["id"] for level in destination["levels"]},
+            {LEVEL_IO_ORDERS, LEVEL_IO_STOCK, LEVEL_IO_FORECAST},
+        )
+
+        upload = ExcelUpload.objects.create(title="ورودی برنامه‌ریزی", uploaded_by=self.admin)
+        orders = ExcelTable.objects.create(
+            upload=upload,
+            name="سفارشات فصل",
+            headers=["شماره سفارش", "کد کالا", "مقدار", "اولویت"],
+            rows=[
+                ["SO-100", self.product.code, "75", "2"],
+                ["SO-UNKNOWN", "UNKNOWN-SKU", "10", "1"],
+            ],
+        )
+        order_result = transfer_excel_table(
+            table=orders,
+            destination_id=DESTINATION_INVENTORY_ORDERS,
+            level_id=LEVEL_IO_ORDERS,
+            mapping={"order_ref": 0, "product_code": 1, "quantity": 2, "priority": 3},
+            user=self.admin,
+        )
+        self.assertEqual(order_result.transferred, 1)
+        self.assertEqual(order_result.failed, 1)
+        self.assertIn(f"?tab={LEVEL_IO_ORDERS}", order_result.redirect_url)
+        self.assertTrue(
+            CustomerOrder.objects.filter(
+                order_ref="SO-100", product=self.product, quantity=75
+            ).exists()
+        )
+        self.assertFalse(CustomerOrder.objects.filter(product_code="UNKNOWN-SKU").exists())
+
+        stock = ExcelTable.objects.create(
+            upload=upload,
+            name="موجودی",
+            headers=["کد کالا", "موجودی محصول", "سقف دپو"],
+            rows=[[self.product.code, "44", "300"]],
+        )
+        stock_result = transfer_excel_table(
+            table=stock,
+            destination_id=DESTINATION_INVENTORY_ORDERS,
+            level_id=LEVEL_IO_STOCK,
+            mapping={"product_code": 0, "stock_finished": 1, "depot_ceiling": 2},
+            user=self.admin,
+        )
+        self.assertEqual(stock_result.transferred, 1)
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.stock_finished, 44)
+        self.assertEqual(self.product.depot_ceiling, 300)
+
+        forecast = ExcelTable.objects.create(
+            upload=upload,
+            name="پیش‌بینی فروش",
+            headers=["کد کالا", "فصل", "مقدار"],
+            rows=[[self.product.code, "پاییز ۱۴۰۵", "120"]],
+        )
+        forecast_result = transfer_excel_table(
+            table=forecast,
+            destination_id=DESTINATION_INVENTORY_ORDERS,
+            level_id=LEVEL_IO_FORECAST,
+            mapping={"product_code": 0, "period_label": 1, "quantity": 2},
+            user=self.admin,
+        )
+        self.assertEqual(forecast_result.transferred, 1)
+        self.assertTrue(
+            SalesForecast.objects.filter(
+                product=self.product,
+                period_label="پاییز ۱۴۰۵",
+                quantity=120,
+                source_table_name="پیش‌بینی فروش",
+            ).exists()
+        )
 
     def test_systemic_plan_respects_stock_and_depot(self):
         CustomerOrder.objects.all().delete()
