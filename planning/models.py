@@ -126,7 +126,7 @@ class WeeklyPlanItem(models.Model):
     )
 
     uid = models.CharField(
-        "شناسه برنامه", max_length=16, unique=True, default=generate_program_uid,
+        "شناسه برنامه", max_length=32, unique=True, default=generate_program_uid,
         editable=False, db_index=True,
     )
     # Sequence position on the same machine within a plan (1 = تولید اول, ...).
@@ -175,7 +175,7 @@ class WeeklyPlanLine(models.Model):
     active_cavities = models.PositiveSmallIntegerField("تعداد حفره", default=1)
     uid = models.CharField(
         "شناسه ردیف تولید",
-        max_length=16,
+        max_length=32,
         blank=True,
         default="",
         db_index=True,
