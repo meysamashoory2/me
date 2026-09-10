@@ -4,8 +4,8 @@
   "terminals": [
     {
       "name": "django",
-      "command": "bash scripts/start.sh",
-      "description": "Django dev server for the production-planning ERP on http://localhost:8000"
+      "command": "DJANGO_ALLOWED_HOSTS=* bash scripts/start.sh",
+      "description": "Django dev server for the production-planning ERP on http://localhost:8000 (accepts the Cloud Agent port-preview host)"
     }
   ],
   "ports": [
