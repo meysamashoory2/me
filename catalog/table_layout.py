@@ -99,7 +99,9 @@ def locks_from_layouts(layouts: dict[str, dict[str, Any]]) -> dict[str, bool]:
 
 # Visible vertical rules. The page stylesheet uses --line (#e2e8f0), which
 # disappears on white cells — "show column border" must paint its own stroke.
-COLUMN_BORDER_COLOR = "#94a3b8"
+# Keep it a soft slate-300: dark enough to read on white, light enough not to
+# dominate the table.
+COLUMN_BORDER_COLOR = "#cbd5e1"
 
 
 def _section_cells(key: str, tags: tuple[str, ...], suffix: str = "") -> str:
@@ -124,11 +126,13 @@ def css_for_layouts(layouts: dict[str, dict[str, Any]]) -> str:
         header_cells = _section_cells(key, ("th",))
         if cfg.get("col_border", True):
             between = _section_cells(key, ("th", "td"), ":not(:last-child)")
-            # Paint the stroke inside the cell. Adjacent cells with
-            # border-spacing:0 cover a real border; overflow:hidden clips it.
+            # Paint a single 1px stroke inside the cell. Adjacent cells with
+            # border-spacing:0 cover a real border and overflow:hidden clips it,
+            # so the background line is the reliable one. Drawing a border here
+            # too would double the stroke at every divider (too thick), so we
+            # rely on the background line alone.
             parts.append(
                 f"{between}{{"
-                f"border-inline-end:1px solid {COLUMN_BORDER_COLOR} !important;"
                 f"background-image:linear-gradient({COLUMN_BORDER_COLOR},{COLUMN_BORDER_COLOR}) !important;"
                 "background-repeat:no-repeat !important;"
                 "background-size:1px 100% !important;"

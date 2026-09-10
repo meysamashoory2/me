@@ -79,10 +79,8 @@ class TableLayoutHelpersTests(SimpleTestCase):
                 }
             }
         )
-        self.assertIn(
-            f"border-inline-end:1px solid {COLUMN_BORDER_COLOR} !important",
-            css,
-        )
+        # A single background stroke draws the divider; no doubled border.
+        self.assertNotIn("border-inline-end:1px solid", css)
         self.assertIn(
             f"background-image:linear-gradient({COLUMN_BORDER_COLOR},{COLUMN_BORDER_COLOR}) !important",
             css,
@@ -129,7 +127,7 @@ class TableLayoutHelpersTests(SimpleTestCase):
         self.assertNotIn("box-shadow:none !important", css)
         # Column borders still paint when that toggle is on.
         self.assertIn(
-            f"border-inline-end:1px solid {COLUMN_BORDER_COLOR} !important",
+            f"background-image:linear-gradient({COLUMN_BORDER_COLOR},{COLUMN_BORDER_COLOR}) !important",
             css,
         )
 

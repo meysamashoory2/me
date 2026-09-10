@@ -204,7 +204,9 @@ class TableLayoutSettingsTests(TestCase):
 
         self.client.login(username="admin", password="erp12345")
         layout_url = reverse("system_table_layout")
-        show_rule = f"border-inline-end:1px solid {COLUMN_BORDER_COLOR} !important"
+        show_rule = (
+            f"background-image:linear-gradient({COLUMN_BORDER_COLOR},{COLUMN_BORDER_COLOR}) !important"
+        )
         planning_show = '[data-table-section="planning"] table th:not(:last-child)'
         history_show = '[data-table-section="history"] table th:not(:last-child)'
 
