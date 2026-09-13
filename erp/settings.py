@@ -11,6 +11,16 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+# Load a project-root .env file (if present) so the documented .env.example
+# actually takes effect. Real OS environment variables always win over .env,
+# and the sqlite throwaway path stays usable even without python-dotenv.
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    pass
+else:
+    load_dotenv(BASE_DIR / ".env")
+
 
 def env_bool(name: str, default: bool) -> bool:
     value = os.environ.get(name)
@@ -121,6 +131,11 @@ else:
             "PASSWORD": os.environ.get("DB_PASSWORD", ""),
             "HOST": os.environ.get("DB_HOST", "127.0.0.1"),
             "PORT": os.environ.get("DB_PORT", "5432"),
+            "OPTIONS": {
+                # Fail fast with a clear error instead of hanging forever when
+                # the database host is unreachable or misconfigured.
+                "connect_timeout": int(os.environ.get("DB_CONNECT_TIMEOUT", "5")),
+            },
         }
     }
 

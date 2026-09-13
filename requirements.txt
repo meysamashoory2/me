@@ -7,6 +7,9 @@ tzdata==2025.2
 # Database driver (PostgreSQL is the primary database)
 psycopg[binary]==3.3.5
 
+# Loads DB_* and DJANGO_* settings from a project-root .env file
+python-dotenv==1.2.3
+
 # Jalali (Shamsi) calendar support
 django-jalali==7.4.0
 jdatetime==5.3.0
