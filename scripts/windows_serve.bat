@@ -1,37 +1,52 @@
 @echo off
 REM ============================================================
 REM  اجرای سرور پروداکشن روی ویندوز با Waitress
-REM  Production server on Windows using Waitress (gunicorn does
-REM  NOT run on Windows). Serves the app on port 8000.
+REM  Production launcher (self-contained):
+REM    * Ensures a strong DJANGO_SECRET_KEY exists in .env
+REM      (generates and saves one automatically if missing).
+REM    * Runs with DJANGO_DEBUG=False.
+REM    * Applies migrations and collects static files.
+REM    * Serves the app with Waitress (gunicorn does NOT run on Windows).
+REM  The database credentials come from .env (see scripts\setup_env.bat).
 REM ============================================================
-setlocal
+setlocal EnableDelayedExpansion
 cd /d "%~dp0.."
+
+if not exist ".venv\Scripts\python.exe" (
+  echo [ERROR] .venv not found. Run scripts\windows_setup.bat first.
+  goto :end
+)
 call ".venv\Scripts\activate.bat"
 
-REM --- Production settings ---------------------------------
-set DJANGO_DEBUG=False
-
-REM Set a strong, secret key. Change this value for real deployments!
-if "%DJANGO_SECRET_KEY%"=="" (
-  echo [WARNING] DJANGO_SECRET_KEY is not set. Using an insecure default.
-  echo           Set it before real use:  set DJANGO_SECRET_KEY=your-long-random-value
-  set DJANGO_SECRET_KEY=change-me-please-set-a-real-secret-key
+if not exist ".env" (
+  echo [WARNING] .env not found. Run scripts\setup_env.bat first to set the database.
 )
 
-REM Hosts allowed to reach the server. Prefer explicit names/IPs in production:
-REM   set DJANGO_ALLOWED_HOSTS=planning.poliran,192.168.1.50,localhost
-if "%DJANGO_ALLOWED_HOSTS%"=="" set DJANGO_ALLOWED_HOSTS=planning.poliran,localhost,127.0.0.1
-if "%DJANGO_CSRF_TRUSTED_ORIGINS%"=="" set DJANGO_CSRF_TRUSTED_ORIGINS=http://planning.poliran:8000,http://planning.poliran
+REM --- Ensure a strong DJANGO_SECRET_KEY is stored in .env (no setx needed) ---
+findstr /b /c:"DJANGO_SECRET_KEY=" ".env" >nul 2>&1
+if errorlevel 1 (
+  for /f "delims=" %%K in ('python -c "import secrets;print(secrets.token_urlsafe(64))"') do set "GENKEY=%%K"
+  >> ".env" echo DJANGO_SECRET_KEY=!GENKEY!
+  echo [secret] Generated a new DJANGO_SECRET_KEY and saved it to .env
+) else (
+  echo [secret] DJANGO_SECRET_KEY already present in .env
+)
+
+REM --- Production settings for this run ---
+set "DJANGO_DEBUG=False"
+if "%DJANGO_ALLOWED_HOSTS%"=="" set "DJANGO_ALLOWED_HOSTS=planning.poliran,localhost,127.0.0.1"
+if "%DJANGO_CSRF_TRUSTED_ORIGINS%"=="" set "DJANGO_CSRF_TRUSTED_ORIGINS=http://planning.poliran:8000,http://planning.poliran"
 
 echo [1/3] Applying migrations ...
 python manage.py migrate --noinput
-if errorlevel 1 exit /b 1
+if errorlevel 1 goto :end
 
 echo [2/3] Collecting static files ...
 python manage.py collectstatic --noinput
-if errorlevel 1 exit /b 1
+if errorlevel 1 goto :end
 
-echo [3/3] Starting Waitress on http://0.0.0.0:8000/
-echo       Open from LAN: http://planning.poliran:8000/
+echo [3/3] Starting Waitress on http://0.0.0.0:8000/   (LAN: http://planning.poliran:8000/)
 waitress-serve --listen=0.0.0.0:8000 erp.wsgi:application
+
+:end
 endlocal
