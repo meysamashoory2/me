@@ -194,6 +194,15 @@
       activateOrHint(hit.tr);
     });
 
+    // Suppress the browser's word/line text selection triggered by a
+    // double/triple click (detail > 1), while leaving normal click-and-drag
+    // selection intact (a drag starts from a single-click mousedown, detail 1).
+    table.addEventListener("mousedown", function (e) {
+      if (e.detail > 1 && !isEditableTarget(e.target)) {
+        e.preventDefault();
+      }
+    });
+
     table.addEventListener("keydown", function (e) {
       if (isEditableTarget(document.activeElement) && document.activeElement !== table) return;
       if (table.getAttribute("data-editing") === "1") return;

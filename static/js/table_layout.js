@@ -100,6 +100,59 @@
     return widths;
   }
 
+  /**
+   * Widest natural content width (px, incl. padding + borders) of one column,
+   * measured with an off-screen probe that mirrors each cell's font. Used to
+   * auto-fit a column on a double-click of its resize handle.
+   */
+  function measureColumnContentWidth(table, idx) {
+    var cells = headCells(table);
+    if (idx < 0 || idx >= cells.length) return 0;
+    stopReveal();
+
+    var probe = document.createElement("span");
+    probe.setAttribute("aria-hidden", "true");
+    probe.style.position = "absolute";
+    probe.style.left = "-9999px";
+    probe.style.top = "0";
+    probe.style.visibility = "hidden";
+    probe.style.whiteSpace = "nowrap";
+    document.body.appendChild(probe);
+
+    function widthFor(cell) {
+      if (!cell || cell.nodeType !== 1) return 0;
+      var cs = getComputedStyle(cell);
+      probe.style.fontFamily = cs.fontFamily;
+      probe.style.fontSize = cs.fontSize;
+      probe.style.fontWeight = cs.fontWeight;
+      probe.style.fontStyle = cs.fontStyle;
+      probe.style.letterSpacing = cs.letterSpacing;
+      probe.textContent = (cell.innerText || cell.textContent || "").replace(/\s+/g, " ").trim();
+      var pad = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0);
+      var border = (parseFloat(cs.borderLeftWidth) || 0) + (parseFloat(cs.borderRightWidth) || 0);
+      return probe.getBoundingClientRect().width + pad + border;
+    }
+
+    var max = widthFor(cells[idx]);
+    table.querySelectorAll("tbody tr").forEach(function (tr) {
+      max = Math.max(max, widthFor(tr.children[idx]));
+    });
+    document.body.removeChild(probe);
+    // Small buffer so the fitted text never re-triggers the clip/marquee.
+    return Math.ceil(max + 8);
+  }
+
+  function autoFitColumn(table, idx) {
+    var target = measureColumnContentWidth(table, idx);
+    if (!target) return;
+    target = Math.max(MIN_COL, Math.min(MAX_COL, target));
+    var widths = measureCurrentWidths(table);
+    if (idx >= widths.length) return;
+    widths[idx] = target;
+    applyFixedWidths(table, widths);
+    saveWidths(table, widths);
+  }
+
   function clearResizers(table) {
     table.querySelectorAll(".col-resizer").forEach(function (el) { el.remove(); });
     table.classList.remove("col-resize-enabled");
@@ -184,6 +237,13 @@
         document.body.classList.add("is-col-resizing");
         document.addEventListener("mousemove", onMove);
         document.addEventListener("mouseup", onUp);
+      });
+      // Double-click the border to auto-fit the column to its widest content.
+      handle.addEventListener("dblclick", function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        stopReveal();
+        autoFitColumn(table, idx);
       });
       th.appendChild(handle);
     });
