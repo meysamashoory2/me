@@ -45,6 +45,9 @@ echo [2/3] Collecting static files ...
 python manage.py collectstatic --noinput
 if errorlevel 1 goto :end
 
+echo ============================================================
+echo   PRODUCTION MODE  -  Waitress (DEBUG off)
+echo ============================================================
 echo [3/3] Starting Waitress on http://0.0.0.0:8000/   (LAN: http://planning.poliran:8000/)
 waitress-serve --listen=0.0.0.0:8000 erp.wsgi:application
 
