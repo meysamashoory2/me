@@ -53,13 +53,28 @@ class AutoPlannerTests(TestCase):
     def _link(self, product, mold, slot=1):
         return ProductMold.objects.create(product=product, mold=mold, slot=slot)
 
-    def test_no_mold_defined_is_flagged(self):
+    def test_no_mold_defined_plans_without_mold_and_warns(self):
+        # Graceful degradation: still schedule (mold unknown) but flag it.
         p = self._product("A1")
         self._order(p, 100)
+        self._history(p, self.m1)
         props = auto_planner.build_auto_proposals()
         self.assertEqual(len(props), 1)
-        self.assertEqual(props[0].produce_qty, 0)
+        self.assertGreater(props[0].produce_qty, 0)
+        self.assertIsNone(props[0].mold_id)
         self.assertTrue(any("قالب" in w for w in props[0].warnings))
+
+    def test_depot_ceiling_caps_production(self):
+        p = self._product("A2", stock=30)
+        p.depot_ceiling = 80
+        p.save(update_fields=["depot_ceiling"])
+        self._order(p, 100)  # net need 70, but depot room is only 50
+        self._history(p, self.m1)
+        self._link(p, self._mold("MA2", "قالب A2"))
+        prop = auto_planner.build_auto_proposals()[0]
+        self.assertEqual(prop.net_need, 70)
+        self.assertEqual(prop.produce_qty, 50)
+        self.assertTrue(any("دپو" in w for w in prop.warnings))
 
     def test_history_machine_and_mold_assigned(self):
         p = self._product("B1", cavities=2, cycle=20)
@@ -137,7 +152,7 @@ class AutoPlannerTests(TestCase):
         self.assertEqual(props[0].product_code, "F2")  # sooner due date wins
 
     def test_no_history_falls_back_with_warning(self):
-        p = self._product("G1")
+        p = self._product("G1", cavities=6, cycle=15)
         self._order(p, 20)
         self._link(p, self._mold("MG1", "قالب G"))
         props = auto_planner.build_auto_proposals()
@@ -145,6 +160,9 @@ class AutoPlannerTests(TestCase):
         self.assertIn(prop.machine_id, {self.m1.pk, self.m2.pk})
         self.assertEqual(prop.produce_qty, 20)
         self.assertTrue(any("سابقه" in w for w in prop.warnings))
+        # No history → use the product's own catalog cavities/cycle.
+        self.assertEqual(prop.cavities, 6)
+        self.assertEqual(prop.cycle_seconds, 15)
 
     def test_friday_adds_capacity(self):
         p = self._product("H1", cavities=1, cycle=3600)

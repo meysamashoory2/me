@@ -16,7 +16,8 @@ from catalog.transfer import (
 )
 from planning.inventory_orders import upsert_order_from_values, upsert_stock_from_values
 from planning.models import CustomerOrder, SalesForecast, WeeklyPlan
-from planning.systemic import build_systemic_proposals, create_systemic_plan
+from planning import auto_planner
+from planning.systemic import create_systemic_plan
 
 
 User = get_user_model()
@@ -177,8 +178,8 @@ class InventoryOrdersSystemicTests(TestCase):
         )
         from planning.intelligence import open_planned_qty_for_product
 
-        proposals = build_systemic_proposals()
-        hit = [p for p in proposals if p.product.pk == self.product.pk]
+        proposals = auto_planner.build_auto_proposals()
+        hit = [p for p in proposals if p.product_code == self.product.code]
         self.assertEqual(len(hit), 1)
         # Isolated product: need 70, depot room 50 → produce 50
         self.assertEqual(open_planned_qty_for_product(self.product), 0)

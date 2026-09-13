@@ -176,23 +176,33 @@ def build_auto_proposals(*, friday_machine_ids: set[int] | None = None) -> list[
         code = row.product_code
         product = products.get(code)
         prof = profiles.get(code) or ProductProfile()
-        cavities = max(int(prof.cavities or 1), 1)
-        cycle = int(prof.cycle_seconds or DEFAULT_CYCLE_SECONDS)
+        # Prefer history; otherwise fall back to the product's catalog values.
+        if prof.has_history:
+            cavities = max(int(prof.cavities or 1), 1)
+            cycle = int(prof.cycle_seconds or DEFAULT_CYCLE_SECONDS)
+        else:
+            cavities = max(int(getattr(product, "main_cavities", None) or 1), 1)
+            cycle = int(getattr(product, "last_cycle", None) or DEFAULT_CYCLE_SECONDS)
         reasons: list[str] = []
         warnings: list[str] = []
+
+        # ---- depot-ceiling cap: never produce above remaining depot room ----
+        desired = row.net_gap
+        if row.depot_ceiling is not None:
+            room = max(int(row.depot_ceiling) - int(row.stock), 0)
+            if desired > room:
+                warnings.append(
+                    f"سقف دپو {row.depot_ceiling}: نیاز {row.net_gap} → {room} محدود شد."
+                )
+                desired = room
+        if desired <= 0:
+            continue
 
         # ---- mold selection (from master data) ----
         molds = _eligible_molds(product) if product is not None else []
         if not molds:
-            proposals.append(AutoProposal(
-                product_code=code, product_name=row.product_name, net_need=row.net_gap,
-                produce_qty=0, machine_id=None, machine_label="", mold_id=None, mold_label="",
-                cavities=cavities, cycle_seconds=cycle, est_hours=0.0,
-                delivery_date_iso=due_by_code.get(code, ""), priority=int(row.priority or 100),
-                reasons=reasons,
-                warnings=["قالبی برای این محصول تعریف نشده — نیازمند تعیین قالب."],
-            ))
-            continue
+            warnings.append("قالبی برای این محصول تعریف نشده — با قالب نامشخص برنامه‌ریزی شد.")
+            molds = [None]  # sentinel: plan without a mold (no exclusivity check)
 
         # ---- machine candidates (history first, then fallback) ----
         candidate_ids = [mid for mid in prof.machine_ids if mid in machines]
@@ -205,11 +215,14 @@ def build_auto_proposals(*, friday_machine_ids: set[int] | None = None) -> list[
 
         # Choose the (machine, mold) pair honouring mold-copy exclusivity + capacity.
         chosen_machine = None
-        chosen_mold = None
+        chosen_mold = None  # MoldOption or None (mold-less)
         for mid in sorted(candidate_ids, key=lambda i: (used_hours.get(i, 0.0), i)):
             if remaining(mid) <= 0:
                 continue
             for mold in molds:
+                if mold is None:
+                    chosen_machine, chosen_mold = mid, None
+                    break
                 running = mold_machines.setdefault(mold.pk, set())
                 free_copy = mid in running or len(running) < max(int(mold.copies or 1), 1)
                 if free_copy:
@@ -218,58 +231,53 @@ def build_auto_proposals(*, friday_machine_ids: set[int] | None = None) -> list[
             if chosen_machine is not None:
                 break
 
-        if chosen_machine is None:
-            # Either every candidate is full, or all mold copies are busy elsewhere.
+        def _deferred(reason_text):
             proposals.append(AutoProposal(
                 product_code=code, product_name=row.product_name, net_need=row.net_gap,
                 produce_qty=0, machine_id=None, machine_label="", mold_id=None, mold_label="",
                 cavities=cavities, cycle_seconds=cycle, est_hours=0.0,
                 delivery_date_iso=due_by_code.get(code, ""), priority=int(row.priority or 100),
-                reasons=reasons,
-                warnings=warnings + ["ظرفیت دستگاه یا نسخهٔ قالب آزاد نبود؛ به دورهٔ بعد موکول شد."],
+                reasons=reasons, warnings=warnings + [reason_text],
             ))
+
+        if chosen_machine is None:
+            # Either every candidate is full, or all mold copies are busy elsewhere.
+            _deferred("ظرفیت دستگاه یا نسخهٔ قالب آزاد نبود؛ به دورهٔ بعد موکول شد.")
             continue
 
         machine = machines[chosen_machine]
-        # Mold-change reservation when this machine switches mold.
+        # Mold-change reservation when this machine switches to a different mold.
         change_hours = 0.0
-        if machine_last_mold.get(chosen_machine) not in (None, chosen_mold.pk):
+        if chosen_mold is not None and machine_last_mold.get(chosen_machine) not in (None, chosen_mold.pk):
             change_hours = float(chosen_mold.change_time_hours or 0)
             reasons.append(f"زمان تعویض قالب رزرو شد ({change_hours:g} ساعت).")
 
         avail = remaining(chosen_machine) - change_hours
-        # Hours needed for the full net requirement.
-        full_hours = (row.net_gap / cavities) * cycle / 3600.0
-        produce = row.net_gap
+        full_hours = (desired / cavities) * cycle / 3600.0
+        produce = desired
         if full_hours > avail:
             # No splitting: cap to what fits on this one machine; leave the rest.
             produce = max(int((avail * 3600.0 * cavities) / cycle), 0)
-            if produce < row.net_gap:
+            if produce < desired:
                 warnings.append(
-                    f"ظرفیت هفته محدود کرد: {row.net_gap} → {produce}؛ باقی‌مانده به دورهٔ بعد موکول شد."
+                    f"ظرفیت هفته محدود کرد: {desired} → {produce}؛ باقی‌مانده به دورهٔ بعد موکول شد."
                 )
         if produce <= 0:
-            proposals.append(AutoProposal(
-                product_code=code, product_name=row.product_name, net_need=row.net_gap,
-                produce_qty=0, machine_id=chosen_machine, machine_label=str(machine),
-                mold_id=chosen_mold.pk, mold_label=chosen_mold.label,
-                cavities=cavities, cycle_seconds=cycle, est_hours=0.0,
-                delivery_date_iso=due_by_code.get(code, ""), priority=int(row.priority or 100),
-                reasons=reasons,
-                warnings=warnings + ["ظرفیت باقیماندهٔ دستگاه صفر بود؛ به دورهٔ بعد موکول شد."],
-            ))
+            _deferred("ظرفیت باقیماندهٔ دستگاه صفر بود؛ به دورهٔ بعد موکول شد.")
             continue
 
         est_hours = round((produce / cavities) * cycle / 3600.0 + change_hours, 2)
         used_hours[chosen_machine] = used_hours.get(chosen_machine, 0.0) + est_hours
-        mold_machines[chosen_mold.pk].add(chosen_machine)
-        machine_last_mold[chosen_machine] = chosen_mold.pk
-        reasons.append(f"قالب «{chosen_mold.label}» از قالب‌های مجاز محصول انتخاب شد.")
+        if chosen_mold is not None:
+            mold_machines[chosen_mold.pk].add(chosen_machine)
+            machine_last_mold[chosen_machine] = chosen_mold.pk
+            reasons.append(f"قالب «{chosen_mold.label}» از قالب‌های مجاز محصول انتخاب شد.")
 
         proposals.append(AutoProposal(
             product_code=code, product_name=row.product_name, net_need=row.net_gap,
             produce_qty=produce, machine_id=chosen_machine, machine_label=str(machine),
-            mold_id=chosen_mold.pk, mold_label=chosen_mold.label,
+            mold_id=(chosen_mold.pk if chosen_mold is not None else None),
+            mold_label=(chosen_mold.label if chosen_mold is not None else ""),
             cavities=cavities, cycle_seconds=cycle, est_hours=est_hours,
             delivery_date_iso=due_by_code.get(code, ""), priority=int(row.priority or 100),
             reasons=reasons, warnings=warnings,
