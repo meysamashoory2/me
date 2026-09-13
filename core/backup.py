@@ -45,6 +45,7 @@ _SECTION_SPECS: dict[str, dict] = {
             ("catalog", "DeviationReason"),
             ("catalog", "ProgramChangeReason"),
             ("catalog", "MoldOption"),
+            ("catalog", "ProductMold"),
             ("catalog", "PlanningInsightField"),
             ("catalog", "PlanningDisplaySettings"),
             ("catalog", "ProgramUidScheme"),

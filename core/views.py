@@ -328,6 +328,7 @@ def backup_center(request):
         read_manifest,
         restore_backup,
     )
+    from .pg_backup import is_postgres
 
     _require_backup_manager(request)
     sections = available_sections()
@@ -365,6 +366,65 @@ def backup_center(request):
                         content_type="application/zip",
                     )
                     return response
+            return redirect("backup_center")
+
+        if action in {"pg_backup", "pg_backup_download"}:
+            from .pg_backup import PgBackupError, create_pg_backup
+
+            dest = request.POST.get("pg_dest_path") or default_path
+            try:
+                pg = create_pg_backup(dest)
+            except PgBackupError as exc:
+                messages.error(request, str(exc))
+                return redirect("backup_center")
+            messages.success(
+                request,
+                f"پشتیبان کامل پایگاه‌داده در «{pg.path}» ذخیره شد ({_human_size(pg.size)}).",
+            )
+            if action == "pg_backup_download":
+                handle = open(pg.path, "rb")
+                return FileResponse(
+                    handle,
+                    as_attachment=True,
+                    filename=pg.path.rsplit("/", 1)[-1].rsplit("\\", 1)[-1],
+                    content_type="application/octet-stream",
+                )
+            return redirect("backup_center")
+
+        if action == "pg_restore":
+            from pathlib import Path
+            from tempfile import NamedTemporaryFile
+
+            from .pg_backup import PgBackupError, restore_pg_backup
+
+            if request.POST.get("confirm_pg_restore") != "1":
+                messages.error(request, "برای بازیابی کامل پایگاه‌داده باید تأیید کنید.")
+                return redirect("backup_center")
+            up = request.FILES.get("pg_archive_file")
+            src = (request.POST.get("pg_source_path") or "").strip()
+            tmp_dump = None
+            try:
+                if up:
+                    tmp = NamedTemporaryFile(delete=False, suffix=".dump")
+                    for chunk in up.chunks():
+                        tmp.write(chunk)
+                    tmp.close()
+                    tmp_dump = tmp.name
+                    src = tmp_dump
+                if not src:
+                    messages.error(request, "آدرس یا پروندهٔ پشتیبان را بدهید.")
+                    return redirect("backup_center")
+                restore_pg_backup(src)
+            except PgBackupError as exc:
+                messages.error(request, str(exc))
+            else:
+                messages.success(request, "بازیابی کامل پایگاه‌داده انجام شد.")
+            finally:
+                if tmp_dump:
+                    try:
+                        Path(tmp_dump).unlink(missing_ok=True)
+                    except OSError:
+                        pass
             return redirect("backup_center")
 
         uploaded = request.FILES.get("archive_file")
@@ -425,6 +485,7 @@ def backup_center(request):
             "default_path": default_path,
             "inspect_info": inspect_info,
             "last_source": request.POST.get("source_path") or "",
+            "is_postgres": is_postgres(),
         },
     )
 

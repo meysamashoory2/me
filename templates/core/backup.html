@@ -95,6 +95,52 @@
     </div>
   </div>
 </div>
+
+{% if is_postgres %}
+<div class="panel backup-pg">
+  <div class="panel-head"><h2>پشتیبان کامل پایگاه‌داده (PostgreSQL)</h2></div>
+  <div class="panel-body">
+    <p class="muted">
+      پشتیبان حرفه‌ایِ کل پایگاه‌داده با <code dir="ltr">pg_dump</code> (شامل همهٔ جدول‌ها،
+      نه فقط بخش‌های بالا). برای بازیابی، کل محتوای فعلی پایگاه‌داده جایگزین می‌شود.
+    </p>
+    <div class="grid-2">
+      <form method="post">
+        {% csrf_token %}
+        <div class="field">
+          <label for="pg_dest_path">آدرس ذخیره روی سرور</label>
+          <input class="input path-input" type="text" name="pg_dest_path" id="pg_dest_path"
+                 dir="ltr" value="{{ default_path }}" placeholder="D:\Backups">
+          <p class="field-hint">پوشه یا مسیر پروندهٔ .dump. اگر پوشه باشد، نام خودکار ساخته می‌شود.</p>
+        </div>
+        <div class="form-actions">
+          <button class="btn" type="submit" name="action" value="pg_backup">ذخیره در آدرس</button>
+          <button class="btn btn-ghost" type="submit" name="action" value="pg_backup_download">ذخیره و دانلود</button>
+        </div>
+      </form>
+      <form method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+        <div class="field">
+          <label for="pg_source_path">آدرس پروندهٔ .dump روی سرور</label>
+          <input class="input path-input" type="text" name="pg_source_path" id="pg_source_path"
+                 dir="ltr" placeholder="D:\Backups\erp-db-....dump">
+        </div>
+        <div class="field">
+          <label for="pg_archive_file">یا بارگذاری پروندهٔ .dump</label>
+          <input class="input" type="file" name="pg_archive_file" id="pg_archive_file" accept=".dump,.backup,.sql">
+        </div>
+        <label class="chk backup-confirm">
+          <input type="checkbox" name="confirm_pg_restore" value="1" required>
+          می‌دانم کل محتوای پایگاه‌داده با این پشتیبان جایگزین می‌شود.
+        </label>
+        <div class="form-actions">
+          <button class="btn" type="submit" name="action" value="pg_restore">بازیابی کامل</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}
