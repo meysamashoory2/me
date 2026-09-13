@@ -127,9 +127,22 @@ http://<آی‌پیِ-سرور>:8000/
   `.venv\Scripts\waitress-serve.exe --listen=0.0.0.0:8000 erp.wsgi:application` را به‌عنوان یک سرویس ویندوزی ثبت کنید
   (و متغیرهای محیطی `DJANGO_DEBUG=False`، `DJANGO_SECRET_KEY` و `DJANGO_ALLOWED_HOSTS` را در تنظیمات سرویس قرار دهید).
 
-### پایگاه‌داده روی ویندوز
-پیش‌فرض **SQLite** است و فایل `db.sqlite3` کنار پروژه (روی همان سرور مدیر) ذخیره می‌شود — بدون نیاز به نصب دیتابیس جداگانه.
-برای حجم داده/کاربر بالاتر می‌توانید بعداً به **PostgreSQL** مهاجرت کنید.
+### پایگاه‌داده روی ویندوز (PostgreSQL)
+پایگاه‌دادهٔ اصلی **PostgreSQL** است. یک‌بار روی سرور، کاربر و دیتابیس را بسازید (در psql به‌عنوان کاربر `postgres`، یا در pgAdmin → Query Tool):
+
+```sql
+CREATE ROLE erp_user LOGIN PASSWORD 'یک-رمز-قوی';
+CREATE DATABASE erp_db OWNER erp_user;
+```
+
+**نکتهٔ مهم برای PostgreSQL نسخهٔ ۱۵ به بعد:** اگر دیتابیس را با مالکِ دیگری (مثلاً در pgAdmin با مالکِ پیش‌فرض `postgres`) ساختید، کاربر `erp_user` اجازهٔ ساخت جدول در schemaی `public` را ندارد و هنگام اجرا خطای `permission denied for schema public` می‌گیرید. برای رفع، **در حالی که به همان دیتابیس `erp_db` متصل هستید** این‌ها را اجرا کنید:
+
+```sql
+ALTER DATABASE erp_db OWNER TO erp_user;
+GRANT ALL ON SCHEMA public TO erp_user;
+```
+
+سپس رمز/اتصال را با `scripts\setup_env.bat` در فایل `.env` بگذارید و `scripts\windows_setup.bat` را اجرا کنید. برای یک اجرای سریعِ آزمایشی و بدون دیتابیس هم می‌توانید `DB_ENGINE=sqlite` بگذارید.
 
 ## پیکربندی (متغیرهای محیطی)
 
