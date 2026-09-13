@@ -58,6 +58,7 @@ def build_system_groups() -> list[SystemGroup]:
         FlexibleRow,
         Machine,
         MoldOption,
+        ProductMold,
         PipeCalcRule, PipeProductLine,
         PlanningDisplaySettings,
         PlanningInsightField,
@@ -179,6 +180,17 @@ def build_system_groups() -> list[SystemGroup]:
                     can_add=False,
                 ),
                 SystemItem(
+                    key="product_molds",
+                    title="قالب‌های مجاز هر محصول",
+                    admin_changelist="admin:catalog_productmold_changelist",
+                    admin_add="admin:catalog_productmold_add",
+                    description=(
+                        "نگاشت محصول ↔ قالب که موتور برنامه‌ریزی سیستمی برای تخصیص قالب "
+                        "استفاده می‌کند. از فایل اکسل وارد می‌شود و اینجا هم قابل ویرایش است."
+                    ),
+                    count_fn=_count(ProductMold),
+                ),
+                SystemItem(
                     key="weekly_plans",
                     title="برنامه‌ریزی هفتگی",
                     admin_changelist="admin:planning_weeklyplan_changelist",
@@ -247,6 +259,7 @@ def build_system_groups() -> list[SystemGroup]:
                     title="انواع قالب",
                     admin_changelist="admin:catalog_moldoption_changelist",
                     admin_add="admin:catalog_moldoption_add",
+                    description="کد قالب، تعداد نسخهٔ فیزیکی و زمان تعویض قالب.",
                     count_fn=_count(MoldOption),
                 ),
                 SystemItem(

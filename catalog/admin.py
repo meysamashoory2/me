@@ -8,6 +8,7 @@ from .models import (
     FlexibleRow,
     Machine,
     MoldOption,
+    ProductMold,
     PlanningDisplaySettings,
     PlanningInsightField,
     Product,
@@ -155,9 +156,34 @@ class ProgramChangeReasonAdmin(admin.ModelAdmin):
 
 @admin.register(MoldOption)
 class MoldOptionAdmin(admin.ModelAdmin):
-    list_display = ("id", "label", "order", "is_active")
+    list_display = ("id", "code", "label", "copies", "change_time_hours", "order", "is_active")
+    list_display_links = ("id", "code")
+    list_editable = ("label", "copies", "change_time_hours", "order", "is_active")
+    search_fields = ("code", "label")
+    list_filter = ("is_active",)
+
+
+class ProductMoldInline(admin.TabularInline):
+    """Edit a product's eligible molds directly on the product page."""
+
+    model = ProductMold
+    extra = 0
+    fields = ("mold", "slot", "is_active")
+    autocomplete_fields = ("mold",)
+
+
+@admin.register(ProductMold)
+class ProductMoldAdmin(admin.ModelAdmin):
+    list_display = ("id", "product", "mold", "slot", "is_active")
     list_display_links = ("id",)
-    list_editable = ("label", "order", "is_active")
+    list_editable = ("slot", "is_active")
+    list_filter = ("slot", "is_active")
+    search_fields = ("product__code", "product__name", "mold__code", "mold__label")
+    autocomplete_fields = ("product", "mold")
+
+
+# Edit a product's eligible molds inline on the product page.
+ProductAdmin.inlines = [ProductMoldInline]
 
 
 @admin.register(PlanningInsightField)
