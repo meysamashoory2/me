@@ -24,11 +24,11 @@
 
   <div class="excel-dropzone" id="excel-dropzone">
     <div class="excel-dropzone-inner">
-      <div class="excel-dropzone-icon" aria-hidden="true">xlsx</div>
       <div class="excel-dropzone-copy">
         <strong>فایل را اینجا رها کنید</strong>
-        <span>یا از دکمه زیر انتخاب کنید · .xlsx / .xlsm / .csv</span>
+        <span>یا از دکمه زیر انتخاب کنید · xlsx / xlsm / csv</span>
       </div>
+      <div class="excel-dropzone-icon" aria-hidden="true"></div>
       <label class="btn btn-primary-soft excel-file-pick">
         انتخاب فایل
         <input type="file" id="excel-file-input" hidden
@@ -66,25 +66,38 @@
   <div data-dialog-body>
     <div class="dialog-head">
       <div class="excel-dialog-title-wrap">
-        <span class="excel-dialog-mode-badge" id="excel-dialog-mode-badge">TABLE</span>
         <h3 id="excel-dialog-title">{{ transfer_ui_labels.import_pick_table }}</h3>
+        <span class="excel-dialog-mode-badge" id="excel-dialog-mode-badge">TABLE</span>
       </div>
       <button type="button" class="btn btn-sm btn-ghost" data-dialog-close>{{ transfer_ui_labels.btn_close }}</button>
     </div>
-    <p class="excel-dialog-sub muted" id="excel-dialog-sub"></p>
-    <div class="excel-import-fields">
-      <label class="field">
-        <span>نام فایل در سامانه</span>
-        <input type="text" id="excel-import-title" class="input" maxlength="200">
-      </label>
-      <label class="excel-select-all">
-        <input type="checkbox" id="excel-select-all" checked>
-        <span id="excel-select-all-label">انتخاب همه</span>
-      </label>
-      <div id="excel-sheet-list" class="excel-sheet-list"></div>
-      <p class="empty excel-import-empty" id="excel-import-empty" hidden>موردی برای نمایش نیست.</p>
+    <div class="excel-import-layout">
+      <div class="excel-import-side">
+        <label class="field excel-file-title-field">
+          <span class="excel-file-title-row">
+            <span>نام فایل در سامانه</span>
+            <small class="excel-dialog-sub" id="excel-dialog-sub"></small>
+          </span>
+          <input type="text" id="excel-import-title" class="input" maxlength="200">
+        </label>
+        <label class="excel-select-all">
+          <input type="checkbox" id="excel-select-all" checked>
+          <span id="excel-select-all-label">انتخاب همه</span>
+        </label>
+        <div id="excel-sheet-list" class="excel-sheet-list" role="listbox" aria-label="فهرست Sheet یا Table"></div>
+        <p class="empty excel-import-empty" id="excel-import-empty" hidden>موردی برای نمایش نیست.</p>
+      </div>
+      <div class="excel-import-preview" id="excel-import-preview" aria-live="polite">
+        <div class="excel-preview-toolbar" id="excel-preview-toolbar" hidden>
+          <span class="excel-preview-kicker" id="excel-preview-kicker"></span>
+          <strong class="excel-preview-title" id="excel-preview-title"></strong>
+          <span class="excel-preview-meta" id="excel-preview-meta"></span>
+        </div>
+        <div class="excel-preview-empty" id="excel-preview-empty">یک مورد را از فهرست انتخاب کنید تا پیش‌نمایش آن دیده شود.</div>
+        <div class="excel-preview-scroll" id="excel-preview-scroll" hidden></div>
+      </div>
     </div>
-    <div class="dialog-actions">
+    <div class="dialog-actions excel-import-actions">
       <button type="button" class="btn btn-ghost" data-dialog-close>{{ transfer_ui_labels.btn_cancel }}</button>
       <button type="button" class="btn btn-primary-soft" id="excel-import-confirm">افزودن / وارد کردن</button>
     </div>
@@ -115,8 +128,16 @@
   var selectAll = document.getElementById("excel-select-all");
   var selectAllLabel = document.getElementById("excel-select-all-label");
   var confirmBtn = document.getElementById("excel-import-confirm");
+  var previewEmpty = document.getElementById("excel-preview-empty");
+  var previewScroll = document.getElementById("excel-preview-scroll");
+  var previewToolbar = document.getElementById("excel-preview-toolbar");
+  var previewKicker = document.getElementById("excel-preview-kicker");
+  var previewTitle = document.getElementById("excel-preview-title");
+  var previewMeta = document.getElementById("excel-preview-meta");
   var currentFile = null;
   var previewCache = null;
+  var previewItems = [];
+  var activePreviewIdx = -1;
   var currentMode = "table";
   var csrf = (document.querySelector("[name=csrfmiddlewaretoken]") || {}).value
     || (document.cookie.match(/csrftoken=([^;]+)/) || [])[1] || "";
@@ -134,7 +155,7 @@
     else dialog.removeAttribute("open");
   }
   function escapeHtml(s) {
-    return String(s)
+    return String(s == null ? "" : s)
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;")
@@ -143,13 +164,14 @@
   function formatBytes(n) {
     if (!n && n !== 0) return "";
     if (n < 1024) return n + " B";
-    if (n < 1024 * 1024) return (n / 1024).toFixed(1) + " KB";
-    return (n / (1024 * 1024)).toFixed(1) + " MB";
+    if (n < 1024 * 1024) return "KB " + (n / 1024).toFixed(1);
+    return "MB " + (n / (1024 * 1024)).toFixed(1);
   }
 
   function setFile(file) {
     currentFile = file || null;
     previewCache = null;
+    previewItems = [];
     if (!currentFile) {
       fileChip.hidden = true;
       viewActions.hidden = true;
@@ -226,10 +248,75 @@
     });
   });
 
+  function cellText(v) {
+    if (v == null || v === "") return "";
+    return String(v);
+  }
+
+  function renderPreview(item) {
+    if (!item) {
+      previewScroll.hidden = true;
+      previewScroll.innerHTML = "";
+      previewEmpty.hidden = false;
+      previewToolbar.hidden = true;
+      return;
+    }
+    previewKicker.textContent = (item.kind === "sheet" || currentMode === "sheet") ? "SHEET" : "TABLE";
+    previewTitle.textContent = item.name || "";
+    previewMeta.textContent =
+      (item.row_count || 0) + " ردیف · " + (item.column_count || 0) + " ستون" +
+      (item.sheet_name && item.kind === "table" ? " · شیت " + item.sheet_name : "");
+    previewToolbar.hidden = false;
+
+    var headers = item.headers || [];
+    var rows = item.preview_rows || [];
+    if (!headers.length && !rows.length) {
+      previewScroll.hidden = true;
+      previewScroll.innerHTML = "";
+      previewEmpty.hidden = false;
+      previewEmpty.textContent = "داده‌ای برای پیش‌نمایش نیست.";
+      return;
+    }
+    var colCount = headers.length;
+    rows.forEach(function (r) {
+      if (r && r.length > colCount) colCount = r.length;
+    });
+    var html = '<table class="excel-preview-table"><thead><tr>';
+    html += '<th class="excel-preview-rownum"></th>';
+    var c;
+    if (headers.length) {
+      for (c = 0; c < colCount; c++) html += "<th>" + escapeHtml(cellText(headers[c])) + "</th>";
+    } else {
+      for (c = 0; c < colCount; c++) html += "<th>" + (c + 1) + "</th>";
+    }
+    html += "</tr></thead><tbody>";
+    rows.forEach(function (r, rIdx) {
+      html += "<tr>";
+      html += '<th class="excel-preview-rownum">' + (rIdx + 1) + "</th>";
+      for (c = 0; c < colCount; c++) html += "<td>" + escapeHtml(cellText(r ? r[c] : "")) + "</td>";
+      html += "</tr>";
+    });
+    html += "</tbody></table>";
+    previewEmpty.hidden = true;
+    previewScroll.hidden = false;
+    previewScroll.innerHTML = html;
+  }
+
+  function setActiveCard(idx) {
+    activePreviewIdx = idx;
+    sheetList.querySelectorAll(".excel-item-card").forEach(function (card) {
+      var on = Number(card.getAttribute("data-idx")) === idx;
+      card.classList.toggle("is-active", on);
+      card.setAttribute("aria-selected", on ? "true" : "false");
+    });
+    renderPreview(previewItems[idx] || null);
+  }
+
   function renderItems(mode, data) {
     currentMode = mode;
     var isTable = mode === "table";
     var items = isTable ? (data.tables || []) : (data.sheets || []);
+    previewItems = items;
     modeBadge.textContent = isTable ? "TABLE" : "SHEETS";
     modeBadge.className = "excel-dialog-mode-badge " + (isTable ? "is-table" : "is-sheet");
     dialogTitle.textContent = isTable
@@ -249,49 +336,65 @@
     titleInput.value = data.filename || (currentFile && currentFile.name) || "";
     sheetList.innerHTML = "";
     emptyEl.hidden = items.length > 0;
+    previewEmpty.textContent = "یک مورد را از فهرست انتخاب کنید تا پیش‌نمایش آن دیده شود.";
     items.forEach(function (t, idx) {
       var itemName = t.name || (isTable ? ("Table" + (idx + 1)) : ("Sheet" + (idx + 1)));
       var sheetName = t.sheet_name || "";
       var excelTable = isTable ? itemName : "";
       var row = document.createElement("div");
-      row.className = "excel-sheet-row excel-item-card";
-      var statsHtml =
-        '<div class="excel-item-stats">' +
-          '<span class="excel-stat"><em>' + (t.row_count || 0) + '</em> ردیف</span>' +
-          '<span class="excel-stat"><em>' + (t.column_count || 0) + '</em> ستون</span>' +
-          (sheetName && isTable
-            ? ('<span class="excel-stat excel-stat-sheet">شیت: <strong>' + escapeHtml(sheetName) + '</strong></span>')
-            : '') +
-          (t.ref ? ('<span class="excel-stat muted">' + escapeHtml(t.ref) + '</span>') : '') +
-          ((!isTable && t.table_count != null)
-            ? ('<span class="excel-stat muted">' + t.table_count + ' Table</span>')
-            : '') +
-        '</div>';
+      row.className = "excel-item-card excel-sheet-row";
+      row.setAttribute("data-idx", String(idx));
+      row.setAttribute("role", "option");
+      row.setAttribute("tabindex", "0");
+      row.setAttribute("aria-selected", "false");
+      var kindBadge = isTable
+        ? '<span class="excel-item-kind">TABLE</span>'
+        : '<span class="excel-item-kind">SHEET</span>';
       row.innerHTML =
-        '<label class="excel-sheet-check">' +
-          '<input type="checkbox" data-item checked ' +
-            'data-kind="' + (isTable ? "table" : "sheet") + '" ' +
-            'data-sheet="' + escapeHtml(sheetName) + '" ' +
-            'data-excel-table="' + escapeHtml(excelTable) + '" ' +
-            'value="' + escapeHtml(itemName) + '">' +
-        '</label>' +
-        '<div class="excel-sheet-meta">' +
-          '<div class="excel-item-title-row">' +
-            '<span class="excel-item-kind">' + (isTable ? "TABLE" : "SHEET") + '</span>' +
-            '<strong class="excel-item-name">' + escapeHtml(itemName) + '</strong>' +
-          '</div>' +
-          statsHtml +
-          '<label class="field excel-table-name-field">' +
-            '<span>نام نمایشی در سامانه</span>' +
-            '<input type="text" class="input excel-table-name-input" maxlength="200" value="' + escapeHtml(itemName) + '">' +
-          '</label>' +
-        '</div>';
+        '<div class="excel-item-head">' +
+          '<label class="excel-sheet-check">' +
+            '<input type="checkbox" data-item checked ' +
+              'data-kind="' + (isTable ? "table" : "sheet") + '" ' +
+              'data-sheet="' + escapeHtml(sheetName) + '" ' +
+              'data-excel-table="' + escapeHtml(excelTable) + '" ' +
+              'value="' + escapeHtml(itemName) + '">' +
+          "</label>" +
+          kindBadge +
+          '<strong class="excel-item-name">' + escapeHtml(itemName) + "</strong>" +
+          '<div class="excel-item-stats">' +
+            '<span class="excel-stat"><em>' + (t.row_count || 0) + "</em> ردیف</span>" +
+            '<span class="excel-stat"><em>' + (t.column_count || 0) + "</em> ستون</span>" +
+          "</div>" +
+        "</div>" +
+        '<label class="field excel-table-name-field">' +
+          '<span class="excel-table-name-label">نام نمایشی در سامانه</span>' +
+          '<input type="text" class="input excel-table-name-input" maxlength="200" dir="auto">' +
+        "</label>";
       sheetList.appendChild(row);
-      row.querySelector("input[data-item]").addEventListener("change", syncSelectAllState);
+      var nameInput = row.querySelector(".excel-table-name-input");
+      nameInput.value = itemName;
+      nameInput.placeholder = itemName;
+      row.querySelector("input[data-item]").addEventListener("change", function () {
+        syncSelectAllState();
+        setActiveCard(idx);
+      });
+      row.addEventListener("click", function (e) {
+        if (e.target.closest("input[type=text]")) return;
+        setActiveCard(idx);
+      });
+      row.addEventListener("keydown", function (e) {
+        if (e.target.closest("input")) return;
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          setActiveCard(idx);
+        }
+      });
     });
     selectAll.checked = items.length > 0;
     selectAll.indeterminate = false;
     confirmBtn.disabled = items.length === 0;
+    if (items.length) setActiveCard(0);
+    else renderPreview(null);
   }
 
   function fetchPreview(mode) {
@@ -359,7 +462,7 @@
       var kind = box.getAttribute("data-kind") || currentMode;
       var excelTable = box.getAttribute("data-excel-table") || "";
       var sheet = box.getAttribute("data-sheet") || "";
-      var name = (nameInput && nameInput.value.trim()) || excelTable || sheet;
+      var name = (nameInput && nameInput.value.trim()) || excelTable || sheet || box.value;
       selected.push({ sheet: sheet, table: excelTable, name: name, kind: kind });
     });
     if (!selected.length) {

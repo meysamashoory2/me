@@ -10,7 +10,7 @@ from typing import Any
 from openpyxl.utils import range_boundaries
 
 
-MAX_PREVIEW_ROWS = 5
+MAX_PREVIEW_ROWS = 20
 MAX_IMPORT_ROWS = 5000
 MAX_COLS = 80
 

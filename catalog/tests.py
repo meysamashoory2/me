@@ -97,6 +97,11 @@ class ExcelManagementTests(TestCase):
         self.assertEqual(inv["sheet_name"], "Data")
         self.assertEqual(inv["row_count"], 2)
         self.assertEqual(inv["column_count"], 3)
+        self.assertEqual(inv["headers"], ["کد", "نام", "موجودی"])
+        self.assertEqual(inv["preview_rows"][0], ["A1", "قطعه یک", "10"])
+        extra = next(s for s in data["sheets"] if s["name"] == "Extra")
+        self.assertEqual(extra["headers"], ["X", "Y"])
+        self.assertEqual(extra["preview_rows"], [["1", "2"]])
 
     def test_import_selected_tables_by_name(self):
         self.client.login(username="expert", password="erp12345")
@@ -242,6 +247,9 @@ class ExcelManagementTests(TestCase):
         self.assertContains(resp, "مشاهده SHEETS")
         self.assertContains(resp, "excel-view-tables")
         self.assertContains(resp, "excel-view-sheets")
+        self.assertContains(resp, "excel-import-preview")
+        self.assertContains(resp, "excel-table-name-label")
+        self.assertContains(resp, "setActiveCard")
 
     def test_missing_table_does_not_import(self):
         self.client.login(username="expert", password="erp12345")
