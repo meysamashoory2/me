@@ -189,6 +189,8 @@ class TableLayoutSettingsTests(TestCase):
         self.assertContains(get, "dlg.close")
         self.assertContains(get, "layout-tint-num")
         self.assertContains(get, 'data-tint')
+        self.assertContains(get, "پیش‌فرض")
+        self.assertContains(get, 'name="layout_reset"')
         programs = self.client.get(url, {"section": "production"})
         self.assertContains(programs, "ثبت تولید روزانه")
         resp = self.client.post(
@@ -234,6 +236,44 @@ class TableLayoutSettingsTests(TestCase):
         self.assertEqual(settings.layouts_map()["planning"]["row_height_px"], 52)
         page = self.client.get(reverse("plan_list"))
         self.assertIn("--table-row-height:52px", page.content.decode())
+
+    def test_table_layout_reset_restores_default_header_color(self):
+        from django.urls import reverse
+        from catalog.models import TableLayoutSettings
+        from catalog.table_layout import DEFAULT_HEADER_COLOR
+
+        self.client.login(username="admin", password="erp12345")
+        url = reverse("system_table_layout")
+        self.client.post(
+            url,
+            {
+                "section": "pipe_calc",
+                "surface": "hub",
+                "layout_part": "header",
+                "header_height_px": "90",
+                "header_border": "show",
+                "header_color": "#ff00aa",
+                "header_alpha": "30",
+            },
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        resp = self.client.post(
+            url,
+            {
+                "section": "pipe_calc",
+                "surface": "hub",
+                "layout_reset": "header",
+            },
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(resp.status_code, 200)
+        payload = resp.json()
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["layout"]["header_color"], DEFAULT_HEADER_COLOR)
+        self.assertEqual(payload["layout"]["header_alpha"], 100)
+        self.assertEqual(payload["layout"]["header_height_px"], 36)
+        settings = TableLayoutSettings.load()
+        self.assertEqual(settings.layouts_map()["pipe_calc"]["header_color"], DEFAULT_HEADER_COLOR)
 
     def test_layout_css_does_not_paint_page_background(self):
         import re

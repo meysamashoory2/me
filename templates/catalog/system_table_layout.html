@@ -37,7 +37,7 @@
   </div>
 </form>
 
-<form method="post" id="table-layout-save">
+<form method="post" id="table-layout-save" data-defaults="{{ layout_defaults_json|escape }}">
   {% csrf_token %}
   <input type="hidden" name="section" value="{{ active_section }}">
   <input type="hidden" name="surface" value="{{ active_surface }}">
@@ -78,6 +78,7 @@
         </div>
       </div>
       <div class="dialog-actions">
+        <button type="submit" class="btn btn-ghost" name="layout_reset" value="header">پیش‌فرض</button>
         <button type="submit" class="btn btn-primary-soft" name="layout_part" value="header">اعمال</button>
       </div>
     </div>
@@ -149,6 +150,7 @@
         </div>
       </div>
       <div class="dialog-actions">
+        <button type="submit" class="btn btn-ghost" name="layout_reset" value="body">پیش‌فرض</button>
         <button type="submit" class="btn btn-primary-soft" name="layout_part" value="body">اعمال</button>
       </div>
     </div>
@@ -195,6 +197,68 @@
     else dlg.setAttribute("open", "");
   }
 
+  var wrap = document.getElementById("body-wrap");
+  var marquee = document.getElementById("body-marquee");
+
+  function syncTint(box) {
+    var color = box.querySelector('input[type="color"]');
+    var range = box.querySelector('input[type="range"]');
+    var out = box.querySelector(".layout-tint-num");
+    if (color) box.style.setProperty("--tint", color.value);
+    if (range) box.style.setProperty("--tint-a", String(range.value));
+    if (out && range) out.textContent = range.value + "٪";
+  }
+
+  function setInput(name, value) {
+    if (!form) return;
+    var el = form.querySelector('[name="' + name + '"]');
+    if (!el || el.type === "radio" || el.type === "checkbox") return;
+    el.value = value == null ? "" : String(value);
+  }
+
+  function setCheck(name, on) {
+    if (!form) return;
+    var el = form.querySelector('input[name="' + name + '"][type="checkbox"]');
+    if (el) el.checked = !!on;
+  }
+
+  function setRadio(name, show) {
+    if (!form) return;
+    var want = show ? "show" : "hide";
+    form.querySelectorAll('input[name="' + name + '"][type="radio"]').forEach(function (el) {
+      el.checked = el.value === want;
+    });
+  }
+
+  function fillLayout(layout) {
+    if (!layout) return;
+    setInput("header_height_px", layout.header_height_px);
+    setRadio("header_border", layout.header_border);
+    setCheck("width_locked", layout.width_locked);
+    setCheck("header_wrap", layout.header_wrap);
+    setInput("header_color", layout.header_color);
+    setInput("header_alpha", layout.header_alpha);
+    setInput("row_height_px", layout.row_height_px);
+    setRadio("col_border", layout.col_border);
+    setRadio("row_border", layout.row_border);
+    setCheck("body_wrap", layout.body_wrap);
+    setCheck("marquee", layout.marquee);
+    setInput("row_selected_color", layout.row_selected_color);
+    setInput("row_selected_alpha", layout.row_selected_alpha);
+    setInput("cell_outline_color", layout.cell_outline_color);
+    setInput("cell_outline_alpha", layout.cell_outline_alpha);
+    setInput("cell_fill_color", layout.cell_fill_color);
+    setInput("cell_fill_alpha", layout.cell_fill_alpha);
+    if (wrap && marquee) {
+      var locked = wrap.disabled;
+      if (!locked) {
+        marquee.disabled = !!wrap.checked;
+        if (wrap.checked) marquee.checked = false;
+      }
+    }
+    document.querySelectorAll("[data-tint]").forEach(syncTint);
+  }
+
   var headerBtn = document.getElementById("open-header-dialog");
   var bodyBtn = document.getElementById("open-body-dialog");
   if (headerBtn) headerBtn.addEventListener("click", function () { openDlg("layout-header-dialog"); });
@@ -218,6 +282,7 @@
         if (res.locks) {
           document.body.setAttribute("data-table-width-locks", JSON.stringify(res.locks));
         }
+        if (res.layout) fillLayout(res.layout);
         if (dlg) {
           if (dlg.close) dlg.close();
           else dlg.removeAttribute("open");
@@ -227,8 +292,6 @@
     });
   }
 
-  var wrap = document.getElementById("body-wrap");
-  var marquee = document.getElementById("body-marquee");
   if (wrap && marquee) {
     wrap.addEventListener("change", function () {
       if (wrap.checked) {
@@ -243,15 +306,9 @@
   document.querySelectorAll("[data-tint]").forEach(function (box) {
     var color = box.querySelector('input[type="color"]');
     var range = box.querySelector('input[type="range"]');
-    var out = box.querySelector(".layout-tint-num");
-    function sync() {
-      if (color) box.style.setProperty("--tint", color.value);
-      if (range) box.style.setProperty("--tint-a", String(range.value));
-      if (out && range) out.textContent = range.value + "٪";
-    }
-    if (color) color.addEventListener("input", sync);
-    if (range) range.addEventListener("input", sync);
-    sync();
+    if (color) color.addEventListener("input", function () { syncTint(box); });
+    if (range) range.addEventListener("input", function () { syncTint(box); });
+    syncTint(box);
   });
 })();
 </script>

@@ -3569,6 +3569,7 @@ fieldset.layout-field-choice {
 .layout-float-dialog .dialog-actions {
   display: flex;
   justify-content: flex-start;
+  gap: 8px;
   margin-top: 14px;
 }
 .layout-dialog-grid {

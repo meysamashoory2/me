@@ -15,6 +15,32 @@ SECTION_CHOICES: tuple[tuple[str, str], ...] = LAYOUT_SECTIONS
 SECTION_KEYS: tuple[str, ...] = tuple(key for key, _label in SECTION_CHOICES)
 UNLOCKED_WIDTH_DEFAULTS: frozenset[str] = frozenset({"reports"})
 COLUMN_BORDER_COLOR = "#cbd5e1"
+DEFAULT_HEADER_COLOR = "#c7d7ea"
+DEFAULT_ROW_SELECTED_COLOR = "#dbeafe"
+DEFAULT_CELL_OUTLINE_COLOR = "#2563eb"
+DEFAULT_CELL_FILL_COLOR = "#ffffff"
+
+HEADER_LAYOUT_KEYS = (
+    "header_height_px",
+    "header_border",
+    "width_locked",
+    "header_wrap",
+    "header_color",
+    "header_alpha",
+)
+BODY_LAYOUT_KEYS = (
+    "row_height_px",
+    "col_border",
+    "row_border",
+    "body_wrap",
+    "marquee",
+    "row_selected_color",
+    "row_selected_alpha",
+    "cell_outline_color",
+    "cell_outline_alpha",
+    "cell_fill_color",
+    "cell_fill_alpha",
+)
 
 
 def clamp_row_height(value: Any, default: int = DEFAULT_ROW_HEIGHT) -> int:
@@ -49,13 +75,13 @@ def default_layout(section_key: str) -> dict[str, Any]:
         "header_wrap": False,
         "body_wrap": False,
         "marquee": True,
-        "header_color": "#c7d7ea",
+        "header_color": DEFAULT_HEADER_COLOR,
         "header_alpha": 100,
-        "row_selected_color": "#dbeafe",
+        "row_selected_color": DEFAULT_ROW_SELECTED_COLOR,
         "row_selected_alpha": 100,
-        "cell_outline_color": "#2563eb",
+        "cell_outline_color": DEFAULT_CELL_OUTLINE_COLOR,
         "cell_outline_alpha": 100,
-        "cell_fill_color": "#ffffff",
+        "cell_fill_color": DEFAULT_CELL_FILL_COLOR,
         "cell_fill_alpha": 100,
     }
 
@@ -156,6 +182,16 @@ def merge_layout_post(current: dict[str, Any], post) -> dict[str, Any]:
                 post.get("cell_fill_alpha"), posted["cell_fill_alpha"]
             )
     return posted
+
+
+def reset_layout_part(current: dict[str, Any], part: str, section_key: str) -> dict[str, Any]:
+    """Restore header or body fields to the shared factory defaults."""
+    base = default_layout(section_key)
+    out = dict(current)
+    keys = HEADER_LAYOUT_KEYS if part == "header" else BODY_LAYOUT_KEYS
+    for key in keys:
+        out[key] = base[key]
+    return out
 
 
 def layout_storage_key(section: str, surface: str = "") -> str:

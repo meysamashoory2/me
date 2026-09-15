@@ -6,11 +6,14 @@ from django.test import SimpleTestCase
 
 from catalog.table_layout import (
     COLUMN_BORDER_COLOR,
+    DEFAULT_HEADER_COLOR,
     SECTION_CHOICES,
     clamp_row_height,
     css_for_layouts,
+    default_layout,
     default_width_locked,
     normalize_all_layouts,
+    reset_layout_part,
 )
 
 
@@ -33,6 +36,23 @@ class TableLayoutHelpersTests(SimpleTestCase):
         self.assertTrue(layouts["history"]["width_locked"])
         self.assertTrue(layouts["reports"]["col_border"])
         self.assertEqual(layouts["planning"]["row_height_px"], 36)
+
+    def test_reset_layout_part_restores_factory_colors(self):
+        dirty = default_layout("excel")
+        dirty["header_color"] = "#ff0000"
+        dirty["header_alpha"] = 40
+        dirty["header_height_px"] = 80
+        dirty["row_height_px"] = 12
+        dirty["row_selected_color"] = "#00ff00"
+        header = reset_layout_part(dirty, "header", "excel")
+        self.assertEqual(header["header_color"], DEFAULT_HEADER_COLOR)
+        self.assertEqual(header["header_alpha"], 100)
+        self.assertEqual(header["header_height_px"], 36)
+        self.assertEqual(header["row_height_px"], 12)
+        body = reset_layout_part(header, "body", "excel")
+        self.assertEqual(body["row_height_px"], 36)
+        self.assertEqual(body["row_selected_color"], default_layout("excel")["row_selected_color"])
+        self.assertEqual(body["header_color"], DEFAULT_HEADER_COLOR)
 
     def test_normalize_uses_legacy_locks_when_layouts_empty(self):
         layouts = normalize_all_layouts(

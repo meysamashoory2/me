@@ -926,6 +926,7 @@ def system_table_layout(request: HttpRequest) -> HttpResponse:
         locks_from_layouts,
         merge_layout_post,
         normalize_section_layout,
+        reset_layout_part,
     )
 
     if not _can_edit_naming(request.user) and request.method == "POST":
@@ -950,7 +951,13 @@ def system_table_layout(request: HttpRequest) -> HttpResponse:
     if request.method == "POST":
         layouts = settings.layouts_map()
         current = dict(layouts.get(store_key) or layouts.get(active) or default_layout(active))
-        posted = merge_layout_post(current, request.POST)
+        reset_part = str(request.POST.get("layout_reset") or "").strip()
+        if reset_part in ("header", "body"):
+            posted = reset_layout_part(current, reset_part, active)
+            saved_message = "بازگشت به پیش‌فرض"
+        else:
+            posted = merge_layout_post(current, request.POST)
+            saved_message = "اعمال شد"
         layouts[store_key] = normalize_section_layout(active, posted)
         if not surface or (surfaces and surface == surfaces[0].key):
             layouts[active] = layouts[store_key]
@@ -958,16 +965,18 @@ def system_table_layout(request: HttpRequest) -> HttpResponse:
         settings.section_width_locks = locks_from_layouts(layouts)
         settings.row_height_px = int(layouts.get("reports", {}).get("row_height_px") or 36)
         settings.save()
+        saved = layouts[store_key]
         if request.headers.get("X-Requested-With") == "XMLHttpRequest":
             return JsonResponse(
                 {
                     "ok": True,
-                    "message": "اعمال شد",
+                    "message": saved_message,
                     "css": css_for_layouts(layouts),
                     "locks": locks_from_layouts(layouts),
+                    "layout": saved,
                 }
             )
-        messages.success(request, "اعمال شد")
+        messages.success(request, saved_message)
         q = f"?section={active}"
         if surface:
             q += f"&surface={surface}"
@@ -984,7 +993,6 @@ def system_table_layout(request: HttpRequest) -> HttpResponse:
     ]
     current = layouts.get(store_key) or layouts.get(active) or default_layout(active)
     body_wrap_locked = (not current.get("col_border", True)) and (not current.get("row_border", True))
-    from django.urls import reverse
 
     preview_href = surface_preview_href(
         active, surface, reverse("system_table_layout") + f"?section={active}&surface={surface}"
@@ -1007,6 +1015,7 @@ def system_table_layout(request: HttpRequest) -> HttpResponse:
             "tabs": tabs,
             "surfaces": surfaces,
             "layout": current,
+            "layout_defaults_json": json.dumps(default_layout(active), ensure_ascii=False),
             "body_wrap_locked": body_wrap_locked,
             "can_edit": _can_edit_naming(request.user),
             "preview_href": preview_href,
