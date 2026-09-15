@@ -53,12 +53,10 @@ def system_data_hub(request: HttpRequest) -> HttpResponse:
     from .naming_registry import (
         ensure_registry_seeded,
         lookup_naming_rows,
-        refresh_system_hub_labels,
     )
     from .system_sections import build_system_groups
 
     ensure_registry_seeded()
-    refresh_system_hub_labels()
 
     groups = build_system_groups()
     naming_keys: list[str] = []
@@ -722,11 +720,11 @@ def system_naming_keys(request: HttpRequest) -> HttpResponse:
     from .models import SystemNamingKey
     from .naming_registry import (
         KIND_LABELS,
+        PreviewLinker,
         ensure_registry_seeded,
         infer_page_key,
         kind_code,
         kind_label,
-        preview_href,
         sync_naming_registry,
     )
     from .nav import NAV_SECTIONS
@@ -779,6 +777,7 @@ def system_naming_keys(request: HttpRequest) -> HttpResponse:
 
     rows_raw = list(qs.order_by("category", "table_key", "order", "key")[:400])
     return_path = reverse("system_naming_keys")
+    linker = PreviewLinker(return_path)
     rows = []
     for row in rows_raw:
         code = kind_code(row.key, row.category)
@@ -790,7 +789,7 @@ def system_naming_keys(request: HttpRequest) -> HttpResponse:
         row.kind_code = code  # type: ignore[attr-defined]
         row.kind_label = kind_label(code)  # type: ignore[attr-defined]
         row.page_key = pkey  # type: ignore[attr-defined]
-        row.preview_href = preview_href(row.key, return_path=return_path)  # type: ignore[attr-defined]
+        row.preview_href = linker.href(row)  # type: ignore[attr-defined]
         rows.append(row)
 
     return render(

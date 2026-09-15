@@ -83,11 +83,7 @@
             {% endif %}
           </td>
           <td>
-            {% if row.preview_href %}
             <a class="naming-address-link" href="{{ row.preview_href }}">{{ row.address|default:row.label }}</a>
-            {% else %}
-            <span class="naming-address">{{ row.address|default:"—" }}</span>
-            {% endif %}
           </td>
           <td>
             {% if can_edit %}

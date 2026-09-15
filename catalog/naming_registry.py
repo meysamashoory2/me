@@ -290,7 +290,6 @@ def _harvest_ui_columns() -> list[dict[str, Any]]:
                 ("row", "ردیف"),
                 ("section", "بخش"),
                 ("count", "تعداد"),
-                ("ops", "عملیات"),
             ],
         ),
     ]
@@ -313,7 +312,7 @@ def _harvest_ui_columns() -> list[dict[str, Any]]:
                 table_key=table_key,
                 page_key=page_key,
                 url_name=url_name,
-                highlight="main.content, .panel-list, .table-scroll",
+                highlight=f'[data-table-section="{page_key or "system"}"] table',
                 order=0,
             )
         )
@@ -329,7 +328,10 @@ def _harvest_ui_columns() -> list[dict[str, Any]]:
                     column_key=col_key,
                     page_key=page_key,
                     url_name=url_name,
-                    highlight=f'[data-col="{col_key}"]',
+                    highlight=(
+                        f'[data-table-section="{page_key or "system"}"] '
+                        f'thead th[data-col="{col_key}"]'
+                    ),
                     order=i,
                 )
             )
@@ -676,27 +678,217 @@ def preview_map() -> dict[str, dict[str, Any]]:
     return {s["key"]: s for s in harvest_specs()}
 
 
-def preview_href(key: str, *, return_path: str) -> str:
-    from django.urls import NoReverseMatch, reverse
-    from urllib.parse import urlencode
+_UI_TABLE_PAGES: dict[str, tuple[str, str]] = {
+    "planning.plan_list": ("plan_list", "planning"),
+    "production.history_list": ("production_history", "history"),
+    "catalog.excel_list": ("excel_list", "excel"),
+    "catalog.system_data_hub": ("system_data", "system"),
+}
 
-    spec = preview_map().get(key) or {}
-    url_name = spec.get("url_name") or ""
-    if not url_name or url_name == "logout":
-        return ""
-    try:
-        path = reverse(url_name)
-    except NoReverseMatch:
-        return ""
-    query = urlencode(
-        {
-            "naming_preview": "1",
-            "hk": key,
-            "hl": spec.get("highlight") or "",
-            "ret": return_path,
-        }
+
+def _with_preview_query(path: str, *, key: str, highlight: str, return_path: str) -> str:
+    from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
+    parts = urlsplit(path)
+    query = [
+        (k, v)
+        for k, v in parse_qsl(parts.query, keep_blank_values=True)
+        if k not in {"naming_preview", "hk", "hl", "ret"}
+    ]
+    query.extend(
+        [
+            ("naming_preview", "1"),
+            ("hk", key),
+            ("hl", highlight or ""),
+            ("ret", return_path),
+        ]
     )
-    return f"{path}?{query}"
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
+
+
+class PreviewLinker:
+    """Build preview shortcuts from stored keys — never re-harvests the registry."""
+
+    def __init__(self, return_path: str):
+        self.return_path = return_path
+        self._system = None
+        self._excel_path = None
+
+    def href(self, row: SystemNamingKey) -> str:
+        path, highlight = self._target(row.key, row.table_key, row.column_key, row.section_key)
+        if not path:
+            from django.urls import reverse
+
+            path = reverse("system_data")
+            highlight = highlight or ".topbar-title"
+        return _with_preview_query(
+            path, key=row.key, highlight=highlight, return_path=self.return_path
+        )
+
+    def _reverse(self, url_name: str, query: str = "") -> str:
+        from django.urls import NoReverseMatch, reverse
+
+        try:
+            path = reverse(url_name)
+        except NoReverseMatch:
+            return ""
+        if query:
+            path = f"{path}?{query}"
+        return path
+
+    def _system_targets(self) -> dict[str, tuple[str, str]]:
+        if self._system is not None:
+            return self._system
+        from django.urls import NoReverseMatch, reverse
+
+        from catalog.system_sections import build_system_groups
+
+        out: dict[str, tuple[str, str]] = {}
+        hub = reverse("system_data")
+        for group in build_system_groups():
+            out[f"system.group.{group.key}"] = (hub, f'[data-acc-group="{group.key}"]')
+            for item in group.items:
+                path = ""
+                if item.admin_changelist:
+                    try:
+                        path = reverse(item.admin_changelist)
+                    except NoReverseMatch:
+                        path = ""
+                if not path and item.url_name:
+                    path = self._reverse(item.url_name, item.url_query)
+                elif path and item.url_query:
+                    path = f"{path}?{item.url_query}"
+                if path:
+                    highlight = ".topbar-title, #content h1, main.content h1"
+                    if item.admin_changelist:
+                        highlight = "#result_list, .topbar-title"
+                    out[f"system.section.{item.key}"] = (path, highlight)
+                else:
+                    out[f"system.section.{item.key}"] = (
+                        hub,
+                        f'[data-acc-item="{item.key}"]',
+                    )
+        self._system = out
+        return out
+
+    def _excel_detail_or_import(self) -> str:
+        if self._excel_path is not None:
+            return self._excel_path
+        from django.urls import reverse
+
+        from catalog.models import ExcelUpload
+
+        obj = ExcelUpload.objects.only("pk").order_by("-id").first()
+        if obj is not None:
+            self._excel_path = reverse("excel_detail", args=[obj.pk])
+        else:
+            self._excel_path = reverse("excel_import")
+        return self._excel_path
+
+    def _target(
+        self, key: str, table_key: str, column_key: str, section_key: str
+    ) -> tuple[str, str]:
+        from catalog.nav import NAV_SECTIONS, nav_item_by_key
+
+        k = (key or "").strip()
+        if k.startswith("nav.heading."):
+            heading = k.rsplit(".", 1)[-1]
+            for section in NAV_SECTIONS:
+                if section.key != heading:
+                    continue
+                first = section.items[0] if section.items else None
+                url_name = "dashboard"
+                if first is not None and first.kind != "logout":
+                    url_name = first.url_name
+                return self._reverse(url_name), f'[data-nav-heading="{heading}"]'
+            return self._reverse("dashboard"), f'[data-nav-heading="{heading}"]'
+        if k.startswith("nav.item."):
+            item_key = k.rsplit(".", 1)[-1]
+            item = nav_item_by_key(item_key)
+            highlight = f'[data-nav-key="{item_key}"]'
+            if item is None or item.kind == "logout":
+                return self._reverse("dashboard"), highlight
+            return self._reverse(item.url_name, item.query), highlight
+        if k.startswith("system."):
+            return self._system_targets().get(k, ("", ""))
+        table = (table_key or "").strip()
+        if k.startswith("ui.table.") or table in _UI_TABLE_PAGES:
+            page = _UI_TABLE_PAGES.get(table)
+            if page is None and k.startswith("ui.table."):
+                rest = k[len("ui.table.") :]
+                table_id = rest.split(".col.", 1)[0]
+                page = _UI_TABLE_PAGES.get(table_id)
+                table = table_id
+            if page:
+                url_name, section = page
+                col = (column_key or "").strip()
+                if ".col." in k or col:
+                    col = col or k.rsplit(".col.", 1)[-1]
+                    highlight = (
+                        f'[data-table-section="{section}"] thead th[data-col="{col}"]'
+                    )
+                else:
+                    highlight = f'[data-table-section="{section}"] table'
+                return self._reverse(url_name), highlight
+        if k.startswith("transfer.ui.import.") or k.startswith("transfer.ui.page."):
+            from django.urls import reverse
+
+            if k.startswith("transfer.ui.import."):
+                return reverse("excel_import"), "#excel-import-dialog"
+            return reverse("excel_list"), ".topbar-title"
+        if k.startswith("transfer."):
+            path = self._excel_detail_or_import()
+            if "excel_import" in path:
+                return path, "#excel-dropzone, .topbar-title"
+            if k.startswith("transfer.dest."):
+                return path, "#transfer-destination, #excel-transfer-dialog"
+            if k.startswith("transfer.level."):
+                return path, "#transfer-level, #excel-transfer-dialog"
+            if k.startswith("transfer.field."):
+                return path, "#transfer-map-body, #excel-transfer-dialog"
+            return path, "#excel-transfer-dialog"
+        if k.startswith("report."):
+            return self._reverse("report_list"), (
+                '[data-nav-key="reports"], [data-table-section="reports"] table'
+            )
+        if k.startswith("admin.table.") or k.startswith("admin.field."):
+            parts = k.split(".")
+            # admin.table.app.model  /  admin.field.app.model.col
+            if len(parts) >= 4:
+                url_name = f"admin:{parts[2]}_{parts[3]}_changelist"
+                if k.startswith("admin.field.") and len(parts) >= 5:
+                    col = parts[4]
+                    return self._reverse(url_name), (
+                        f"#result_list thead th.column-{col}, "
+                        f"th.column-{col}, #result_list"
+                    )
+                return self._reverse(url_name), "#result_list, .topbar-title"
+        if section_key:
+            mapped = self._system_targets().get(f"system.section.{section_key}")
+            if mapped:
+                return mapped
+        return self._reverse("dashboard"), ".topbar-title"
+
+
+def preview_href(
+    key: str,
+    *,
+    return_path: str,
+    table_key: str = "",
+    column_key: str = "",
+    section_key: str = "",
+) -> str:
+    """Single-key helper for tests; listing uses PreviewLinker so work is shared."""
+    linker = PreviewLinker(return_path)
+    path, highlight = linker._target(key, table_key, column_key, section_key)
+    if not path:
+        from django.urls import reverse
+
+        path = reverse("system_data")
+        highlight = highlight or ".topbar-title"
+    return _with_preview_query(
+        path, key=key, highlight=highlight, return_path=return_path
+    )
 
 
 def key_source(key: str) -> str:

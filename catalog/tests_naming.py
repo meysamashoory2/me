@@ -212,6 +212,45 @@ class SystemNamingRegistryTests(TestCase):
         self.assertEqual(page.status_code, 200)
         self.assertContains(page, "دیالوگ انتقال")
 
+    def test_naming_page_skips_full_harvest_and_links_rows(self):
+        sync_naming_registry()
+        self.client.login(username="admin", password="erp12345")
+        from catalog import naming_registry as nr
+
+        calls = {"n": 0}
+        orig = nr.harvest_specs
+
+        def tracked():
+            calls["n"] += 1
+            return orig()
+
+        nr.harvest_specs = tracked
+        try:
+            page = self.client.get(reverse("system_naming_keys"))
+        finally:
+            nr.harvest_specs = orig
+        self.assertEqual(page.status_code, 200)
+        self.assertEqual(calls["n"], 0)
+        html = page.content.decode()
+        self.assertIn("naming_preview=1", html)
+        self.assertIn(reverse("plan_list"), html)
+        from catalog.naming_registry import preview_href
+
+        href = preview_href(
+            "ui.table.planning.plan_list.col.program_number",
+            return_path="/data/system/naming/",
+            table_key="planning.plan_list",
+            column_key="program_number",
+        )
+        self.assertIn("naming_preview=1", href)
+        self.assertIn(reverse("plan_list"), href)
+        self.assertIn("data-col", href)
+        nav = preview_href("nav.item.planning", return_path="/x/")
+        self.assertTrue(nav)
+        self.assertIn("naming_preview=1", nav)
+        dest = preview_href("transfer.dest.production_history", return_path="/x/")
+        self.assertTrue(dest)
+
     def test_excel_list_uses_renamed_column_label(self):
         from catalog.models import ExcelUpload
 

@@ -14,7 +14,7 @@
   {% if groups %}
   <div class="system-accordion" id="system-accordion">
     {% for g in groups %}
-    <details class="system-acc-group">
+    <details class="system-acc-group" name="system-hub" data-acc-group="{{ g.key }}">
       <summary class="system-acc-summary">
         <span class="system-acc-left">
           <span class="system-acc-arrow" aria-hidden="true"></span>
@@ -29,23 +29,17 @@
               <th style="width:70px" data-col="row">{% system_col "catalog.system_data_hub" "row" "ردیف" %}</th>
               <th data-col="section">{% system_col "catalog.system_data_hub" "section" "بخش" %}</th>
               <th style="width:100px" data-col="count">{% system_col "catalog.system_data_hub" "count" "تعداد" %}</th>
-              <th style="width:160px" data-col="ops">{% system_col "catalog.system_data_hub" "ops" "عملیات" %}</th>
             </tr>
           </thead>
           <tbody>
             {% for s in g.items %}
-            <tr>
+            <tr class="system-acc-row" data-acc-item="{{ s.key }}">
               <td class="num">{{ forloop.counter }}</td>
               <td>
-                <span class="list-title">{{ s.title }}</span>
+                <a class="list-title system-acc-item-link" href="{{ s.url }}">{{ s.title }}</a>
                 {% if s.description %}<div class="list-desc">{{ s.description }}</div>{% endif %}
               </td>
               <td class="num">{{ s.count }}</td>
-              <td class="col-ops">
-                <div class="ops-inline row-actions-ops">
-                  <a class="btn btn-sm btn-ghost" href="{{ s.url }}">مشاهده / ویرایش</a>
-                </div>
-              </td>
             </tr>
             {% endfor %}
           </tbody>
@@ -58,4 +52,27 @@
   <p class="empty">بخشی تعریف نشده است.</p>
   {% endif %}
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  var root = document.getElementById("system-accordion");
+  if (!root) return;
+  root.addEventListener("toggle", function (e) {
+    var t = e.target;
+    if (!t || t.tagName !== "DETAILS" || !t.open) return;
+    root.querySelectorAll("details.system-acc-group[open]").forEach(function (d) {
+      if (d !== t) d.removeAttribute("open");
+    });
+  }, true);
+  root.addEventListener("click", function (e) {
+    if (e.target.closest("a, summary, button")) return;
+    var row = e.target.closest("tr.system-acc-row");
+    if (!row) return;
+    var link = row.querySelector("a.system-acc-item-link");
+    if (link && link.href) window.location.href = link.href;
+  });
+})();
+</script>
 {% endblock %}

@@ -455,6 +455,15 @@ tr.is-conflict-row > td {
 .system-acc-count { font-weight: 500; font-size: 12px; }
 .system-acc-body { padding: 0; }
 .system-acc-body .table { margin: 0; border-radius: 0; }
+.system-acc-row { cursor: pointer; }
+.system-acc-row:hover td { background: #f8fafc; }
+.system-acc-item-link {
+  display: inline-block;
+  font-weight: 700;
+  color: inherit;
+  text-decoration: none;
+}
+.system-acc-item-link:hover { text-decoration: underline; }
 
 .naming-filter-bar {
   display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end;
@@ -3339,23 +3348,53 @@ input[type=number].spin {
   font-size: 11px;
   font-weight: 800;
 }
+html.naming-preview-mode,
+body.naming-preview-mode {
+  cursor: default;
+}
+body.naming-preview-mode a,
+body.naming-preview-mode button,
+body.naming-preview-mode input,
+body.naming-preview-mode select,
+body.naming-preview-mode textarea,
+body.naming-preview-mode summary,
+body.naming-preview-mode label,
+body.naming-preview-mode [role="button"] {
+  pointer-events: none !important;
+}
+body.naming-preview-mode .naming-preview-chrome,
+body.naming-preview-mode .naming-preview-back {
+  pointer-events: auto !important;
+}
+.naming-preview-chrome {
+  position: fixed;
+  inset: 0;
+  z-index: 4000;
+  pointer-events: none;
+}
+.naming-preview-frame {
+  position: fixed;
+  box-sizing: border-box;
+  border: 3px solid #eab308;
+  border-radius: 6px;
+  box-shadow: 0 0 0 3px rgba(234, 179, 8, .35), 0 0 0 9999px rgba(15, 23, 42, .38);
+  pointer-events: none;
+  z-index: 4001;
+}
 .naming-preview-target {
-  outline: 3px solid #eab308 !important;
-  outline-offset: 3px;
-  box-shadow: 0 0 0 6px rgba(234, 179, 8, .25);
+  outline: none;
 }
 .naming-preview-back {
   position: fixed;
-  left: 18px;
-  bottom: 18px;
-  z-index: 80;
+  z-index: 4002;
   background: #eab308;
   color: #1c1917;
   font-weight: 800;
-  padding: 10px 16px;
+  padding: 8px 14px;
   border-radius: 999px;
   text-decoration: none;
-  box-shadow: 0 10px 24px rgba(15, 23, 42, .18);
+  box-shadow: 0 8px 20px rgba(15, 23, 42, .22);
+  pointer-events: auto !important;
 }
 .table-layout-actions { display: flex; gap: 10px; margin-top: 16px; }
 .table-layout-surface { max-width: 360px; margin-top: 12px; }
