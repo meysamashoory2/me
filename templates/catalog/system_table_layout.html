@@ -67,11 +67,14 @@
         </label>
         <div class="layout-field layout-field-color">
           <span>رنگ سرستون</span>
-          <input type="color" name="header_color" value="{{ layout.header_color }}">
-          <label class="layout-alpha">
-            <span>شفافیت</span>
-            <input type="range" name="header_alpha" min="0" max="100" value="{{ layout.header_alpha }}">
-          </label>
+          <div class="layout-tint" data-tint>
+            <span class="layout-tint-well">
+              <span class="layout-tint-chip" aria-hidden="true"></span>
+              <input type="color" name="header_color" value="{{ layout.header_color }}" aria-label="رنگ سرستون">
+            </span>
+            <input type="range" name="header_alpha" min="0" max="100" value="{{ layout.header_alpha }}" aria-label="شفافیت سرستون">
+            <output class="layout-tint-num">{{ layout.header_alpha }}٪</output>
+          </div>
         </div>
       </div>
       <div class="dialog-actions">
@@ -113,27 +116,36 @@
         </label>
         <div class="layout-field layout-field-color">
           <span>رنگ پیمایش ردیف</span>
-          <input type="color" name="row_selected_color" value="{{ layout.row_selected_color }}">
-          <label class="layout-alpha">
-            <span>شفافیت</span>
-            <input type="range" name="row_selected_alpha" min="0" max="100" value="{{ layout.row_selected_alpha }}">
-          </label>
+          <div class="layout-tint" data-tint>
+            <span class="layout-tint-well">
+              <span class="layout-tint-chip" aria-hidden="true"></span>
+              <input type="color" name="row_selected_color" value="{{ layout.row_selected_color }}" aria-label="رنگ پیمایش ردیف">
+            </span>
+            <input type="range" name="row_selected_alpha" min="0" max="100" value="{{ layout.row_selected_alpha }}" aria-label="شفافیت پیمایش ردیف">
+            <output class="layout-tint-num">{{ layout.row_selected_alpha }}٪</output>
+          </div>
         </div>
         <div class="layout-field layout-field-color">
           <span>رنگ کادر سلول</span>
-          <input type="color" name="cell_outline_color" value="{{ layout.cell_outline_color }}">
-          <label class="layout-alpha">
-            <span>شفافیت</span>
-            <input type="range" name="cell_outline_alpha" min="0" max="100" value="{{ layout.cell_outline_alpha }}">
-          </label>
+          <div class="layout-tint" data-tint>
+            <span class="layout-tint-well">
+              <span class="layout-tint-chip" aria-hidden="true"></span>
+              <input type="color" name="cell_outline_color" value="{{ layout.cell_outline_color }}" aria-label="رنگ کادر سلول">
+            </span>
+            <input type="range" name="cell_outline_alpha" min="0" max="100" value="{{ layout.cell_outline_alpha }}" aria-label="شفافیت کادر سلول">
+            <output class="layout-tint-num">{{ layout.cell_outline_alpha }}٪</output>
+          </div>
         </div>
         <div class="layout-field layout-field-color">
           <span>رنگ سلول منتخب</span>
-          <input type="color" name="cell_fill_color" value="{{ layout.cell_fill_color }}">
-          <label class="layout-alpha">
-            <span>شفافیت</span>
-            <input type="range" name="cell_fill_alpha" min="0" max="100" value="{{ layout.cell_fill_alpha }}">
-          </label>
+          <div class="layout-tint" data-tint>
+            <span class="layout-tint-well">
+              <span class="layout-tint-chip" aria-hidden="true"></span>
+              <input type="color" name="cell_fill_color" value="{{ layout.cell_fill_color }}" aria-label="رنگ سلول منتخب">
+            </span>
+            <input type="range" name="cell_fill_alpha" min="0" max="100" value="{{ layout.cell_fill_alpha }}" aria-label="شفافیت سلول منتخب">
+            <output class="layout-tint-num">{{ layout.cell_fill_alpha }}٪</output>
+          </div>
         </div>
       </div>
       <div class="dialog-actions">
@@ -227,6 +239,20 @@
       }
     });
   }
+
+  document.querySelectorAll("[data-tint]").forEach(function (box) {
+    var color = box.querySelector('input[type="color"]');
+    var range = box.querySelector('input[type="range"]');
+    var out = box.querySelector(".layout-tint-num");
+    function sync() {
+      if (color) box.style.setProperty("--tint", color.value);
+      if (range) box.style.setProperty("--tint-a", String(range.value));
+      if (out && range) out.textContent = range.value + "٪";
+    }
+    if (color) color.addEventListener("input", sync);
+    if (range) range.addEventListener("input", sync);
+    sync();
+  });
 })();
 </script>
 {% endblock %}

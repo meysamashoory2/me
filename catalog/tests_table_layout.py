@@ -182,3 +182,6 @@ class TableLayoutHelpersTests(SimpleTestCase):
         self.assertIn('[data-table-section="pipe_calc"] .pcx-table td:not(.col-ops)', css)
         self.assertIn("height:var(--table-row-height) !important", css)
         self.assertIn("height:var(--table-header-height) !important", css)
+        self.assertIn("background-color:var(--table-header-bg) !important", css)
+        self.assertIn(".pcx-table thead th", css)
+        self.assertIn("color-mix(in srgb,var(--table-row-selected)", css)

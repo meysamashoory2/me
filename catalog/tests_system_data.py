@@ -187,6 +187,8 @@ class TableLayoutSettingsTests(TestCase):
         self.assertContains(get, "برنامه‌ریزی هفتگی تولید")
         self.assertContains(get, "naming_preview=1")
         self.assertContains(get, "dlg.close")
+        self.assertContains(get, "layout-tint-num")
+        self.assertContains(get, 'data-tint')
         programs = self.client.get(url, {"section": "production"})
         self.assertContains(programs, "ثبت تولید روزانه")
         resp = self.client.post(
@@ -240,7 +242,7 @@ class TableLayoutSettingsTests(TestCase):
         css = css_for_layouts({"planning": default_layout("planning")})
         self.assertIn('[data-table-section="planning"]{--table-row-height:', css)
         for block in css.split("}"):
-            if "background:var(--table-row-selected)" not in block and "background:var(--table-header-bg)" not in block:
+            if "var(--table-row-selected)" not in block and "var(--table-header-bg)" not in block:
                 continue
             selector = block.split("{", 1)[0]
             self.assertIn(" ", selector)

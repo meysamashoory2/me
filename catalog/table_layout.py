@@ -411,7 +411,32 @@ def css_for_layouts(layouts: dict[str, dict[str, Any]]) -> str:
             if p
         )
         if header_bg:
-            parts.append(f"{header_bg}{{background:var(--table-header-bg) !important;}}")
+            parts.append(f"{header_bg}{{background-color:var(--table-header-bg) !important;}}")
+        pcx_heads = _sel(
+            key,
+            " .pcx-table thead th",
+            " .pcx-table th",
+            " .pcx-defs-table thead th",
+            " .pcx-defs-table th",
+        )
+        if pcx_heads:
+            parts.append(
+                f"{pcx_heads}{{"
+                "background-color:var(--table-header-bg) !important;"
+                "backdrop-filter:none !important;}}"
+            )
+        pcx_hover = _sel(
+            key,
+            " .pcx-table tbody tr:hover > td",
+            " .pcx-table tbody tr:hover > th",
+            " .pcx-table-calc tbody tr:hover > td",
+            " .pcx-defs-table tbody tr:hover > td",
+        )
+        if pcx_hover:
+            parts.append(
+                f"{pcx_hover}{{"
+                "background-color:color-mix(in srgb,var(--table-row-selected) 45%,transparent) !important;}}"
+            )
         selected = _sel(
             key,
             " table tbody tr.is-row-selected > td",
@@ -424,7 +449,7 @@ def css_for_layouts(layouts: dict[str, dict[str, Any]]) -> str:
             " .pcx-defs-table tbody tr.is-row-selected > th",
         )
         if selected:
-            parts.append(f"{selected}{{background:var(--table-row-selected) !important;}}")
+            parts.append(f"{selected}{{background-color:var(--table-row-selected) !important;}}")
         focus = _sel(
             key,
             " table tbody tr.is-row-selected > td.is-cell-focus",
@@ -437,7 +462,7 @@ def css_for_layouts(layouts: dict[str, dict[str, Any]]) -> str:
         if focus:
             parts.append(
                 f"{focus}{{"
-                "background:var(--table-cell-fill) !important;"
+                "background-color:var(--table-cell-fill) !important;"
                 "outline:1px solid var(--table-cell-outline) !important;"
                 "outline-offset:-1px !important;}}"
             )
