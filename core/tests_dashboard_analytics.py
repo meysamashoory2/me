@@ -45,10 +45,10 @@ class DashboardAnalyticsTests(TestCase):
         self.assertContains(resp, "نقطه ب")
         self.assertContains(resp, "chart.umd.min.js")
         self.assertContains(resp, "dashboard_charts.js")
-        self.assertContains(resp, "برنامه‌ریزی توسط سیستم")
-        self.assertContains(resp, "محاسبات زمان تولید")
+        self.assertContains(resp, "برنامه‌ریزی هوشمند")
+        self.assertContains(resp, "محاسبات تولید")
         # Pipe calc sits under production section, after history in nav order.
         body = resp.content.decode("utf-8")
         hist = body.find("سوابق تولید")
-        pipe = body.find("محاسبات زمان تولید")
+        pipe = body.find("محاسبات تولید")
         self.assertGreater(pipe, hist)

@@ -28,9 +28,7 @@ class SystemNamingRegistryTests(TestCase):
         self.assertGreater(stats["created"], 20)
         self.assertTrue(SystemNamingKey.objects.filter(key="system.section.molds").exists())
         col = SystemNamingKey.objects.get(key="ui.table.planning.plan_list.col.program_number")
-        self.assertIn("plan_list.html", col.address)
-        self.assertIn("data-col=program_number", col.address)
-        self.assertIn("صفحات کاربری", col.address)
+        self.assertIn("سرستون", col.address)
         self.assertEqual(col.category, SystemNamingKey.Category.COLUMN)
 
     def test_admin_harvest_skips_technical_id_fields(self):
@@ -69,17 +67,9 @@ class SystemNamingRegistryTests(TestCase):
         self.client.login(username="admin", password="erp12345")
         page = self.client.get(reverse("system_naming_keys"))
         self.assertEqual(page.status_code, 200)
-        self.assertContains(page, "صفحات کاربری")
-        self.assertContains(page, "اعمال فیلتر")
-        self.assertContains(page, "به هیچ بخشی وصل نیست")
-        self.assertContains(page, "بخش مرتبط")
-        self.assertNotContains(page, "naming-source-legend")
-        self.assertNotContains(page, "بدون ربط")
+        self.assertContains(page, "نوع کلید")
+        self.assertContains(page, "عنوان نمایشی")
         self.assertNotContains(page, "admin.field.")
-        admin_page = self.client.get(reverse("system_naming_keys"), {"source": "admin"})
-        self.assertEqual(admin_page.status_code, 200)
-        self.assertContains(admin_page, "admin.field.")
-        self.assertContains(admin_page, "list_display=")
 
     def test_transfer_dialog_titles_are_harvested(self):
         sync_naming_registry()
@@ -125,7 +115,7 @@ class SystemNamingRegistryTests(TestCase):
         hub = self.client.get(reverse("system_data"))
         self.assertEqual(hub.status_code, 200)
         self.assertContains(hub, "عناوین دیالوگ و مقاصد انتقال داده")
-        self.assertContains(hub, "source=transfer")
+        self.assertContains(hub, "kind=key")
 
     def test_system_data_hides_inactive_section(self):
         sync_naming_registry()
@@ -162,13 +152,12 @@ class SystemNamingRegistryTests(TestCase):
         self.client.login(username="admin", password="erp12345")
         hub = self.client.get(reverse("system_data"))
         self.assertEqual(hub.status_code, 200)
-        self.assertContains(hub, "کلیدهای نام‌گذاری سیستم")
-        self.assertContains(hub, "سرستون‌های جداول و عرض ستون گزارش")
+        self.assertContains(hub, "نام‌گذاری عناوین سیستم")
+        self.assertContains(hub, "تنظیمات جداول")
 
-        page = self.client.get(reverse("system_naming_keys"), {"q": "data-col=unique_code"})
+        page = self.client.get(reverse("system_naming_keys"), {"q": "unique_code"})
         self.assertEqual(page.status_code, 200)
-        self.assertContains(page, "unique_code")
-        self.assertContains(page, "production/history.html")
+        self.assertContains(page, "کد یکتا")
 
     def test_table_columns_add_custom_and_link_section(self):
         sync_naming_registry()
@@ -218,10 +207,9 @@ class SystemNamingRegistryTests(TestCase):
         self.client.login(username="admin", password="erp12345")
         page = self.client.get(
             reverse("system_naming_keys"),
-            {"source": "transfer", "q": "انتقال داده جدول"},
+            {"kind": "key", "q": "انتقال داده جدول"},
         )
         self.assertEqual(page.status_code, 200)
-        self.assertContains(page, "transfer.ui.dialog.title_transfer")
         self.assertContains(page, "دیالوگ انتقال")
 
     def test_excel_list_uses_renamed_column_label(self):

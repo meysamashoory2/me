@@ -1,25 +1,24 @@
-"""Accordion registry for «داده‌های سیستم» — full Django-admin capabilities."""
+"""Accordion registry for «مدیریت داده‌ها» — groups stay in lockstep with the sidebar."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Callable
 
+from catalog.nav import MENU_CONFIG_ITEMS
+
 
 @dataclass
 class SystemItem:
     key: str
     title: str
-    # Django admin reverse names, e.g. "admin:catalog_moldoption_changelist"
     admin_changelist: str = ""
     admin_add: str | None = None
     description: str = ""
     count_fn: Callable[[], int] | None = None
     can_add: bool = True
-    # Optional named URL (non-admin) — preferred when set
     url_name: str | None = None
     add_url_name: str | None = None
-    # Optional query string without leading «?», e.g. "source=transfer"
     url_query: str = ""
 
 
@@ -37,11 +36,7 @@ def _count(model) -> Callable[[], int]:
 def build_system_groups() -> list[SystemGroup]:
     from django.contrib.auth.models import Group, User
 
-    from planning.models import (
-        PlanningProcessStep,
-        WeeklyPlan,
-        WeeklyPlanItem,
-    )
+    from planning.models import PlanningProcessStep, WeeklyPlan, WeeklyPlanItem
     from production.models import (
         FittingProduction,
         ProductionDayEntry,
@@ -58,7 +53,8 @@ def build_system_groups() -> list[SystemGroup]:
         FlexibleRow,
         Machine,
         MoldOption,
-        PipeCalcRule, PipeProductLine,
+        PipeCalcRule,
+        PipeProductLine,
         PlanningDisplaySettings,
         PlanningInsightField,
         Product,
@@ -76,254 +72,103 @@ def build_system_groups() -> list[SystemGroup]:
         TableLayoutSettings,
     )
 
+    menu_items = [
+        SystemItem(
+            key=f"menu_{key}",
+            title=title,
+            url_name="system_menu_config",
+            url_query=f"menu={key}",
+            can_add=False,
+            description="تنظیمات اختصاصی این منو به‌زودی اعلام می‌شود.",
+        )
+        for key, title in MENU_CONFIG_ITEMS
+    ]
+
     return [
         SystemGroup(
-            key="meta",
-            title="نام‌گذاری و ساختار نمایش",
+            key="display",
+            title="عناوین و ساختار نمایش",
             items=[
                 SystemItem(
                     key="naming_keys",
-                    title="کلیدهای نام‌گذاری سیستم",
-                    admin_changelist="",
+                    title="نام‌گذاری عناوین سیستم",
                     url_name="system_naming_keys",
-                    description="",
                     count_fn=_count(SystemNamingKey),
                     can_add=False,
                 ),
                 SystemItem(
-                    key="table_columns",
-                    title="سرستون‌های جداول و عرض ستون گزارش",
-                    admin_changelist="",
-                    url_name="system_table_columns",
-                    description="",
-                    count_fn=lambda: SystemNamingKey.objects.filter(
-                        category=SystemNamingKey.Category.COLUMN
-                    ).count(),
-                    can_add=False,
-                ),
-                SystemItem(
                     key="table_layout",
-                    title="ارتفاع ردیف جداول و عرض ستون گزارش‌ها",
-                    admin_changelist="",
+                    title="تنظیمات جداول",
                     url_name="system_table_layout",
                     can_add=False,
-                    description="",
                     count_fn=_count(TableLayoutSettings),
                 ),
             ],
         ),
         SystemGroup(
-            key="reports",
-            title="گزارش‌ها",
-            items=[
-                SystemItem(
-                    key="print_forms",
-                    title="فرم‌های چاپی",
-                    admin_changelist="admin:reports_printform_changelist",
-                    admin_add="admin:reports_printform_add",
-                    count_fn=_count(PrintForm),
-                ),
-                SystemItem(
-                    key="saved_reports",
-                    title="گزارش‌های ذخیره شده",
-                    admin_changelist="admin:reports_savedreport_changelist",
-                    admin_add="admin:reports_savedreport_add",
-                    count_fn=_count(SavedReport),
-                ),
-                SystemItem(
-                    key="report_parameter_defs",
-                    title="تعریف پارامترهای گزارش",
-                    admin_changelist="admin:reports_reportparameterdef_changelist",
-                    admin_add="admin:reports_reportparameterdef_add",
-                    description="پارامترهای شرط گزارش: تاریخ روز، سال، کد کالا، کد یکتا، شماره قالب و شماره حواله",
-                    count_fn=_count(ReportParameterDef),
-                ),
-            ],
-        ),
-        SystemGroup(
-            key="permissions",
-            title="بررسی مجوزها",
-            items=[
-                SystemItem(
-                    key="users",
-                    title="کاربرها",
-                    admin_changelist="admin:auth_user_changelist",
-                    admin_add="admin:auth_user_add",
-                    description="کاربران، گروه‌ها و مجوزهای سطح کاربر",
-                    count_fn=_count(User),
-                ),
-                SystemItem(
-                    key="groups",
-                    title="گروه‌ها",
-                    admin_changelist="admin:auth_group_changelist",
-                    admin_add="admin:auth_group_add",
-                    description="گروه‌ها و صدور مجوزهای گروهی",
-                    count_fn=_count(Group),
-                ),
-            ],
-        ),
-        SystemGroup(
-            key="weekly",
-            title="برنامه‌ریزی توسط سیستم",
-            items=[
-                SystemItem(
-                    key="planning_process",
-                    title="منطق فرآیند برنامه‌ریزی (مراحل)",
-                    admin_changelist="",
-                    url_name="planning_process_list",
-                    description=(
-                        "مراحل شماره‌دار Make to Order / Make to Stock از روی PDF؛ "
-                        "سوال‌های بله/خیر با اتصال به مرحله بعدی و داده سیستم — قابل بازتعریف."
-                    ),
-                    count_fn=_count(PlanningProcessStep),
-                    can_add=False,
-                ),
-                SystemItem(
-                    key="weekly_plans",
-                    title="برنامه‌ریزی هفتگی",
-                    admin_changelist="admin:planning_weeklyplan_changelist",
-                    admin_add="admin:planning_weeklyplan_add",
-                    count_fn=_count(WeeklyPlan),
-                ),
-                SystemItem(
-                    key="plan_items",
-                    title="کالاهای برنامه",
-                    admin_changelist="admin:planning_weeklyplanitem_changelist",
-                    admin_add="admin:planning_weeklyplanitem_add",
-                    count_fn=_count(WeeklyPlanItem),
-                ),
-            ],
-        ),
-        SystemGroup(
-            key="daily",
-            title="ثبت و کنترل تولید",
-            items=[
-                SystemItem(
-                    key="day_entries",
-                    title="آمار تولید روزانه",
-                    admin_changelist="admin:production_productiondayentry_changelist",
-                    admin_add="admin:production_productiondayentry_add",
-                    count_fn=_count(ProductionDayEntry),
-                ),
-                SystemItem(
-                    key="programs",
-                    title="برنامه‌های تولید",
-                    admin_changelist="admin:production_productionprogram_changelist",
-                    admin_add="admin:production_productionprogram_add",
-                    count_fn=_count(ProductionProgram),
-                ),
-                SystemItem(
-                    key="fittings",
-                    title="تولید روزانه اتصالات",
-                    admin_changelist="admin:production_fittingproduction_changelist",
-                    admin_add="admin:production_fittingproduction_add",
-                    count_fn=_count(FittingProduction),
-                ),
-                SystemItem(
-                    key="history",
-                    title="سوابق تولید",
-                    admin_changelist="admin:production_productionhistoryrecord_changelist",
-                    admin_add="admin:production_productionhistoryrecord_add",
-                    count_fn=_count(ProductionHistoryRecord),
-                ),
-            ],
+            key="menu_config",
+            title="پیکربندی منوها",
+            items=menu_items,
         ),
         SystemGroup(
             key="base",
             title="داده‌های پایه",
             items=[
                 SystemItem(
-                    key="alarms",
-                    title="آلارم‌های سیستم",
-                    admin_changelist="admin:catalog_systemalarm_changelist",
-                    admin_add="admin:catalog_systemalarm_add",
-                    description="بررسی و پاک‌سازی",
-                    count_fn=lambda: SystemAlarm.objects.filter(
-                        status=SystemAlarm.Status.OPEN
-                    ).count(),
+                    key="product_groups",
+                    title="گروه‌های محصولات",
+                    admin_changelist="admin:catalog_productgroup_changelist",
+                    admin_add="admin:catalog_productgroup_add",
+                    count_fn=_count(ProductGroup),
+                ),
+                SystemItem(
+                    key="product_subgroups",
+                    title="زیرگروه محصولات",
+                    admin_changelist="admin:catalog_productsubgroup_changelist",
+                    admin_add="admin:catalog_productsubgroup_add",
+                    count_fn=_count(ProductSubGroup),
+                ),
+                SystemItem(
+                    key="products",
+                    title="محصولات و قطعات",
+                    admin_changelist="admin:catalog_product_changelist",
+                    admin_add="admin:catalog_product_add",
+                    count_fn=_count(Product),
+                ),
+                SystemItem(
+                    key="machines",
+                    title="مشخصات دستگاه و خطوط",
+                    admin_changelist="admin:catalog_machine_changelist",
+                    admin_add="admin:catalog_machine_add",
+                    count_fn=_count(Machine),
                 ),
                 SystemItem(
                     key="molds",
-                    title="انواع قالب",
+                    title="مشخصات قالب",
                     admin_changelist="admin:catalog_moldoption_changelist",
                     admin_add="admin:catalog_moldoption_add",
                     count_fn=_count(MoldOption),
                 ),
                 SystemItem(
-                    key="planning_display",
-                    title="تنظیمات کادر آبی قسمت برنامه‌ریزی هفتگی",
-                    admin_changelist="admin:catalog_planningdisplaysettings_changelist",
-                    admin_add=None,
-                    can_add=False,
-                    count_fn=_count(PlanningDisplaySettings),
+                    key="consumables",
+                    title="مشخصات مواد مصرفی",
+                    admin_changelist="admin:catalog_productconsumable_changelist",
+                    admin_add="admin:catalog_productconsumable_add",
+                    count_fn=_count(ProductConsumable),
                 ),
                 SystemItem(
-                    key="excel_tables",
-                    title="جداول اکسل",
-                    admin_changelist="admin:catalog_exceltable_changelist",
-                    admin_add="admin:catalog_exceltable_add",
-                    count_fn=_count(ExcelTable),
+                    key="units",
+                    title="واحد‌های تولید",
+                    admin_changelist="admin:catalog_productionunit_changelist",
+                    admin_add="admin:catalog_productionunit_add",
+                    count_fn=_count(ProductionUnit),
                 ),
                 SystemItem(
-                    key="excel_uploads",
-                    title="فایل‌های اکسل / CSV",
-                    admin_changelist="admin:catalog_excelupload_changelist",
-                    admin_add="admin:catalog_excelupload_add",
-                    description=(
-                        "مدیریت فایل‌های بارگذاری‌شده، عنوان، یادداشت و جداول وابسته — "
-                        "ویرایش کامل در ظاهر داده‌های سیستم."
-                    ),
-                    count_fn=_count(ExcelUpload),
-                ),
-                SystemItem(
-                    key="transfer_dialog_labels",
-                    title="عناوین دیالوگ و مقاصد انتقال داده",
-                    admin_changelist="",
-                    url_name="system_naming_keys",
-                    url_query="source=transfer",
-                    description=(
-                        "عنوان دیالوگ انتقال/بروزرسانی، بخش مقصد، سطح‌ها و فیلدهای نگاشت. "
-                        "پنهان کردن مقصد یا فیلد، آن را از دیالوگ انتقال حذف می‌کند."
-                    ),
-                    count_fn=lambda: SystemNamingKey.objects.filter(
-                        key__startswith="transfer.", is_active=True
-                    ).count(),
-                    can_add=False,
-                ),
-                SystemItem(
-                    key="product_data_hub",
-                    title="جداول پویا مقصد (دیتای محصولات)",
-                    admin_changelist="admin:catalog_flexibledataset_changelist",
-                    admin_add="admin:catalog_flexibledataset_add",
-                    url_query="destination_id__exact=product_data",
-                    description=(
-                        "اسکیما و متادیتای تب‌های پویا: مشخصات کالاها، BOM قطعات، "
-                        "BOM مواد مصرفی، مشخصات مواد، مشخصات فنی دستگاه/قالب، موجودی، حواله‌ها — "
-                        "مقصد، سطح، ستون‌ها و کلیدها."
-                    ),
-                    count_fn=lambda: FlexibleDataset.objects.filter(
-                        destination_id="product_data"
-                    ).count(),
-                ),
-                SystemItem(
-                    key="vouchers_hub",
-                    title="ردیف‌های جداول پویا (دیتای محصولات)",
-                    admin_changelist="admin:catalog_flexiblerow_changelist",
-                    admin_add="admin:catalog_flexiblerow_add",
-                    description=(
-                        "ویرایش ردیف‌های JSON همه تب‌های دیتای محصولات "
-                        "(BOM، مواد، موجودی، حواله و …) با کلید هویت."
-                    ),
-                    count_fn=lambda: FlexibleRow.objects.filter(
-                        dataset__destination_id="product_data",
-                    ).count(),
-                ),
-                SystemItem(
-                    key="machines",
-                    title="دستگاه و خطوط",
-                    admin_changelist="admin:catalog_machine_changelist",
-                    admin_add="admin:catalog_machine_add",
-                    count_fn=_count(Machine),
+                    key="production_types",
+                    title="نوع تولید",
+                    admin_changelist="admin:catalog_productiontypeoption_changelist",
+                    admin_add="admin:catalog_productiontypeoption_add",
+                    count_fn=_count(ProductionTypeOption),
                 ),
                 SystemItem(
                     key="deviation_reasons",
@@ -347,57 +192,37 @@ def build_system_groups() -> list[SystemGroup]:
                     count_fn=_count(StoppageReason),
                 ),
                 SystemItem(
-                    key="product_groups",
-                    title="گروه‌های محصولات",
-                    admin_changelist="admin:catalog_productgroup_changelist",
-                    admin_add="admin:catalog_productgroup_add",
-                    count_fn=_count(ProductGroup),
+                    key="alarms",
+                    title="آلارم‌های سیستم",
+                    admin_changelist="admin:catalog_systemalarm_changelist",
+                    admin_add="admin:catalog_systemalarm_add",
+                    count_fn=lambda: SystemAlarm.objects.filter(
+                        status=SystemAlarm.Status.OPEN
+                    ).count(),
                 ),
                 SystemItem(
-                    key="product_subgroups",
-                    title="زیرگروه محصولات",
-                    admin_changelist="admin:catalog_productsubgroup_changelist",
-                    admin_add="admin:catalog_productsubgroup_add",
-                    count_fn=_count(ProductSubGroup),
-                ),
-                SystemItem(
-                    key="bom",
-                    title="ساختار BOM (قطعات — مدل کلاسیک)",
-                    admin_changelist="admin:catalog_productbomline_changelist",
-                    admin_add="admin:catalog_productbomline_add",
-                    description=(
-                        "خطوط BOM کلاسیک محصول←قطعه. تب پویای «BOM قطعات/مواد» در دیتای محصولات "
-                        "جداگانه مدیریت می‌شود."
+                    key="planning_chrome",
+                    title="تنظیمات کادرآبی و شیشه‌ای (برنامه‌ریزی هفتگی)",
+                    url_name="system_planning_chrome",
+                    can_add=False,
+                    count_fn=lambda: (
+                        PlanningDisplaySettings.objects.count()
+                        + PlanningInsightField.objects.count()
                     ),
-                    count_fn=_count(ProductBomLine),
                 ),
                 SystemItem(
-                    key="pipe_calc",
-                    title="خطوط و پروفایل محاسبه لوله",
-                    admin_changelist="admin:catalog_pipeproductline_changelist",
-                    admin_add="admin:catalog_pipeproductline_add",
-                    description=(
-                        "تعریف خطوط محصول، پروفایل سایز، سقف دپو، و قوانین محاسبه زمان تولید "
-                        "(ضرایب درپوش/اسپیسر/کاور و ترکیب مواد)."
-                    ),
-                    count_fn=_count(PipeProductLine),
+                    key="excel_tables",
+                    title="جداول اکسل",
+                    admin_changelist="admin:catalog_exceltable_changelist",
+                    admin_add="admin:catalog_exceltable_add",
+                    count_fn=_count(ExcelTable),
                 ),
                 SystemItem(
                     key="pipe_calc_rules",
-                    title="قوانین محاسبه زمان تولید",
+                    title="قوانین زمان تولید",
                     admin_changelist="admin:catalog_pipecalcrule_changelist",
                     admin_add="admin:catalog_pipecalcrule_add",
-                    description=(
-                        "ضرایب درپوش سوکت/لوله، اسپیسر، کاور و ترکیب مواد برای جدول محاسباتی."
-                    ),
                     count_fn=_count(PipeCalcRule),
-                ),
-                SystemItem(
-                    key="insight_fields",
-                    title="فیلد اطلاعات نوار شیشه‌ای",
-                    admin_changelist="admin:catalog_planninginsightfield_changelist",
-                    admin_add="admin:catalog_planninginsightfield_add",
-                    count_fn=_count(PlanningInsightField),
                 ),
                 SystemItem(
                     key="uid_scheme",
@@ -408,34 +233,181 @@ def build_system_groups() -> list[SystemGroup]:
                     count_fn=_count(ProgramUidScheme),
                 ),
                 SystemItem(
-                    key="products",
-                    title="محصولات و قطعات",
-                    admin_changelist="admin:catalog_product_changelist",
-                    admin_add="admin:catalog_product_add",
-                    count_fn=_count(Product),
+                    key="excel_uploads",
+                    title="فایل‌های اکسل / CSV",
+                    admin_changelist="admin:catalog_excelupload_changelist",
+                    admin_add="admin:catalog_excelupload_add",
+                    count_fn=_count(ExcelUpload),
                 ),
                 SystemItem(
-                    key="consumables",
-                    title="مواد مصرفی",
-                    admin_changelist="admin:catalog_productconsumable_changelist",
-                    admin_add="admin:catalog_productconsumable_add",
-                    count_fn=_count(ProductConsumable),
+                    key="pipe_calc",
+                    title="خطوط و پروفایل محاسبه لوله",
+                    admin_changelist="admin:catalog_pipeproductline_changelist",
+                    admin_add="admin:catalog_pipeproductline_add",
+                    count_fn=_count(PipeProductLine),
                 ),
                 SystemItem(
-                    key="units",
-                    title="واحد‌های تولید",
-                    admin_changelist="admin:catalog_productionunit_changelist",
-                    admin_add="admin:catalog_productionunit_add",
-                    count_fn=_count(ProductionUnit),
+                    key="bom",
+                    title="ساختار BOM (قطعات — مدل کلاسیک)",
+                    admin_changelist="admin:catalog_productbomline_changelist",
+                    admin_add="admin:catalog_productbomline_add",
+                    count_fn=_count(ProductBomLine),
                 ),
                 SystemItem(
-                    key="production_types",
-                    title="نوع تولید",
-                    admin_changelist="admin:catalog_productiontypeoption_changelist",
-                    admin_add="admin:catalog_productiontypeoption_add",
-                    count_fn=_count(ProductionTypeOption),
+                    key="planning_display",
+                    title="کادر آبی برنامه‌ریزی هفتگی",
+                    admin_changelist="admin:catalog_planningdisplaysettings_changelist",
+                    admin_add=None,
+                    can_add=False,
+                    count_fn=_count(PlanningDisplaySettings),
+                ),
+                SystemItem(
+                    key="insight_fields",
+                    title="فیلد اطلاعات نوار شیشه‌ای",
+                    admin_changelist="admin:catalog_planninginsightfield_changelist",
+                    admin_add="admin:catalog_planninginsightfield_add",
+                    count_fn=_count(PlanningInsightField),
+                ),
+                SystemItem(
+                    key="product_data_hub",
+                    title="جداول پویا مقصد (دیتای محصولات)",
+                    admin_changelist="admin:catalog_flexibledataset_changelist",
+                    admin_add="admin:catalog_flexibledataset_add",
+                    url_query="destination_id__exact=product_data",
+                    count_fn=lambda: FlexibleDataset.objects.filter(
+                        destination_id="product_data"
+                    ).count(),
+                ),
+                SystemItem(
+                    key="vouchers_hub",
+                    title="ردیف‌های جداول پویا (دیتای محصولات)",
+                    admin_changelist="admin:catalog_flexiblerow_changelist",
+                    admin_add="admin:catalog_flexiblerow_add",
+                    count_fn=lambda: FlexibleRow.objects.filter(
+                        dataset__destination_id="product_data",
+                    ).count(),
+                ),
+                SystemItem(
+                    key="transfer_dialog_labels",
+                    title="عناوین دیالوگ و مقاصد انتقال داده",
+                    url_name="system_naming_keys",
+                    url_query="kind=key&page=excel",
+                    can_add=False,
+                    count_fn=lambda: SystemNamingKey.objects.filter(
+                        key__startswith="transfer.", is_active=True
+                    ).count(),
+                ),
+                SystemItem(
+                    key="print_forms",
+                    title="فرم‌های چاپی",
+                    admin_changelist="admin:reports_printform_changelist",
+                    admin_add="admin:reports_printform_add",
+                    count_fn=_count(PrintForm),
+                ),
+                SystemItem(
+                    key="saved_reports",
+                    title="گزارش‌های ذخیره شده",
+                    admin_changelist="admin:reports_savedreport_changelist",
+                    admin_add="admin:reports_savedreport_add",
+                    count_fn=_count(SavedReport),
+                ),
+                SystemItem(
+                    key="report_parameter_defs",
+                    title="تعریف پارامترهای گزارش",
+                    admin_changelist="admin:reports_reportparameterdef_changelist",
+                    admin_add="admin:reports_reportparameterdef_add",
+                    count_fn=_count(ReportParameterDef),
+                ),
+                SystemItem(
+                    key="planning_process",
+                    title="منطق فرآیند برنامه‌ریزی (مراحل)",
+                    url_name="planning_process_list",
+                    can_add=False,
+                    count_fn=_count(PlanningProcessStep),
+                ),
+                SystemItem(
+                    key="weekly_plans",
+                    title="رکوردهای برنامه‌ریزی هفتگی",
+                    admin_changelist="admin:planning_weeklyplan_changelist",
+                    admin_add="admin:planning_weeklyplan_add",
+                    count_fn=_count(WeeklyPlan),
+                ),
+                SystemItem(
+                    key="plan_items",
+                    title="کالاهای برنامه",
+                    admin_changelist="admin:planning_weeklyplanitem_changelist",
+                    admin_add="admin:planning_weeklyplanitem_add",
+                    count_fn=_count(WeeklyPlanItem),
+                ),
+                SystemItem(
+                    key="day_entries",
+                    title="آمار تولید روزانه",
+                    admin_changelist="admin:production_productiondayentry_changelist",
+                    admin_add="admin:production_productiondayentry_add",
+                    count_fn=_count(ProductionDayEntry),
+                ),
+                SystemItem(
+                    key="programs",
+                    title="برنامه‌های تولید",
+                    admin_changelist="admin:production_productionprogram_changelist",
+                    admin_add="admin:production_productionprogram_add",
+                    count_fn=_count(ProductionProgram),
+                ),
+                SystemItem(
+                    key="fittings",
+                    title="تولید روزانه اتصالات",
+                    admin_changelist="admin:production_fittingproduction_changelist",
+                    admin_add="admin:production_fittingproduction_add",
+                    count_fn=_count(FittingProduction),
+                ),
+                SystemItem(
+                    key="history",
+                    title="سوابق تولید (رکوردها)",
+                    admin_changelist="admin:production_productionhistoryrecord_changelist",
+                    admin_add="admin:production_productionhistoryrecord_add",
+                    count_fn=_count(ProductionHistoryRecord),
+                ),
+                SystemItem(
+                    key="users",
+                    title="کاربرها",
+                    admin_changelist="admin:auth_user_changelist",
+                    admin_add="admin:auth_user_add",
+                    count_fn=_count(User),
+                ),
+                SystemItem(
+                    key="groups",
+                    title="گروه‌ها",
+                    admin_changelist="admin:auth_group_changelist",
+                    admin_add="admin:auth_group_add",
+                    count_fn=_count(Group),
+                ),
+            ],
+        ),
+        SystemGroup(
+            key="backup",
+            title="پشتیبان‌گیری و بازیابی",
+            items=[
+                SystemItem(
+                    key="backup_standard",
+                    title="پشتیبان‌گیری استاندارد",
+                    url_name="backup_center",
+                    url_query="mode=standard",
+                    can_add=False,
+                ),
+                SystemItem(
+                    key="backup_selective",
+                    title="پشتیبان‌گیری انتخابی",
+                    url_name="backup_center",
+                    url_query="mode=selective",
+                    can_add=False,
+                ),
+                SystemItem(
+                    key="backup_restore",
+                    title="بازیابی",
+                    url_name="backup_center",
+                    url_query="mode=restore",
+                    can_add=False,
                 ),
             ],
         ),
     ]
-

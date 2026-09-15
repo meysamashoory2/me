@@ -239,7 +239,7 @@ class PipeCalcViewTests(TestCase):
 
     def test_tabs_and_title(self):
         resp = self.client.get("/data/pipe-calc/")
-        self.assertContains(resp, "محاسبات زمان تولید")
+        self.assertContains(resp, "محاسبات تولید")
         self.assertContains(resp, "لوله‌های جنرال سایلنت")
         self.assertContains(resp, "لوله‌های سایلنت ۱۰")
         self.assertContains(resp, "نوار آبیاری (تیپ)")

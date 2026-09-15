@@ -4,7 +4,7 @@
 <html lang="fa" dir="rtl">
 <head>
 <title>{% block title %}{% endblock %}</title>
-<link rel="stylesheet" href="{% static 'css/app.css' %}?v=72">
+<link rel="stylesheet" href="{% static 'css/app.css' %}?v=73">
 <link rel="stylesheet" href="{% block stylesheet %}{% static "admin/css/base.css" %}{% endblock %}">
 {% block dark-mode-vars %}{% endblock %}
 {% block extrastyle %}{% endblock %}
@@ -34,51 +34,19 @@
     </div>
     {% if user.is_authenticated %}
     <div class="sidebar-user">({{ user.username }})</div>
-    <nav class="nav">
-      <div class="nav-section nav-section-solo">
-        <a href="{% url 'dashboard' %}">داشبورد</a>
-      </div>
-      <div class="nav-section">
-        <div class="nav-section-title">برنامه‌های تولید</div>
-        <a href="{% url 'plan_list' %}">برنامه‌ریزی هفتگی</a>
-        <a href="{% url 'systemic_intelligence' %}">برنامه‌ریزی توسط سیستم</a>
-        <a href="{% url 'program_list' %}">ثبت و کنترل تولید</a>
-        <a href="{% url 'production_history' %}">سوابق تولید</a>
-        <a href="{% url 'pipe_calc' %}">محاسبات زمان تولید</a>
-      </div>
-      <div class="nav-section">
-        <div class="nav-section-title">گزارشات</div>
-        <a href="{% url 'report_list' %}">گزارش‌ها</a>
-        <a href="{% url 'print_form_list' %}">فرم‌ها</a>
-      </div>
-      <div class="nav-section">
-        <div class="nav-section-title">مدیریت داده‌ها</div>
-        <a href="{% url 'excel_list' %}">بارگذاری فایل</a>
-        <a href="{% url 'product_data' %}">دیتای محصولات</a>
-        <a href="{% url 'system_data' %}" class="active">مدیریت داده‌های سامانه</a>
-      </div>
-      <div class="nav-section">
-        <div class="nav-section-title">کاربری سامانه</div>
-        {% if user.is_superuser %}
-        <a href="{% url 'user_management' %}">مدیریت کاربران</a>
-        {% endif %}
-        <form method="post" action="{% url 'logout' %}" class="nav-logout">{% csrf_token %}
-          <button class="nav-logout-btn" type="submit">خروج از سامانه</button>
-        </form>
-      </div>
-    </nav>
+    {% include "includes/sidebar_nav.html" %}
     {% endif %}
   </aside>
 
   <div class="main">
     <header class="topbar">
       <div class="topbar-title">
-        <span class="topbar-title-text">{% if title %}{{ title }}{% else %}مدیریت داده‌های سامانه{% endif %}</span>
+        <span class="topbar-title-text">{% if title %}{{ title }}{% else %}مدیریت داده‌ها{% endif %}</span>
         <span class="heading-hint">(مدیریت داده — امکانات کامل · کشیدن لبه سرستون = عرض · دوبار کلیک = اصلاح عنوان)</span>
       </div>
       <div class="topbar-user">
         <div class="topbar-actions">
-          <a class="btn btn-sm btn-ghost" href="{% url 'system_data' %}">بازگشت به مدیریت داده‌های سامانه</a>
+          <a class="btn btn-sm btn-ghost" href="{% url 'system_data' %}">بازگشت به مدیریت داده‌ها</a>
         </div>
       </div>
     </header>
@@ -88,7 +56,7 @@
       <nav class="admin-embed-crumbs" aria-label="{% translate 'Breadcrumbs' %}">
         {% block breadcrumbs %}
           <div class="breadcrumbs">
-            <a href="{% url 'system_data' %}">مدیریت داده‌های سامانه</a>
+            <a href="{% url 'system_data' %}">مدیریت داده‌ها</a>
             {% if title %} &rsaquo; {{ title }}{% endif %}
           </div>
         {% endblock %}

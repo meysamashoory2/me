@@ -715,17 +715,21 @@ def _can_edit_naming(user) -> bool:
 
 @login_required
 def system_naming_keys(request: HttpRequest) -> HttpResponse:
-    """Searchable registry of all system naming keys with exact addresses."""
+    """Merged نام‌گذاری عناوین: menus, headings, columns, tables, keys."""
     from django.db.models import Q
+    from django.urls import reverse
 
     from .models import SystemNamingKey
     from .naming_registry import (
-        SOURCE_CHOICES,
+        KIND_LABELS,
         ensure_registry_seeded,
-        key_source,
-        section_choices,
+        infer_page_key,
+        kind_code,
+        kind_label,
+        preview_href,
         sync_naming_registry,
     )
+    from .nav import NAV_SECTIONS
 
     ensure_registry_seeded()
     if request.method == "POST" and request.POST.get("action") == "resync":
@@ -741,19 +745,16 @@ def system_naming_keys(request: HttpRequest) -> HttpResponse:
         )
         return redirect("system_naming_keys")
 
+    kind = (request.GET.get("kind") or "").strip()
+    page = (request.GET.get("page") or "").strip()
+    status = (request.GET.get("status") or "all").strip()
     q = (request.GET.get("q") or "").strip()
-    category = (request.GET.get("category") or "").strip()
-    section = (request.GET.get("section") or "").strip()
-    table = (request.GET.get("table") or "").strip()
-    source = (request.GET.get("source") or "app").strip()
-    if source not in {c[0] for c in SOURCE_CHOICES}:
-        source = "app"
-    only_renamed = request.GET.get("renamed") == "1"
-    show_inactive = request.GET.get("inactive") == "1"
 
     qs = SystemNamingKey.objects.all()
-    if not show_inactive:
+    if status == "active":
         qs = qs.filter(is_active=True)
+    elif status == "inactive":
+        qs = qs.filter(is_active=False)
     if q:
         qs = qs.filter(
             Q(key__icontains=q)
@@ -763,66 +764,49 @@ def system_naming_keys(request: HttpRequest) -> HttpResponse:
             | Q(table_key__icontains=q)
             | Q(default_label__icontains=q)
         )
-    if category:
-        qs = qs.filter(category=category)
-    if section:
-        qs = qs.filter(Q(section_key=section) | Q(linked_section_key=section))
-    if table:
-        qs = qs.filter(table_key=table)
-    if only_renamed:
-        from django.db.models import F
+    qs = qs.exclude(key__startswith="admin.")
 
-        qs = qs.exclude(default_label="").exclude(label=F("default_label"))
+    page_choices = [("", "همه")]
+    seen_pages: set[str] = set()
+    for section in NAV_SECTIONS:
+        if section.key not in seen_pages:
+            page_choices.append((section.key, section.title))
+            seen_pages.add(section.key)
+        for item in section.items:
+            if item.key not in seen_pages:
+                page_choices.append((item.key, item.title))
+                seen_pages.add(item.key)
 
-    # Source filter — default "app" hides admin technical keys users rarely see
-    if source == "app":
-        qs = qs.exclude(key__startswith="admin.")
-    elif source == "ui":
-        qs = qs.filter(key__startswith="ui.")
-    elif source == "transfer":
-        qs = qs.filter(key__startswith="transfer.")
-    elif source == "report":
-        qs = qs.filter(key__startswith="report.")
-    elif source == "section":
-        qs = qs.filter(key__startswith="system.")
-    elif source == "admin":
-        qs = qs.filter(key__startswith="admin.")
-    # "all" → no extra filter
+    rows_raw = list(qs.order_by("category", "table_key", "order", "key")[:400])
+    return_path = reverse("system_naming_keys")
+    rows = []
+    for row in rows_raw:
+        code = kind_code(row.key, row.category)
+        pkey = infer_page_key(row.key, row.table_key, row.section_key)
+        if kind and code != kind:
+            continue
+        if page and pkey != page and row.section_key != page:
+            continue
+        row.kind_code = code  # type: ignore[attr-defined]
+        row.kind_label = kind_label(code)  # type: ignore[attr-defined]
+        row.page_key = pkey  # type: ignore[attr-defined]
+        row.preview_href = preview_href(row.key, return_path=return_path)  # type: ignore[attr-defined]
+        rows.append(row)
 
-    filtered_count = qs.count()
-    rows = list(qs.order_by("category", "table_key", "order", "key")[:250])
-    section_label_map = dict(section_choices())
-    for row in rows:
-        row.source_bucket = key_source(row.key)  # type: ignore[attr-defined]
-        row.linked_section_label = section_label_map.get(  # type: ignore[attr-defined]
-            row.linked_section_key or "",
-            "به هیچ بخشی وصل نیست",
-        )
-    tables = (
-        SystemNamingKey.objects.exclude(table_key="")
-        .values_list("table_key", flat=True)
-        .distinct()
-        .order_by("table_key")
-    )
     return render(
         request,
         "catalog/system_naming_keys.html",
         {
             "rows": rows,
             "q": q,
-            "category": category,
-            "section": section,
-            "table": table,
-            "source": source,
-            "source_choices": SOURCE_CHOICES,
-            "only_renamed": only_renamed,
-            "show_inactive": show_inactive,
-            "categories": SystemNamingKey.Category.choices,
-            "section_choices": section_choices(),
-            "table_choices": list(tables),
+            "kind": kind,
+            "page": page,
+            "status": status,
+            "kind_choices": [("", "همه")] + list(KIND_LABELS),
+            "page_choices": page_choices,
             "can_edit": _can_edit_naming(request.user),
             "total_count": SystemNamingKey.objects.filter(is_active=True).count(),
-            "filtered_count": filtered_count,
+            "filtered_count": len(rows),
             "shown_count": len(rows),
         },
     )
@@ -931,13 +915,18 @@ def system_naming_key_delete(request: HttpRequest) -> JsonResponse:
 
 @login_required
 def system_table_layout(request: HttpRequest) -> HttpResponse:
-    """Per-menu row height, borders, and column-width lock."""
+    """Per-menu header/body table settings, tabbed by sidebar menus."""
     from .models import TableLayoutSettings
+    from .nav import layout_surfaces
     from .table_layout import (
         SECTION_CHOICES,
         SECTION_KEYS,
+        clamp_alpha,
         clamp_row_height,
+        default_layout,
+        layout_storage_key,
         locks_from_layouts,
+        normalize_section_layout,
     )
 
     if not _can_edit_naming(request.user) and request.method == "POST":
@@ -947,25 +936,59 @@ def system_table_layout(request: HttpRequest) -> HttpResponse:
     if settings.pk is None:
         settings.save()
 
-    active = (request.POST.get("section") or request.GET.get("section") or "reports").strip()
+    active = (request.POST.get("section") or request.GET.get("section") or "planning").strip()
     if active not in SECTION_KEYS:
-        active = "reports"
+        active = SECTION_KEYS[0]
+    surfaces = layout_surfaces(active)
+    surface = (request.POST.get("surface") or request.GET.get("surface") or "").strip()
+    surface_keys = {s.key for s in surfaces}
+    if surface and surface not in surface_keys:
+        surface = surfaces[0].key if surfaces else ""
+    if not surface and surfaces:
+        surface = surfaces[0].key
+    store_key = layout_storage_key(active, surface)
 
     if request.method == "POST":
         layouts = settings.layouts_map()
-        layouts[active] = {
-            "row_height_px": clamp_row_height(request.POST.get("row_height_px")),
+        current = dict(layouts.get(store_key) or default_layout(active))
+        posted = {
+            "row_height_px": clamp_row_height(request.POST.get("row_height_px"), current["row_height_px"]),
+            "header_height_px": clamp_row_height(
+                request.POST.get("header_height_px"), current["header_height_px"]
+            ),
             "col_border": request.POST.get("col_border") == "show",
             "row_border": request.POST.get("row_border") == "show",
             "header_border": request.POST.get("header_border") == "show",
             "width_locked": request.POST.get("width_locked") == "1",
+            "header_wrap": request.POST.get("header_wrap") == "1",
+            "body_wrap": request.POST.get("body_wrap") == "1",
+            "marquee": request.POST.get("marquee") == "1",
+            "header_color": request.POST.get("header_color") or current["header_color"],
+            "header_alpha": clamp_alpha(request.POST.get("header_alpha"), current["header_alpha"]),
+            "row_selected_color": request.POST.get("row_selected_color") or current["row_selected_color"],
+            "row_selected_alpha": clamp_alpha(
+                request.POST.get("row_selected_alpha"), current["row_selected_alpha"]
+            ),
+            "cell_outline_color": request.POST.get("cell_outline_color") or current["cell_outline_color"],
+            "cell_outline_alpha": clamp_alpha(
+                request.POST.get("cell_outline_alpha"), current["cell_outline_alpha"]
+            ),
+            "cell_fill_color": request.POST.get("cell_fill_color") or current["cell_fill_color"],
+            "cell_fill_alpha": clamp_alpha(
+                request.POST.get("cell_fill_alpha"), current["cell_fill_alpha"]
+            ),
         }
+        layouts[store_key] = normalize_section_layout(active, posted)
+        if not surface or (surfaces and surface == surfaces[0].key):
+            layouts[active] = layouts[store_key]
         settings.section_layouts = layouts
         settings.section_width_locks = locks_from_layouts(layouts)
         settings.row_height_px = int(layouts.get("reports", {}).get("row_height_px") or 36)
         settings.save()
-        messages.success(request, "تنظیمات نمایش این بخش ذخیره شد.")
-        return redirect(f"{request.path}?section={active}")
+        q = f"?section={active}"
+        if surface:
+            q += f"&surface={surface}"
+        return redirect(request.path + q)
 
     layouts = settings.layouts_map()
     tabs = [
@@ -973,23 +996,50 @@ def system_table_layout(request: HttpRequest) -> HttpResponse:
             "key": key,
             "label": label,
             "active": key == active,
-            "layout": layouts[key],
         }
         for key, label in SECTION_CHOICES
     ]
-    current = layouts[active]
+    current = layouts.get(store_key) or layouts.get(active) or default_layout(active)
+    body_wrap_locked = (not current.get("col_border", True)) and (not current.get("row_border", True))
     return render(
         request,
         "catalog/system_table_layout.html",
         {
             "active_section": active,
+            "active_surface": surface,
             "tabs": tabs,
-            "row_height_px": current["row_height_px"],
-            "col_border": current["col_border"],
-            "row_border": current["row_border"],
-            "header_border": current["header_border"],
-            "width_locked": current["width_locked"],
+            "surfaces": surfaces,
+            "layout": current,
+            "body_wrap_locked": body_wrap_locked,
             "can_edit": _can_edit_naming(request.user),
+        },
+    )
+
+
+@login_required
+def system_menu_config(request: HttpRequest) -> HttpResponse:
+    from .nav import MENU_CONFIG_ITEMS, nav_item_by_key
+
+    menu = (request.GET.get("menu") or "").strip()
+    title = dict(MENU_CONFIG_ITEMS).get(menu, "پیکربندی منو")
+    item = nav_item_by_key(menu)
+    return render(
+        request,
+        "catalog/system_menu_config.html",
+        {"menu_key": menu, "menu_title": title, "nav_item": item},
+    )
+
+
+@login_required
+def system_planning_chrome(request: HttpRequest) -> HttpResponse:
+    from django.urls import reverse
+
+    return render(
+        request,
+        "catalog/system_planning_chrome.html",
+        {
+            "display_url": reverse("admin:catalog_planningdisplaysettings_changelist"),
+            "insight_url": reverse("admin:catalog_planninginsightfield_changelist"),
         },
     )
 

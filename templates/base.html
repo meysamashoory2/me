@@ -7,7 +7,7 @@
   <title>{% block title %}سامانه برنامه ریزی و کنترل تولید{% endblock %}</title>
   <link rel="stylesheet" href="{% static 'vendor/tom-select/tom-select.min.css' %}?v=9">
   <link rel="stylesheet" href="{% static 'vendor/jalalidatepicker/jalalidatepicker.min.css' %}?v=9">
-  <link rel="stylesheet" href="{% static 'css/app.css' %}?v=72">
+  <link rel="stylesheet" href="{% static 'css/app.css' %}?v=73">
   <style>
     :root { --table-row-height: {{ table_row_height_px|default:36 }}px; }
     {{ table_layout_css|default:''|safe }}
@@ -25,46 +25,7 @@
     </div>
     {% if user.is_authenticated %}
     <div class="sidebar-user">({{ user.username }})</div>
-    <nav class="nav">
-      <div class="nav-section nav-section-solo">
-        <a href="{% url 'dashboard' %}" class="{% block nav_dashboard %}{% endblock %}">داشبورد</a>
-      </div>
-
-      <div class="nav-section {% block nav_production %}{% endblock %}">
-        <div class="nav-section-title">برنامه‌های تولید</div>
-        <a href="{% url 'plan_list' %}" class="{% block nav_planning %}{% endblock %}">برنامه‌ریزی هفتگی</a>
-        <a href="{% url 'systemic_intelligence' %}" class="{% block nav_systemic %}{% endblock %}">برنامه‌ریزی توسط سیستم</a>
-        <a href="{% url 'program_list' %}" class="{% block nav_programs %}{% endblock %}">ثبت و کنترل تولید</a>
-        <a href="{% url 'production_history' %}" class="{% block nav_history %}{% endblock %}">سوابق تولید</a>
-        <a href="{% url 'pipe_calc' %}" class="{% block nav_pipe_calc %}{% endblock %}">محاسبات زمان تولید</a>
-      </div>
-
-      <div class="nav-section {% block nav_reports %}{% endblock %}">
-        <div class="nav-section-title">گزارشات</div>
-        <a href="{% url 'report_list' %}" class="{% block nav_report_list %}{% endblock %}">گزارش‌ها</a>
-        <a href="{% url 'print_form_list' %}" class="{% block nav_form_list %}{% endblock %}">فرم‌ها</a>
-      </div>
-
-      <div class="nav-section {% block nav_data %}{% endblock %}">
-        <div class="nav-section-title">مدیریت داده‌ها</div>
-        <a href="{% url 'excel_list' %}" class="{% block nav_excel %}{% endblock %}">بارگذاری فایل</a>
-        <a href="{% url 'product_data' %}" class="{% block nav_product_data %}{% endblock %}">دیتای محصولات</a>
-        <a href="{% url 'system_data' %}" class="{% block nav_system_data %}{% endblock %}">مدیریت داده‌های سامانه</a>
-      </div>
-
-      <div class="nav-section {% block nav_account %}{% endblock %}">
-        <div class="nav-section-title">کاربری سامانه</div>
-        {% if profile.can_manage_users or user.is_superuser %}
-        <a href="{% url 'user_management' %}" class="{% block nav_users %}{% endblock %}">مدیریت کاربران</a>
-        {% endif %}
-        {% if profile.can_backup or user.is_superuser %}
-        <a href="{% url 'backup_center' %}" class="{% block nav_backup %}{% endblock %}">پشتیبان‌گیری</a>
-        {% endif %}
-        <form method="post" action="{% url 'logout' %}" class="nav-logout" id="logout-form">{% csrf_token %}
-          <button class="nav-logout-btn" type="submit">خروج از سامانه</button>
-        </form>
-      </div>
-    </nav>
+    {% include "includes/sidebar_nav.html" %}
     {% endif %}
   </aside>
 
@@ -76,7 +37,7 @@
       </div>
     </header>
 
-    <main class="content" data-table-section="{% block table_section %}{% endblock %}">
+    <main class="content" data-table-section="{% block table_section %}{% endblock %}" data-table-surface="{% block table_surface %}{% endblock %}">
       {% block content %}{% endblock %}
     </main>
   </div>
@@ -99,7 +60,9 @@
 <script src="{% static 'js/app.js' %}?v=17"></script>
 <script src="{% static 'js/table_nav.js' %}?v=10"></script>
 <script src="{% static 'js/number_normalize.js' %}?v=1"></script>
-<script src="{% static 'js/table_layout.js' %}?v=12"></script>
+<script src="{% static 'js/table_layout.js' %}?v=13"></script>
+<script src="{% static 'js/dialog_drag.js' %}?v=1"></script>
+<script src="{% static 'js/naming_preview.js' %}?v=1"></script>
 <script>
 (function () {
   function openDesigner(url) {

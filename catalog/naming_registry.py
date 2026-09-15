@@ -106,6 +106,55 @@ def section_choices() -> list[tuple[str, str]]:
     return out
 
 
+KIND_LABELS: list[tuple[str, str]] = [
+    ("heading", "سرتیتر"),
+    ("menu", "منو"),
+    ("column", "سرستون"),
+    ("table", "جدول"),
+    ("key", "کلید"),
+]
+
+
+def kind_code(key: str, category: str = "") -> str:
+    k = (key or "").strip()
+    if k.startswith("nav.heading.") or k.startswith("system.group."):
+        return "heading"
+    if k.startswith("nav.item.") or k.startswith("system.section."):
+        return "menu"
+    if category == SystemNamingKey.Category.COLUMN or ".col." in k:
+        return "column"
+    if category == SystemNamingKey.Category.TABLE or k.startswith("ui.table.") or k.startswith("admin.table."):
+        return "table"
+    return "key"
+
+
+def kind_label(code: str) -> str:
+    return dict(KIND_LABELS).get(code, "کلید")
+
+
+def infer_page_key(key: str, table_key: str = "", section_key: str = "") -> str:
+    k = (key or "").strip()
+    if k.startswith("nav.heading.") or k.startswith("nav.item."):
+        return k.rsplit(".", 1)[-1]
+    if k.startswith("system.group.") or k.startswith("system.section."):
+        return "system"
+    if "planning.plan_list" in k or table_key.startswith("planning"):
+        return "planning"
+    if "history_list" in k or table_key.endswith("history_list"):
+        return "history"
+    if "excel" in k or table_key.startswith("catalog.excel"):
+        return "excel"
+    if k.startswith("transfer.") or "excel_import" in (key or ""):
+        return "excel"
+    if k.startswith("report.") or table_key.startswith("report."):
+        return "reports"
+    if k.startswith("admin."):
+        return "system"
+    if section_key:
+        return section_key
+    return "other"
+
+
 def _spec(
     *,
     key: str,
@@ -117,6 +166,9 @@ def _spec(
     column_key: str = "",
     order: int = 0,
     is_key: bool = False,
+    page_key: str = "",
+    url_name: str = "",
+    highlight: str = "",
 ) -> dict[str, Any]:
     return {
         "key": key[:220],
@@ -129,6 +181,9 @@ def _spec(
         "column_key": column_key[:120],
         "order": order,
         "is_key": bool(is_key),
+        "page_key": (page_key or infer_page_key(key, table_key, section_key))[:80],
+        "url_name": url_name[:120],
+        "highlight": highlight[:220],
     }
 
 
@@ -240,15 +295,25 @@ def _harvest_ui_columns() -> list[dict[str, Any]]:
         ),
     ]
     out: list[dict[str, Any]] = []
+    preview = {
+        "planning.plan_list": ("plan_list", "planning"),
+        "production.history_list": ("production_history", "history"),
+        "catalog.excel_list": ("excel_list", "excel"),
+        "catalog.system_data_hub": ("system_data", "system"),
+    }
     for table_key, table_label, section_key, template, cols in tables:
+        url_name, page_key = preview.get(table_key, ("", infer_page_key(table_key, table_key, section_key)))
         out.append(
             _spec(
                 key=f"ui.table.{table_key}",
                 label=table_label,
-                address=f"صفحات کاربری ← {table_label} ← {template}",
+                address=f"{page_key or 'سامانه'} ← {table_label}",
                 category=SystemNamingKey.Category.TABLE,
                 section_key=section_key,
                 table_key=table_key,
+                page_key=page_key,
+                url_name=url_name,
+                highlight="main.content, .panel-list, .table-scroll",
                 order=0,
             )
         )
@@ -257,14 +322,14 @@ def _harvest_ui_columns() -> list[dict[str, Any]]:
                 _spec(
                     key=f"ui.table.{table_key}.col.{col_key}",
                     label=label,
-                    address=(
-                        f"صفحات کاربری ← {table_label} ← ستون «{label}» "
-                        f"({template}#data-col={col_key})"
-                    ),
+                    address=f"{table_label} ← سرستون «{label}»",
                     category=SystemNamingKey.Category.COLUMN,
                     section_key=section_key,
                     table_key=table_key,
                     column_key=col_key,
+                    page_key=page_key,
+                    url_name=url_name,
+                    highlight=f'[data-col="{col_key}"]',
                     order=i,
                 )
             )
@@ -537,8 +602,45 @@ def _harvest_admin_models() -> list[dict[str, Any]]:
     return out
 
 
+def _harvest_nav() -> list[dict[str, Any]]:
+    from catalog.nav import NAV_SECTIONS
+
+    out: list[dict[str, Any]] = []
+    for si, section in enumerate(NAV_SECTIONS):
+        out.append(
+            _spec(
+                key=f"nav.heading.{section.key}",
+                label=section.title,
+                address=f"{section.title}",
+                category=SystemNamingKey.Category.SECTION,
+                section_key=section.key,
+                page_key=section.key,
+                highlight=f'[data-nav-heading="{section.key}"]',
+                order=si * 20,
+            )
+        )
+        for ii, item in enumerate(section.items):
+            highlight = f'[data-nav-key="{item.key}"]'
+            address = f"{section.title} ← {item.title}"
+            out.append(
+                _spec(
+                    key=f"nav.item.{item.key}",
+                    label=item.title,
+                    address=address,
+                    category=SystemNamingKey.Category.SECTION,
+                    section_key=item.key,
+                    page_key=item.key,
+                    url_name=item.url_name if item.kind != "logout" else "logout",
+                    highlight=highlight,
+                    order=si * 20 + ii + 1,
+                )
+            )
+    return out
+
+
 def harvest_specs() -> list[dict[str, Any]]:
     specs: list[dict[str, Any]] = []
+    specs.extend(_harvest_nav())
     specs.extend(_harvest_sections())
     specs.extend(_harvest_ui_columns())
     specs.extend(_harvest_transfer())
@@ -570,11 +672,40 @@ SOURCE_CHOICES: list[tuple[str, str]] = [
 ]
 
 
+def preview_map() -> dict[str, dict[str, Any]]:
+    return {s["key"]: s for s in harvest_specs()}
+
+
+def preview_href(key: str, *, return_path: str) -> str:
+    from django.urls import NoReverseMatch, reverse
+    from urllib.parse import urlencode
+
+    spec = preview_map().get(key) or {}
+    url_name = spec.get("url_name") or ""
+    if not url_name or url_name == "logout":
+        return ""
+    try:
+        path = reverse(url_name)
+    except NoReverseMatch:
+        return ""
+    query = urlencode(
+        {
+            "naming_preview": "1",
+            "hk": key,
+            "hl": spec.get("highlight") or "",
+            "ret": return_path,
+        }
+    )
+    return f"{path}?{query}"
+
+
 def key_source(key: str) -> str:
     """Map a naming key to a high-level source bucket."""
     k = (key or "").strip()
     if k.startswith("admin."):
         return "admin"
+    if k.startswith("nav."):
+        return "section"
     if k.startswith("ui."):
         return "ui"
     if k.startswith("transfer."):

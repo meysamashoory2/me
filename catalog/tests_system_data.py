@@ -78,7 +78,10 @@ class SystemDataNoShortcutsTests(TestCase):
             "system_naming_keys",
             "system_table_columns",
             "system_table_layout",
+            "system_menu_config",
+            "system_planning_chrome",
             "planning_process_list",
+            "backup_center",
         }
         for group in build_system_groups():
             for item in group.items:
@@ -95,19 +98,42 @@ class SystemDataNoShortcutsTests(TestCase):
                 )
 
     def test_report_parameter_defs_in_system_data(self):
-        reports = next(g for g in build_system_groups() if g.key == "reports")
-        keys = [i.key for i in reports.items]
+        keys = [i.key for g in build_system_groups() for i in g.items]
         self.assertIn("report_parameter_defs", keys)
-        item = next(i for i in reports.items if i.key == "report_parameter_defs")
+        item = next(
+            i
+            for g in build_system_groups()
+            for i in g.items
+            if i.key == "report_parameter_defs"
+        )
         self.assertEqual(item.admin_changelist, "admin:reports_reportparameterdef_changelist")
         page = self.client.get(reverse("system_data"))
         self.assertContains(page, "تعریف پارامترهای گزارش")
         self.assertContains(page, reverse("admin:reports_reportparameterdef_changelist"))
 
+    def test_hub_new_groups_and_naming_page(self):
+        page = self.client.get(reverse("system_data"))
+        self.assertEqual(page.status_code, 200)
+        self.assertContains(page, "عناوین و ساختار نمایش")
+        self.assertContains(page, "نام‌گذاری عناوین سیستم")
+        self.assertContains(page, "تنظیمات جداول")
+        self.assertContains(page, "پیکربندی منوها")
+        self.assertContains(page, "پشتیبان‌گیری استاندارد")
+        naming = self.client.get(reverse("system_naming_keys"))
+        self.assertEqual(naming.status_code, 200)
+        self.assertContains(naming, "نوع کلید")
+        self.assertContains(naming, "عنوان نمایشی")
+        self.assertContains(naming, "سرتیتر")
+        layout = self.client.get(reverse("system_table_layout"))
+        self.assertContains(layout, "بدنه جداول")
+        cfg = self.client.get(reverse("system_menu_config"), {"menu": "planning"})
+        self.assertEqual(cfg.status_code, 200)
+        self.assertContains(cfg, "برنامه‌ریزی هفتگی")
+
     def test_flexible_dataset_admin_loads(self):
         resp = self.client.get(reverse("admin:catalog_flexibledataset_changelist"))
         self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, "بازگشت به مدیریت داده‌های سامانه")
+        self.assertContains(resp, "بازگشت به مدیریت داده‌ها")
 
     def test_section_redirect_uses_admin_not_app(self):
         resp = self.client.get(reverse("system_section", args=["pipe_calc"]))
@@ -146,14 +172,12 @@ class TableLayoutSettingsTests(TestCase):
         url = reverse("system_table_layout")
         get = self.client.get(url)
         self.assertEqual(get.status_code, 200)
-        self.assertContains(get, "ارتفاع ردیف جداول")
-        self.assertContains(get, "layout-card")
-        self.assertContains(get, "قفل عرض ستون جداول")
+        self.assertContains(get, "ارتفاع ردیف")
+        self.assertContains(get, "قفل کردن ستون")
         self.assertContains(get, "برنامه‌ریزی هفتگی")
-        self.assertContains(get, "برنامه‌ریزی توسط سیستم")
-        self.assertContains(get, "نمایش مرز ستون")
-        self.assertContains(get, "مخفی کردن مرز ردیف")
-        self.assertNotContains(get, "عرض پیش‌فرض ستون‌های منابع گزارش")
+        self.assertContains(get, "برنامه‌ریزی هوشمند")
+        self.assertContains(get, "سرستون")
+        self.assertContains(get, "بدنه جداول")
         resp = self.client.post(
             url,
             {

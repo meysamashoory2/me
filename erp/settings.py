@@ -100,6 +100,7 @@ TEMPLATES = [
                 "django.contrib.messages.context_processors.messages",
                 "core.context_processors.user_profile",
                 "core.context_processors.table_layout",
+                "core.context_processors.chrome_nav",
             ],
         },
     },

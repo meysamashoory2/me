@@ -425,6 +425,7 @@ def backup_center(request):
             "default_path": default_path,
             "inspect_info": inspect_info,
             "last_source": request.POST.get("source_path") or "",
+            "backup_mode": (request.GET.get("mode") or "standard").strip(),
         },
     )
 

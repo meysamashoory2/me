@@ -55,7 +55,7 @@ class TableLayoutHelpersTests(SimpleTestCase):
                 }
             }
         )
-        self.assertIn('[data-table-section="planning"]{--table-row-height:8px;}', css)
+        self.assertIn("--table-row-height:8px", css)
         self.assertIn("border-left:none !important", css)
         self.assertIn("border-right:none !important", css)
         self.assertIn("border-inline-end:none !important", css)

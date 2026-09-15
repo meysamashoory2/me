@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}تنظیمات کادر آبی و شیشه‌ای{% endblock %}
+{% block heading %}تنظیمات کادرآبی و شیشه‌ای (برنامه‌ریزی هفتگی){% endblock %}
+{% block table_section %}system{% endblock %}
+
+{% block topbar_actions %}
+<div class="topbar-actions">
+  <a class="btn btn-sm btn-ghost" href="{% url 'system_data' %}">بازگشت به مدیریت داده‌ها</a>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="panel panel-compact">
+  <div class="panel-body" style="display:grid;gap:12px">
+    <a class="btn btn-primary-soft" href="{{ display_url }}">کادر آبی برنامه‌ریزی هفتگی</a>
+    <a class="btn btn-primary-soft" href="{{ insight_url }}">نوار شیشه‌ای / فیلدهای بینش</a>
+  </div>
+</div>
+{% endblock %}

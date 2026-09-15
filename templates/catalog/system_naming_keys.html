@@ -1,14 +1,12 @@
 {% extends "base.html" %}
-{% block title %}کلیدهای نام‌گذاری سیستم{% endblock %}
-{% block heading %}کلیدهای نام‌گذاری سیستم{% endblock %}
-{% block nav_data %}{% endblock %}
-{% block nav_system_data %}active{% endblock %}
+{% block title %}نام‌گذاری عناوین سیستم{% endblock %}
+{% block heading %}نام‌گذاری عناوین سیستم{% endblock %}
 {% block table_section %}system{% endblock %}
+{% block table_surface %}naming{% endblock %}
 
 {% block topbar_actions %}
-<div class="topbar-actions topbar-actions-pair">
-  <a class="btn btn-sm btn-ghost" href="{% url 'system_table_columns' %}">سرستون‌های جداول</a>
-  <a class="btn btn-sm btn-ghost" href="{% url 'system_data' %}">بازگشت به مدیریت داده‌های سامانه</a>
+<div class="topbar-actions">
+  <a class="btn btn-sm btn-ghost" href="{% url 'system_data' %}">بازگشت به مدیریت داده‌ها</a>
 </div>
 {% endblock %}
 
@@ -17,50 +15,32 @@
 <div class="panel panel-list naming-keys-panel" data-table-section="system">
   <form class="list-filter-bar naming-filter-bar" method="get">
     <label class="field">
-      <span>منبع</span>
-      <select class="input" name="source">
-        {% for val, lab in source_choices %}
-        <option value="{{ val }}" {% if source == val %}selected{% endif %}>{{ lab }}</option>
+      <span>نوع کلید</span>
+      <select class="input" name="kind">
+        {% for val, lab in kind_choices %}
+        <option value="{{ val }}" {% if kind == val %}selected{% endif %}>{{ lab }}</option>
         {% endfor %}
       </select>
     </label>
     <label class="field">
-      <span>جستجو (کلید / عنوان / آدرس)</span>
-      <input class="input" type="search" name="q" value="{{ q }}" placeholder="مثلاً data-col=unique_code یا کد کالا">
-    </label>
-    <label class="field">
-      <span>دسته</span>
-      <select class="input" name="category">
-        <option value="">همه</option>
-        {% for val, lab in categories %}
-        <option value="{{ val }}" {% if category == val %}selected{% endif %}>{{ lab }}</option>
+      <span>آدرس صفحه</span>
+      <select class="input" name="page">
+        {% for val, lab in page_choices %}
+        <option value="{{ val }}" {% if page == val %}selected{% endif %}>{{ lab }}</option>
         {% endfor %}
       </select>
     </label>
     <label class="field">
-      <span>بخش سیستم</span>
-      <select class="input" name="section">
-        {% for val, lab in section_choices %}
-        <option value="{{ val }}" {% if section == val %}selected{% endif %}>{{ lab }}</option>
-        {% endfor %}
+      <span>وضعیت</span>
+      <select class="input" name="status">
+        <option value="all" {% if status == "all" %}selected{% endif %}>همه</option>
+        <option value="active" {% if status == "active" %}selected{% endif %}>فعال</option>
+        <option value="inactive" {% if status == "inactive" %}selected{% endif %}>غیرفعال</option>
       </select>
     </label>
     <label class="field">
-      <span>جدول</span>
-      <select class="input" name="table">
-        <option value="">همه</option>
-        {% for t in table_choices %}
-        <option value="{{ t }}" {% if table == t %}selected{% endif %}>{{ t }}</option>
-        {% endfor %}
-      </select>
-    </label>
-    <label class="field field-check">
-      <span>فقط تغییرنام‌داده‌ها</span>
-      <input type="checkbox" name="renamed" value="1" {% if only_renamed %}checked{% endif %}>
-    </label>
-    <label class="field field-check">
-      <span>نمایش پنهان‌شده‌ها</span>
-      <input type="checkbox" name="inactive" value="1" {% if show_inactive %}checked{% endif %}>
+      <span>جستجو</span>
+      <input class="input" type="search" name="q" value="{{ q }}" placeholder="عنوان یا آدرس">
     </label>
     <div class="naming-filter-actions">
       <button class="btn btn-primary-soft" type="submit">اعمال فیلتر</button>
@@ -70,12 +50,7 @@
       {% endif %}
     </div>
   </form>
-
-  <p class="muted naming-filter-count">
-    مجموع فعال: {{ total_count }} · فیلتر: {{ filtered_count }} · نمایش: {{ shown_count }}
-    {% if filtered_count > shown_count %}(برای دیدن همه، فیلتر دقیق‌تر بزنید){% endif %}
-  </p>
-
+  <p class="muted naming-filter-count">نمایش {{ shown_count }} مورد · فعال در سامانه: {{ total_count }}</p>
   {% if can_edit %}
   <form method="post" class="naming-resync-form" id="naming-resync-form" hidden>
     {% csrf_token %}
@@ -88,93 +63,55 @@
       <thead>
         <tr>
           <th style="width:70px">ردیف</th>
-          <th>کلید پایدار</th>
+          <th style="width:110px">نوع کلید</th>
           <th>عنوان نمایشی</th>
-          <th>آدرس دقیق</th>
-          <th style="width:110px">دسته</th>
-          <th style="width:220px" title="فقط برای پیدا کردن این کلید در فیلتر «بخش سیستم». داده جدول عوض نمی‌شود.">بخش مرتبط</th>
-          <th style="width:90px">وضعیت</th>
-          <th style="width:90px">کلیدی</th>
-          {% if can_edit %}<th style="width:100px">عملیات</th>{% endif %}
+          <th>آدرس</th>
+          <th style="width:110px">وضعیت</th>
+          {% if can_edit %}<th style="width:110px">عملیات</th>{% endif %}
         </tr>
       </thead>
       <tbody>
         {% for row in rows %}
-        <tr data-id="{{ row.pk }}" class="{% if row.is_renamed %}is-renamed{% endif %}{% if not row.is_active %} is-inactive{% endif %}">
+        <tr data-id="{{ row.pk }}" class="{% if not row.is_active %}is-inactive{% endif %}">
           <td class="num">{{ forloop.counter }}</td>
-          <td>
-            <code class="naming-key-code" title="{{ row.key }}">{{ row.key }}</code>
-            {% if row.source_bucket == "admin" %}<span class="naming-badge naming-badge-admin">ادمین</span>{% endif %}
-            {% if row.source_bucket == "ui" %}<span class="naming-badge naming-badge-ui">صفحه</span>{% endif %}
-            {% if row.source_bucket == "transfer" %}<span class="naming-badge">انتقال</span>{% endif %}
-            {% if row.source_bucket == "report" %}<span class="naming-badge">گزارش</span>{% endif %}
-            {% if row.is_custom %}<span class="naming-badge">سفارشی</span>{% endif %}
-            {% if row.is_renamed %}<span class="naming-badge naming-badge-renamed">تغییرنام</span>{% endif %}
-            {% if row.is_key %}<span class="naming-badge">کلیدی</span>{% endif %}
-          </td>
+          <td>{{ row.kind_label }}</td>
           <td>
             {% if can_edit %}
             <input class="input naming-label-input" data-field="label" maxlength="200" value="{{ row.label }}">
             {% else %}
             {{ row.label }}
             {% endif %}
-            {% if row.default_label and row.default_label != row.label %}
-            <div class="muted naming-default">پیش‌فرض: {{ row.default_label }}</div>
-            {% endif %}
           </td>
           <td>
-            <div class="naming-address" title="{{ row.address }}">{{ row.address|default:"—" }}</div>
-            {% if row.table_key %}<div class="muted naming-address-meta">جدول: {{ row.table_key }}{% if row.column_key %} · ستون: {{ row.column_key }}{% endif %}</div>{% endif %}
-          </td>
-          <td>{{ row.get_category_display }}</td>
-          <td>
-            {% if can_edit %}
-            <select class="input naming-link-select" data-field="linked_section_key"
-                    title="اگر بخشی را انتخاب کنید، این کلید در فیلتر «بخش سیستم» همان بخش پیدا می‌شود. داده یا جدول عوض نمی‌شود. «به هیچ بخشی وصل نیست» یعنی فقط در همین فهرست دیده می‌شود.">
-              {% for val, lab in section_choices %}
-              <option value="{{ val }}" {% if row.linked_section_key == val %}selected{% endif %}>{{ lab }}</option>
-              {% endfor %}
-            </select>
+            {% if row.preview_href %}
+            <a class="naming-address-link" href="{{ row.preview_href }}">{{ row.address|default:row.label }}</a>
             {% else %}
-            {{ row.linked_section_label|default:"به هیچ بخشی وصل نیست" }}
+            <span class="naming-address">{{ row.address|default:"—" }}</span>
             {% endif %}
           </td>
           <td>
             {% if can_edit %}
             <label class="naming-active-toggle">
               <input type="checkbox" data-field="is_active" {% if row.is_active %}checked{% endif %}>
-              <span>{% if row.is_active %}فعال{% else %}پنهان{% endif %}</span>
+              <span>{% if row.is_active %}فعال{% else %}غیرفعال{% endif %}</span>
             </label>
             {% else %}
-            {% if row.is_active %}فعال{% else %}پنهان{% endif %}
-            {% endif %}
-          </td>
-          <td>
-            {% if can_edit %}
-            <label class="naming-active-toggle">
-              <input type="checkbox" data-field="is_key" {% if row.is_key %}checked{% endif %}>
-              <span>{% if row.is_key %}کلیدی{% else %}—{% endif %}</span>
-            </label>
-            {% else %}
-            {% if row.is_key %}کلیدی{% else %}—{% endif %}
+            {% if row.is_active %}فعال{% else %}غیرفعال{% endif %}
             {% endif %}
           </td>
           {% if can_edit %}
           <td class="col-ops">
             <button type="button" class="btn btn-sm btn-primary-soft naming-save-btn">ذخیره</button>
-            {% if row.is_custom %}
-            <button type="button" class="btn btn-sm btn-danger-soft naming-delete-btn">حذف</button>
-            {% endif %}
+            <span class="naming-row-toast" hidden>اعمال شد</span>
           </td>
           {% endif %}
         </tr>
         {% empty %}
-        <tr><td colspan="9" class="empty">موردی یافت نشد. همگام‌سازی را بزنید یا منبع را عوض کنید.</td></tr>
+        <tr><td colspan="6" class="empty">موردی یافت نشد.</td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
-  <p class="muted" id="naming-status" style="margin-top:8px;min-height:1.2em"></p>
 </div>
 {% endblock %}
 
@@ -184,23 +121,21 @@
 (function () {
   var csrf = (document.querySelector("[name=csrfmiddlewaretoken]") || {}).value
     || (document.cookie.match(/csrftoken=([^;]+)/) || [])[1] || "";
-  var statusEl = document.getElementById("naming-status");
-  function setStatus(msg, isError) {
-    statusEl.textContent = msg || "";
-    statusEl.style.color = isError ? "#b91c1c" : "#0f766e";
-  }
-  function payloadFromRow(tr) {
-    return {
-      id: Number(tr.getAttribute("data-id")),
-      label: (tr.querySelector('[data-field="label"]') || {}).value,
-      linked_section_key: (tr.querySelector('[data-field="linked_section_key"]') || {}).value,
-      is_active: !!(tr.querySelector('[data-field="is_active"]') || {}).checked,
-      is_key: !!(tr.querySelector('[data-field="is_key"]') || {}).checked
-    };
+  function toast(tr) {
+    var el = tr.querySelector(".naming-row-toast");
+    if (!el) return;
+    el.hidden = false;
+    clearTimeout(el._t);
+    el._t = setTimeout(function () { el.hidden = true; }, 1600);
   }
   document.querySelectorAll(".naming-save-btn").forEach(function (btn) {
     btn.addEventListener("click", function () {
       var tr = btn.closest("tr");
+      var payload = {
+        id: Number(tr.getAttribute("data-id")),
+        label: (tr.querySelector('[data-field="label"]') || {}).value,
+        is_active: !!(tr.querySelector('[data-field="is_active"]') || {}).checked
+      };
       fetch("{% url 'system_naming_key_save' %}", {
         method: "POST",
         headers: {
@@ -209,34 +144,13 @@
           "X-Requested-With": "XMLHttpRequest"
         },
         credentials: "same-origin",
-        body: JSON.stringify(payloadFromRow(tr))
+        body: JSON.stringify(payload)
       }).then(function (r) { return r.json(); }).then(function (data) {
-        if (!data.ok) { setStatus(data.error || "خطا", true); return; }
-        setStatus("ذخیره شد: " + data.key);
+        if (!data.ok) return;
         var toggle = tr.querySelector(".naming-active-toggle span");
-        if (toggle) toggle.textContent = data.is_active ? "فعال" : "پنهان";
+        if (toggle) toggle.textContent = data.is_active ? "فعال" : "غیرفعال";
         tr.classList.toggle("is-inactive", !data.is_active);
-        tr.classList.toggle("is-renamed", !!data.is_renamed);
-      }).catch(function () { setStatus("ارتباط برقرار نشد", true); });
-    });
-  });
-  document.querySelectorAll(".naming-delete-btn").forEach(function (btn) {
-    btn.addEventListener("click", function () {
-      if (!confirm("این کلید سفارشی حذف شود؟")) return;
-      var tr = btn.closest("tr");
-      fetch("{% url 'system_naming_key_delete' %}", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-CSRFToken": csrf,
-          "X-Requested-With": "XMLHttpRequest"
-        },
-        credentials: "same-origin",
-        body: JSON.stringify({ id: Number(tr.getAttribute("data-id")) })
-      }).then(function (r) { return r.json(); }).then(function (data) {
-        if (!data.ok) { setStatus(data.error || "خطا", true); return; }
-        tr.remove();
-        setStatus("حذف شد.");
+        toast(tr);
       });
     });
   });

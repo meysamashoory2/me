@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}پیکربندی منو{% endblock %}
+{% block heading %}پیکربندی منو · {{ menu_title }}{% endblock %}
+{% block table_section %}system{% endblock %}
+
+{% block topbar_actions %}
+<div class="topbar-actions">
+  <a class="btn btn-sm btn-ghost" href="{% url 'system_data' %}">بازگشت به مدیریت داده‌ها</a>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="panel panel-compact">
+  <div class="panel-body">
+    <p>تنظیمات اختصاصی منوی «{{ menu_title }}» به‌زودی در همین صفحه اعلام می‌شود.</p>
+  </div>
+</div>
+{% endblock %}

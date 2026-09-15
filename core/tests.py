@@ -235,9 +235,9 @@ class BackupRestoreTests(TestCase):
 
     def test_dashboard_nav_has_backup_link(self):
         self.client.login(username="admin", password="erp12345")
-        resp = self.client.get(reverse("dashboard"))
-        self.assertContains(resp, "پشتیبان‌گیری")
-        self.assertContains(resp, "/backup/")
+        hub = self.client.get(reverse("system_data"))
+        self.assertContains(hub, "پشتیبان‌گیری")
+        self.assertContains(hub, "/backup/")
 
     def test_empty_path_is_rejected(self):
         from core.backup import create_backup, resolve_user_path

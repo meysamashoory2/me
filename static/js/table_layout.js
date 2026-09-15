@@ -352,8 +352,14 @@
   }
 
   function playCellReveal(cell) {
-    if (!cell || (cell.tagName !== "TD" && cell.tagName !== "TH")) return;
+    if (!cell || cell.tagName !== "TD") return;
     if (cellHasOwnControls(cell)) return;
+    var host = cell.closest("[data-table-section]") || document.documentElement;
+    var mq = "1";
+    try {
+      mq = getComputedStyle(host).getPropertyValue("--table-marquee").trim() || "1";
+    } catch (e) {}
+    if (mq === "0") return;
 
     if (activeReveal && activeReveal.cell === cell && activeReveal.running) {
       return;

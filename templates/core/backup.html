@@ -8,6 +8,11 @@
   پشتیبان کامل یا تفکیکی روی مسیر سرور ذخیره می‌شود. بازیابی هم از همان آدرس
   (پرونده zip یا پوشه استخراج‌شده) انجام می‌گیرد. فقط مدیر برنامه‌ریزی به این صفحه دسترسی دارد.
 </p>
+<nav class="tabs" style="margin-bottom:12px">
+  <a class="tab {% if backup_mode == 'standard' %}active{% endif %}" href="?mode=standard">پشتیبان‌گیری استاندارد</a>
+  <a class="tab {% if backup_mode == 'selective' %}active{% endif %}" href="?mode=selective">پشتیبان‌گیری انتخابی</a>
+  <a class="tab {% if backup_mode == 'restore' %}active{% endif %}" href="?mode=restore">بازیابی</a>
+</nav>
 
 <div class="grid-2 backup-grid">
   <div class="panel">
