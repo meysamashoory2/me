@@ -183,6 +183,11 @@ class TableLayoutSettingsTests(TestCase):
         self.assertContains(get, "برنامه‌ریزی هوشمند")
         self.assertContains(get, "سرستون")
         self.assertContains(get, "بدنه جداول")
+        self.assertContains(get, "پیش نمایش تغییرات")
+        self.assertContains(get, "برنامه‌ریزی هفتگی تولید")
+        self.assertContains(get, "naming_preview=1")
+        programs = self.client.get(url, {"section": "production"})
+        self.assertContains(programs, "ثبت تولید روزانه")
         resp = self.client.post(
             url,
             {
@@ -198,6 +203,34 @@ class TableLayoutSettingsTests(TestCase):
         self.assertEqual(settings.clamped_row_height(), 44)
         self.assertTrue(settings.is_width_locked("reports"))
         self.assertTrue(settings.is_width_locked("product_data"))
+
+    def test_table_layout_ajax_save_returns_css(self):
+        from django.urls import reverse
+        from catalog.models import TableLayoutSettings
+
+        self.client.login(username="admin", password="erp12345")
+        url = reverse("system_table_layout")
+        resp = self.client.post(
+            url,
+            {
+                "section": "planning",
+                "surface": "list",
+                "layout_part": "body",
+                "row_height_px": "52",
+                "col_border": "show",
+                "row_border": "show",
+            },
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(resp.status_code, 200)
+        payload = resp.json()
+        self.assertTrue(payload["ok"])
+        self.assertIn("--table-row-height:52px", payload["css"])
+        self.assertIn('data-table-surface="list"', payload["css"])
+        settings = TableLayoutSettings.load()
+        self.assertEqual(settings.layouts_map()["planning"]["row_height_px"], 52)
+        page = self.client.get(reverse("plan_list"))
+        self.assertIn("--table-row-height:52px", page.content.decode())
 
     def test_table_layout_save_other_section(self):
         from django.urls import reverse
@@ -221,7 +254,7 @@ class TableLayoutSettingsTests(TestCase):
         self.assertEqual(layout["row_height_px"], 8)
         self.assertFalse(layout["col_border"])
         self.assertTrue(layout["row_border"])
-        self.assertFalse(layout["width_locked"])
+        self.assertTrue(layout["width_locked"])
         self.assertFalse(settings.is_width_locked("reports"))
         get = self.client.get(url, {"section": "planning"})
         self.assertContains(get, 'value="8"')

@@ -488,8 +488,16 @@
     }
     table.setAttribute("data-layout-ready", "1");
     var section = sectionOf(table);
+    var surface = "";
+    var host = table.closest("[data-table-surface]");
+    if (host) surface = host.getAttribute("data-table-surface") || "";
     var locks = locksFromBody();
-    var locked = section ? !!locks[section] : false;
+    var locked = false;
+    if (section && surface && Object.prototype.hasOwnProperty.call(locks, section + "::" + surface)) {
+      locked = !!locks[section + "::" + surface];
+    } else if (section) {
+      locked = !!locks[section];
+    }
     if (table.getAttribute("data-lock-widths") === "1") locked = true;
 
     var metaWidths = null;

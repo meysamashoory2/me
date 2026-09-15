@@ -13,6 +13,8 @@ from dataclasses import dataclass
 class NavSurface:
     key: str
     title: str
+    url_name: str = ""
+    highlight: str = "main.content table, main.content .pcx-table"
 
 
 @dataclass(frozen=True)
@@ -71,9 +73,9 @@ NAV_SECTIONS: tuple[NavSection, ...] = (
                 "planning",
                 match=("plan_list", "plan_detail", "plan_create", "plan_edit", "plan_operate", "plan_set_status"),
                 surfaces=(
-                    NavSurface("list", "فهرست برنامه‌ها"),
-                    NavSurface("form", "فرم برنامه"),
-                    NavSurface("detail", "جزئیات برنامه"),
+                    NavSurface("list", "برنامه‌ریزی هفتگی تولید", "plan_list", "table#plan-list-table"),
+                    NavSurface("form", "ایجاد برنامه هفتگی", "plan_create", ".panel"),
+                    NavSurface("detail", "جزئیات برنامه هفتگی", "plan_detail", "table.table-plan-items"),
                 ),
             ),
             _item(
@@ -83,8 +85,8 @@ NAV_SECTIONS: tuple[NavSection, ...] = (
                 "systemic",
                 match=("systemic_intelligence", "inventory_orders"),
                 surfaces=(
-                    NavSurface("hub", "صفحه اصلی"),
-                    NavSurface("orders", "سفارش و موجودی"),
+                    NavSurface("hub", "برنامه‌ریزی هوشمند", "systemic_intelligence", "[data-table-section='systemic'] table"),
+                    NavSurface("orders", "بررسی موجودی و سفارشات", "inventory_orders", "#io-orders-table"),
                 ),
             ),
             _item(
@@ -103,9 +105,9 @@ NAV_SECTIONS: tuple[NavSection, ...] = (
                     "pipe_edit",
                 ),
                 surfaces=(
-                    NavSurface("list", "فهرست برنامه‌ها"),
-                    NavSurface("hub", "هاب ثبت تولید"),
-                    NavSurface("entry", "ورود آمار"),
+                    NavSurface("list", "ثبت و کنترل تولید — تعیین وضعیت", "program_list", "[data-table-section='production'] table"),
+                    NavSurface("hub", "ثبت و کنترل تولید", "production_hub", "[data-table-section='production'] table"),
+                    NavSurface("entry", "ثبت تولید روزانه", "production_list", "[data-table-section='production'] table"),
                 ),
             ),
             _item(
@@ -121,9 +123,9 @@ NAV_SECTIONS: tuple[NavSection, ...] = (
                     "production_conflicts_kind",
                 ),
                 surfaces=(
-                    NavSurface("list", "فهرست سوابق"),
-                    NavSurface("detail", "جزئیات سابقه"),
-                    NavSurface("conflicts", "تعارض‌ها"),
+                    NavSurface("list", "سوابق تولید", "production_history", "table#history-list-table"),
+                    NavSurface("detail", "جزئیات سابقه تولید", "production_history_detail", "[data-table-section='history'] table"),
+                    NavSurface("conflicts", "بررسی تداخل برنامه", "production_conflicts", "[data-table-section='history'] table"),
                 ),
             ),
             _item(
@@ -132,7 +134,7 @@ NAV_SECTIONS: tuple[NavSection, ...] = (
                 "pipe_calc",
                 "pipe_calc",
                 match=("pipe_calc", "pipe_calc_run"),
-                surfaces=(NavSurface("hub", "جدول محاسبه"),),
+                surfaces=(NavSurface("hub", "محاسبات تولید", "pipe_calc", ".pcx-table"),),
             ),
         ),
     ),
@@ -147,9 +149,9 @@ NAV_SECTIONS: tuple[NavSection, ...] = (
                 "reports",
                 match=("report_list", "report_detail", "report_create", "report_edit"),
                 surfaces=(
-                    NavSurface("list", "فهرست گزارش‌ها"),
-                    NavSurface("detail", "مشاهده گزارش"),
-                    NavSurface("form", "طراحی گزارش"),
+                    NavSurface("list", "لیست گزارش‌ها", "report_list", "table#report-list-table"),
+                    NavSurface("detail", "مشاهده گزارش", "report_detail", "table#report-data-table"),
+                    NavSurface("form", "طراحی گزارش", "report_create", ".panel"),
                 ),
             ),
             _item(
@@ -159,9 +161,9 @@ NAV_SECTIONS: tuple[NavSection, ...] = (
                 "forms",
                 match=("print_form_list", "print_form_detail", "print_form_edit", "print_form_create"),
                 surfaces=(
-                    NavSurface("list", "فهرست فرم‌ها"),
-                    NavSurface("detail", "مشاهده فرم"),
-                    NavSurface("form", "طراحی فرم"),
+                    NavSurface("list", "فرم‌ها", "print_form_list", "table#form-list-table"),
+                    NavSurface("detail", "مشاهده فرم", "print_form_detail", "[data-table-section='forms']"),
+                    NavSurface("form", "طراحی فرم", "print_form_create", "[data-table-section='forms']"),
                 ),
             ),
             _item(
@@ -170,7 +172,7 @@ NAV_SECTIONS: tuple[NavSection, ...] = (
                 "product_data",
                 "product_data",
                 match=("product_data", "vouchers_hub"),
-                surfaces=(NavSurface("hub", "جداول محصول"),),
+                surfaces=(NavSurface("hub", "دیتای محصولات", "product_data", ".product-data-table"),),
             ),
         ),
     ),
@@ -185,9 +187,9 @@ NAV_SECTIONS: tuple[NavSection, ...] = (
                 "excel",
                 match=("excel_list", "excel_import", "excel_detail"),
                 surfaces=(
-                    NavSurface("list", "فهرست فایل‌ها"),
-                    NavSurface("import", "ورود فایل"),
-                    NavSurface("detail", "جزئیات فایل"),
+                    NavSurface("list", "بارگذاری فایل", "excel_list", "[data-table-section='excel'] table"),
+                    NavSurface("import", "وارد کردن فایل اکسل / CSV", "excel_import", "#excel-dropzone"),
+                    NavSurface("detail", "جزئیات فایل اکسل", "excel_detail", "#excel-editor"),
                 ),
             ),
             _item(
@@ -207,9 +209,9 @@ NAV_SECTIONS: tuple[NavSection, ...] = (
                     "planning_process_edit",
                 ),
                 surfaces=(
-                    NavSurface("hub", "هاب مدیریت داده‌ها"),
-                    NavSurface("naming", "نام‌گذاری عناوین"),
-                    NavSurface("layout", "تنظیمات جداول"),
+                    NavSurface("hub", "مدیریت داده‌ها", "system_data", "#system-accordion"),
+                    NavSurface("naming", "نام‌گذاری عناوین سیستم", "system_naming_keys", ".naming-keys-table"),
+                    NavSurface("layout", "تنظیمات جداول", "system_table_layout", ".table-layout-form"),
                 ),
             ),
         ),
@@ -224,7 +226,7 @@ NAV_SECTIONS: tuple[NavSection, ...] = (
                 "user_management",
                 "users",
                 perm="users",
-                surfaces=(NavSurface("hub", "فهرست کاربران"),),
+                surfaces=(NavSurface("hub", "مدیریت کاربران", "user_management", "[data-table-section='users'] table"),),
             ),
             _item("logout", "خروج از سامانه", "logout", kind="logout"),
         ),
@@ -259,8 +261,90 @@ def layout_surfaces(section_key: str) -> tuple[NavSurface, ...]:
     for section in NAV_SECTIONS:
         for item in section.items:
             if item.table_section == section_key:
-                return item.surfaces or (NavSurface("", "صفحه اصلی"),)
-    return (NavSurface("", "صفحه اصلی"),)
+                return item.surfaces or (NavSurface("", "صفحه بدون سرتیتر"),)
+    return (NavSurface("", "صفحه بدون سرتیتر"),)
+
+
+def layout_item_for_section(section_key: str) -> NavItem | None:
+    for section in NAV_SECTIONS:
+        for item in section.items:
+            if item.table_section == section_key:
+                return item
+    return None
+
+
+def _reverse_preview_path(url_name: str, fallback_name: str = "") -> str:
+    from django.urls import NoReverseMatch, reverse
+
+    if url_name:
+        try:
+            return reverse(url_name)
+        except NoReverseMatch:
+            pass
+        pk_models = {
+            "plan_detail": ("planning.models", "WeeklyPlan"),
+            "plan_edit": ("planning.models", "WeeklyPlan"),
+            "production_history_detail": ("production.models", "ProductionHistoryRecord"),
+            "excel_detail": ("catalog.models", "ExcelUpload"),
+            "report_detail": ("reports.models", "SavedReport"),
+            "report_edit": ("reports.models", "SavedReport"),
+            "print_form_detail": ("reports.models", "PrintForm"),
+            "print_form_edit": ("reports.models", "PrintForm"),
+            "program_status": ("production.models", "ProductionProgram"),
+        }
+        spec = pk_models.get(url_name)
+        if spec:
+            mod_name, cls_name = spec
+            import importlib
+
+            model = getattr(importlib.import_module(mod_name), cls_name)
+            obj = model.objects.order_by("-pk").only("pk").first()
+            if obj is not None:
+                try:
+                    return reverse(url_name, args=[obj.pk])
+                except NoReverseMatch:
+                    pass
+    if fallback_name:
+        try:
+            return reverse(fallback_name)
+        except NoReverseMatch:
+            return ""
+    return ""
+
+
+def surface_preview_href(section_key: str, surface_key: str, return_path: str) -> str:
+    from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
+    item = layout_item_for_section(section_key)
+    surfaces = layout_surfaces(section_key)
+    chosen = None
+    for surf in surfaces:
+        if surf.key == surface_key:
+            chosen = surf
+            break
+    if chosen is None and surfaces:
+        chosen = surfaces[0]
+    url_name = (chosen.url_name if chosen else "") or (item.url_name if item else "")
+    fallback = item.url_name if item else "dashboard"
+    path = _reverse_preview_path(url_name, fallback)
+    if not path:
+        return ""
+    highlight = (chosen.highlight if chosen else "") or "main.content table"
+    parts = urlsplit(path)
+    query = [
+        (k, v)
+        for k, v in parse_qsl(parts.query, keep_blank_values=True)
+        if k not in {"naming_preview", "hk", "hl", "ret"}
+    ]
+    query.extend(
+        [
+            ("naming_preview", "1"),
+            ("hk", f"layout.{section_key}.{surface_key or 'main'}"),
+            ("hl", highlight),
+            ("ret", return_path),
+        ]
+    )
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
 
 
 def nav_item_by_key(key: str) -> NavItem | None:

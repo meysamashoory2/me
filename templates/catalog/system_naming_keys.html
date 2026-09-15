@@ -147,6 +147,27 @@
         if (toggle) toggle.textContent = data.is_active ? "فعال" : "غیرفعال";
         tr.classList.toggle("is-inactive", !data.is_active);
         toast(tr);
+        var key = data.key || "";
+        if (key.indexOf("nav.item.") === 0) {
+          var nk = key.slice(9);
+          document.querySelectorAll('[data-nav-key="' + nk + '"]').forEach(function (el) {
+            if (data.is_active === false) el.hidden = true;
+            else {
+              el.hidden = false;
+              if (el.tagName === "BUTTON" || el.tagName === "A") el.textContent = data.label;
+            }
+          });
+        }
+        if (key.indexOf("nav.heading.") === 0) {
+          var hk = key.slice(12);
+          document.querySelectorAll('[data-nav-heading="' + hk + '"]').forEach(function (el) {
+            if (data.is_active === false) el.hidden = true;
+            else {
+              el.hidden = false;
+              el.textContent = data.label;
+            }
+          });
+        }
       });
     });
   });

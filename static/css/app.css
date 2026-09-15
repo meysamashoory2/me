@@ -777,6 +777,12 @@ tr.is-conflict-row > td {
   white-space: nowrap;
   text-overflow: clip;
 }
+.table thead th {
+  height: var(--table-header-height, var(--table-row-height, 36px));
+  min-height: var(--table-header-height, var(--table-row-height, 36px));
+  max-height: var(--table-header-height, var(--table-row-height, 36px));
+  background: var(--table-header-bg, #c7d7ea);
+}
 .table tbody tr,
 .table thead tr {
   height: var(--table-row-height, 36px);
@@ -3396,16 +3402,91 @@ body.naming-preview-mode .naming-preview-back {
   box-shadow: 0 8px 20px rgba(15, 23, 42, .22);
   pointer-events: auto !important;
 }
-.table-layout-actions { display: flex; gap: 10px; margin-top: 16px; }
-.table-layout-surface { max-width: 360px; margin-top: 12px; }
-.layout-float-dialog { width: min(520px, 94vw); }
-.layout-dialog-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-  margin: 12px 0;
+.table-layout-actions { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; align-items: center; }
+.table-layout-surface { max-width: 420px; margin-top: 12px; }
+.dialog-float-mask {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, .38);
+  z-index: 3500;
 }
-.layout-choice { display: flex; gap: 6px; align-items: center; font-size: 13px; }
+.dialog-float-mask.is-on { display: block; }
+dialog.dialog.dialog-floating,
+dialog.dialog.dialog-floating[open] {
+  position: fixed;
+  margin: 0;
+  inset: auto;
+  transform: none;
+  z-index: 3600;
+  max-height: calc(100vh - 24px);
+  overflow: auto;
+}
+.dialog-titlebar {
+  cursor: move;
+  user-select: none;
+  background: #0f172a;
+  color: #f8fafc;
+  padding: 10px 16px;
+  font-weight: 800;
+  font-size: 14px;
+  border-radius: 14px 14px 0 0;
+  margin: 0;
+}
+.dialog [data-dialog-body] > .dialog-titlebar:first-child {
+  margin: -22px -22px 16px;
+}
+.dialog-head [data-dialog-close],
+.dialog-head button[aria-label="بستن"] { display: none; }
+.layout-dialog-fields {
+  display: grid;
+  grid-template-columns: minmax(140px, 1fr) minmax(180px, 1fr);
+  gap: 10px 16px;
+  align-items: center;
+}
+.layout-field {
+  display: contents;
+}
+.layout-field > span,
+.layout-field > legend {
+  font-size: 13px;
+  font-weight: 700;
+  color: #1e293b;
+}
+.layout-field .input,
+.layout-field input[type="number"],
+.layout-field input[type="color"] { width: 100%; }
+fieldset.layout-field-choice {
+  display: contents;
+  border: 0;
+  padding: 0;
+  min-width: 0;
+  margin: 0;
+}
+.layout-field-color input[type="color"] { width: 52px; height: 32px; padding: 0; }
+.layout-choice-row { display: flex; gap: 14px; align-items: center; }
+.layout-field-check input { width: 18px; height: 18px; }
+.layout-field-color { display: contents; }
+.layout-field-color .layout-alpha {
+  grid-column: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  color: #64748b;
+}
+.layout-alpha input[type="range"] { width: 100%; }
+.layout-float-dialog { width: min(460px, 94vw); }
+.layout-float-dialog .dialog-actions {
+  display: flex;
+  justify-content: flex-start;
+  margin-top: 14px;
+}
+.layout-dialog-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
 thead th {
   height: var(--table-header-height, var(--table-row-height));
   box-sizing: border-box;

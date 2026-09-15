@@ -5,6 +5,7 @@
 {% block nav_data %}{% endblock %}
 {% block nav_system_data %}active{% endblock %}
 {% block table_section %}system{% endblock %}
+{% block table_surface %}hub{% endblock %}
 
 {% block content %}
 <div class="panel panel-compact panel-list">
@@ -23,7 +24,7 @@
         <span class="muted system-acc-count">{{ g.items|length }} مورد</span>
       </summary>
       <div class="system-acc-body">
-        <table class="table table-compact table-plan-list" data-erp-nav="off" data-table-section="system">
+        <table class="table table-compact table-plan-list" data-table-section="system">
           <thead>
             <tr>
               <th style="width:70px" data-col="row">{% system_col "catalog.system_data_hub" "row" "ردیف" %}</th>

@@ -20,7 +20,7 @@
     </nav>
     {% if surfaces %}
     <label class="field table-layout-surface">
-      <span>صفحه یا سطح این منو</span>
+      <span>صفحه با سرتیتر</span>
       <select class="input" name="surface" onchange="this.form.submit()">
         {% for s in surfaces %}
         <option value="{{ s.key }}" {% if s.key == active_surface %}selected{% endif %}>{{ s.title }}</option>
@@ -32,6 +32,7 @@
     <div class="table-layout-actions">
       <button type="button" class="btn btn-primary-soft" id="open-header-dialog" {% if not can_edit %}disabled{% endif %}>سرستون</button>
       <button type="button" class="btn btn-primary-soft" id="open-body-dialog" {% if not can_edit %}disabled{% endif %}>بدنه جداول</button>
+      <a class="btn btn-primary-soft" id="layout-preview-btn" href="{{ preview_href }}">پیش نمایش تغییرات</a>
     </div>
   </div>
 </form>
@@ -43,100 +44,100 @@
 
   <dialog id="layout-header-dialog" class="dialog layout-float-dialog">
     <div data-dialog-body>
-      <div class="dialog-head" data-dialog-drag>
-        <h3>سرستون</h3>
-        <button type="button" class="btn btn-sm btn-ghost" data-dialog-close>بستن</button>
-      </div>
-      <div class="layout-dialog-grid">
-        <label class="field">
+      <div class="dialog-titlebar" data-dialog-drag>سرستون</div>
+      <div class="layout-dialog-fields">
+        <label class="layout-field">
           <span>ارتفاع سرستون</span>
           <input class="input" type="number" name="header_height_px" min="5" max="120" value="{{ layout.header_height_px }}">
         </label>
-        <fieldset class="field">
+        <fieldset class="layout-field layout-field-choice">
           <legend>مرزبندی</legend>
-          <label class="layout-choice"><input type="radio" name="header_border" value="show" {% if layout.header_border %}checked{% endif %}> نمایش</label>
-          <label class="layout-choice"><input type="radio" name="header_border" value="hide" {% if not layout.header_border %}checked{% endif %}> مخفی</label>
+          <div class="layout-choice-row">
+            <label class="layout-choice"><input type="radio" name="header_border" value="show" {% if layout.header_border %}checked{% endif %}> نمایش</label>
+            <label class="layout-choice"><input type="radio" name="header_border" value="hide" {% if not layout.header_border %}checked{% endif %}> مخفی</label>
+          </div>
         </fieldset>
-        <label class="field field-check">
+        <label class="layout-field layout-field-check">
           <span>قفل کردن ستون</span>
           <input type="checkbox" name="width_locked" value="1" {% if layout.width_locked %}checked{% endif %}>
         </label>
-        <label class="field field-check">
+        <label class="layout-field layout-field-check">
           <span>Wrap text</span>
           <input type="checkbox" name="header_wrap" value="1" {% if layout.header_wrap %}checked{% endif %}>
         </label>
-        <label class="field">
+        <div class="layout-field layout-field-color">
           <span>رنگ سرستون</span>
           <input type="color" name="header_color" value="{{ layout.header_color }}">
-        </label>
-        <label class="field">
-          <span>Transparency</span>
-          <input type="range" name="header_alpha" min="0" max="100" value="{{ layout.header_alpha }}">
-        </label>
+          <label class="layout-alpha">
+            <span>شفافیت</span>
+            <input type="range" name="header_alpha" min="0" max="100" value="{{ layout.header_alpha }}">
+          </label>
+        </div>
       </div>
       <div class="dialog-actions">
-        <button type="submit" class="btn btn-primary-soft">ذخیره</button>
+        <button type="submit" class="btn btn-primary-soft" name="layout_part" value="header">اعمال</button>
       </div>
     </div>
   </dialog>
 
   <dialog id="layout-body-dialog" class="dialog layout-float-dialog">
     <div data-dialog-body>
-      <div class="dialog-head" data-dialog-drag>
-        <h3>بدنه جداول</h3>
-        <button type="button" class="btn btn-sm btn-ghost" data-dialog-close>بستن</button>
-      </div>
-      <div class="layout-dialog-grid">
-        <label class="field">
+      <div class="dialog-titlebar" data-dialog-drag>بدنه جداول</div>
+      <div class="layout-dialog-fields">
+        <label class="layout-field">
           <span>ارتفاع ردیف</span>
           <input class="input" type="number" name="row_height_px" min="5" max="120" value="{{ layout.row_height_px }}">
         </label>
-        <fieldset class="field">
+        <fieldset class="layout-field layout-field-choice">
           <legend>مرزبندی ستون‌ها</legend>
-          <label class="layout-choice"><input type="radio" name="col_border" value="show" {% if layout.col_border %}checked{% endif %}> نمایش</label>
-          <label class="layout-choice"><input type="radio" name="col_border" value="hide" {% if not layout.col_border %}checked{% endif %}> مخفی</label>
+          <div class="layout-choice-row">
+            <label class="layout-choice"><input type="radio" name="col_border" value="show" {% if layout.col_border %}checked{% endif %}> نمایش</label>
+            <label class="layout-choice"><input type="radio" name="col_border" value="hide" {% if not layout.col_border %}checked{% endif %}> مخفی</label>
+          </div>
         </fieldset>
-        <fieldset class="field">
+        <fieldset class="layout-field layout-field-choice">
           <legend>مرزبندی ردیف‌ها</legend>
-          <label class="layout-choice"><input type="radio" name="row_border" value="show" {% if layout.row_border %}checked{% endif %}> نمایش</label>
-          <label class="layout-choice"><input type="radio" name="row_border" value="hide" {% if not layout.row_border %}checked{% endif %}> مخفی</label>
+          <div class="layout-choice-row">
+            <label class="layout-choice"><input type="radio" name="row_border" value="show" {% if layout.row_border %}checked{% endif %}> نمایش</label>
+            <label class="layout-choice"><input type="radio" name="row_border" value="hide" {% if not layout.row_border %}checked{% endif %}> مخفی</label>
+          </div>
         </fieldset>
-        <label class="field field-check">
+        <label class="layout-field layout-field-check">
           <span>Wrap text</span>
           <input type="checkbox" name="body_wrap" value="1" id="body-wrap" {% if layout.body_wrap %}checked{% endif %} {% if body_wrap_locked %}disabled{% endif %}>
           {% if body_wrap_locked %}<input type="hidden" name="body_wrap" value="1">{% endif %}
         </label>
-        <label class="field field-check">
+        <label class="layout-field layout-field-check">
           <span>متن متحرک</span>
           <input type="checkbox" name="marquee" value="1" id="body-marquee" {% if layout.marquee %}checked{% endif %} {% if layout.body_wrap or body_wrap_locked %}disabled{% endif %}>
         </label>
-        <label class="field">
+        <div class="layout-field layout-field-color">
           <span>رنگ پیمایش ردیف</span>
           <input type="color" name="row_selected_color" value="{{ layout.row_selected_color }}">
-        </label>
-        <label class="field">
-          <span>Transparency ردیف</span>
-          <input type="range" name="row_selected_alpha" min="0" max="100" value="{{ layout.row_selected_alpha }}">
-        </label>
-        <label class="field">
+          <label class="layout-alpha">
+            <span>شفافیت</span>
+            <input type="range" name="row_selected_alpha" min="0" max="100" value="{{ layout.row_selected_alpha }}">
+          </label>
+        </div>
+        <div class="layout-field layout-field-color">
           <span>رنگ کادر سلول</span>
           <input type="color" name="cell_outline_color" value="{{ layout.cell_outline_color }}">
-        </label>
-        <label class="field">
-          <span>Transparency کادر</span>
-          <input type="range" name="cell_outline_alpha" min="0" max="100" value="{{ layout.cell_outline_alpha }}">
-        </label>
-        <label class="field">
+          <label class="layout-alpha">
+            <span>شفافیت</span>
+            <input type="range" name="cell_outline_alpha" min="0" max="100" value="{{ layout.cell_outline_alpha }}">
+          </label>
+        </div>
+        <div class="layout-field layout-field-color">
           <span>رنگ سلول منتخب</span>
           <input type="color" name="cell_fill_color" value="{{ layout.cell_fill_color }}">
-        </label>
-        <label class="field">
-          <span>Transparency سلول</span>
-          <input type="range" name="cell_fill_alpha" min="0" max="100" value="{{ layout.cell_fill_alpha }}">
-        </label>
+          <label class="layout-alpha">
+            <span>شفافیت</span>
+            <input type="range" name="cell_fill_alpha" min="0" max="100" value="{{ layout.cell_fill_alpha }}">
+          </label>
+        </div>
       </div>
       <div class="dialog-actions">
-        <button type="submit" class="btn btn-primary-soft">ذخیره</button>
+        <button type="submit" class="btn btn-primary-soft" name="layout_part" value="body">اعمال</button>
       </div>
     </div>
   </dialog>
@@ -146,24 +147,69 @@
 {% block scripts %}
 <script>
 (function () {
-  function bind(openId, dialogId) {
-    var btn = document.getElementById(openId);
-    var dlg = document.getElementById(dialogId);
-    if (!btn || !dlg) return;
-    btn.addEventListener("click", function () {
-      if (dlg.show) dlg.show();
-      else dlg.setAttribute("open", "");
-    });
-    dlg.addEventListener("click", function (e) {
-      if (e.target.closest("[data-dialog-close]")) {
-        e.preventDefault();
-        if (dlg.close) dlg.close();
-        else dlg.removeAttribute("open");
-      }
+  var csrf = (document.querySelector("[name=csrfmiddlewaretoken]") || {}).value
+    || (document.cookie.match(/csrftoken=([^;]+)/) || [])[1] || "";
+  var form = document.getElementById("table-layout-save");
+
+  function toast(text) {
+    var stack = document.getElementById("toast-stack");
+    if (!stack) {
+      stack = document.createElement("div");
+      stack.id = "toast-stack";
+      stack.className = "toast-stack";
+      document.body.appendChild(stack);
+    }
+    var el = document.createElement("div");
+    el.className = "toast toast-success";
+    el.textContent = text || "اعمال شد";
+    stack.appendChild(el);
+    setTimeout(function () { el.remove(); }, 1600);
+  }
+
+  function injectCss(css) {
+    var tag = document.getElementById("erp-table-layout-css");
+    if (!tag) {
+      tag = document.createElement("style");
+      tag.id = "erp-table-layout-css";
+      document.head.appendChild(tag);
+    }
+    tag.textContent = css || "";
+  }
+
+  function openDlg(id) {
+    var dlg = document.getElementById(id);
+    if (!dlg) return;
+    if (dlg.show) dlg.show();
+    else dlg.setAttribute("open", "");
+  }
+
+  var headerBtn = document.getElementById("open-header-dialog");
+  var bodyBtn = document.getElementById("open-body-dialog");
+  if (headerBtn) headerBtn.addEventListener("click", function () { openDlg("layout-header-dialog"); });
+  if (bodyBtn) bodyBtn.addEventListener("click", function () { openDlg("layout-body-dialog"); });
+
+  if (form) {
+    form.addEventListener("submit", function (e) {
+      e.preventDefault();
+      var data = new FormData(form);
+      var submitter = e.submitter;
+      if (submitter && submitter.name) data.set(submitter.name, submitter.value);
+      fetch(form.getAttribute("action") || window.location.pathname + window.location.search, {
+        method: "POST",
+        headers: { "X-Requested-With": "XMLHttpRequest", "X-CSRFToken": csrf },
+        credentials: "same-origin",
+        body: data
+      }).then(function (r) { return r.json(); }).then(function (res) {
+        if (!res || !res.ok) return;
+        if (res.css) injectCss(res.css);
+        if (res.locks) {
+          document.body.setAttribute("data-table-width-locks", JSON.stringify(res.locks));
+        }
+        toast(res.message || "اعمال شد");
+      });
     });
   }
-  bind("open-header-dialog", "layout-header-dialog");
-  bind("open-body-dialog", "layout-body-dialog");
+
   var wrap = document.getElementById("body-wrap");
   var marquee = document.getElementById("body-marquee");
   if (wrap && marquee) {

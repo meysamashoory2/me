@@ -95,6 +95,69 @@ def normalize_section_layout(section_key: str, raw: Any) -> dict[str, Any]:
     return layout
 
 
+def merge_layout_post(current: dict[str, Any], post) -> dict[str, Any]:
+    """Update only fields that were actually posted so a closed dialog cannot wipe the other."""
+    posted = dict(current)
+    part = str(post.get("layout_part") or "").strip()
+    header_keys_present = "header_height_px" in post or "header_border" in post or part == "header"
+    body_keys_present = "row_height_px" in post or "col_border" in post or part == "body"
+    if part == "header":
+        body_keys_present = False
+        header_keys_present = True
+    elif part == "body":
+        header_keys_present = False
+        body_keys_present = True
+
+    if header_keys_present:
+        if "header_height_px" in post:
+            posted["header_height_px"] = clamp_row_height(
+                post.get("header_height_px"), posted["header_height_px"]
+            )
+        if "header_border" in post:
+            posted["header_border"] = post.get("header_border") == "show"
+        posted["width_locked"] = post.get("width_locked") == "1"
+        posted["header_wrap"] = post.get("header_wrap") == "1"
+        if "header_color" in post:
+            posted["header_color"] = post.get("header_color") or posted["header_color"]
+        if "header_alpha" in post:
+            posted["header_alpha"] = clamp_alpha(post.get("header_alpha"), posted["header_alpha"])
+    elif part != "body":
+        if "width_locked" in post:
+            posted["width_locked"] = post.get("width_locked") == "1"
+        if "header_wrap" in post:
+            posted["header_wrap"] = post.get("header_wrap") == "1"
+    if body_keys_present:
+        if "row_height_px" in post:
+            posted["row_height_px"] = clamp_row_height(
+                post.get("row_height_px"), posted["row_height_px"]
+            )
+        if "col_border" in post:
+            posted["col_border"] = post.get("col_border") == "show"
+        if "row_border" in post:
+            posted["row_border"] = post.get("row_border") == "show"
+        posted["body_wrap"] = post.get("body_wrap") == "1"
+        posted["marquee"] = post.get("marquee") == "1"
+        if "row_selected_color" in post:
+            posted["row_selected_color"] = post.get("row_selected_color") or posted["row_selected_color"]
+        if "row_selected_alpha" in post:
+            posted["row_selected_alpha"] = clamp_alpha(
+                post.get("row_selected_alpha"), posted["row_selected_alpha"]
+            )
+        if "cell_outline_color" in post:
+            posted["cell_outline_color"] = post.get("cell_outline_color") or posted["cell_outline_color"]
+        if "cell_outline_alpha" in post:
+            posted["cell_outline_alpha"] = clamp_alpha(
+                post.get("cell_outline_alpha"), posted["cell_outline_alpha"]
+            )
+        if "cell_fill_color" in post:
+            posted["cell_fill_color"] = post.get("cell_fill_color") or posted["cell_fill_color"]
+        if "cell_fill_alpha" in post:
+            posted["cell_fill_alpha"] = clamp_alpha(
+                post.get("cell_fill_alpha"), posted["cell_fill_alpha"]
+            )
+    return posted
+
+
 def layout_storage_key(section: str, surface: str = "") -> str:
     section = str(section or "").strip()
     surface = str(surface or "").strip()
@@ -146,11 +209,7 @@ def normalize_all_layouts(
 
 
 def locks_from_layouts(layouts: dict[str, dict[str, Any]]) -> dict[str, bool]:
-    return {
-        key: bool(cfg.get("width_locked"))
-        for key, cfg in layouts.items()
-        if "::" not in key
-    }
+    return {key: bool(cfg.get("width_locked")) for key, cfg in layouts.items()}
 
 
 def _rgba(hex_color: str, alpha: int) -> str:
@@ -164,23 +223,33 @@ def _rgba(hex_color: str, alpha: int) -> str:
     return f"rgba({r},{g},{b},{a:.2f})"
 
 
-def _scope(key: str) -> str:
+def _scopes(key: str) -> list[str]:
     section, surface = split_layout_key(key)
+    if not section:
+        return []
     if surface:
-        return f'[data-table-section="{section}"][data-table-surface="{surface}"]'
-    return f'[data-table-section="{section}"]'
+        pair = f'[data-table-section="{section}"][data-table-surface="{surface}"]'
+        return [pair, f'{pair} table', f'table{pair}']
+    host = f'[data-table-section="{section}"]'
+    return [host, f'{host} table', f'table{host}']
+
+
+def _scope(key: str) -> str:
+    scopes = _scopes(key)
+    return scopes[0] if scopes else ""
 
 
 def _section_cells(key: str, tags: tuple[str, ...], suffix: str = "") -> str:
-    scope = _scope(key)
     parts: list[str] = []
-    for tag in tags:
-        sel = f"{tag}{suffix}"
-        parts.append(f"{scope} table {sel}")
-        parts.append(f"{scope} .table {sel}")
-        parts.append(f"{scope} .pcx-table {sel}")
-        parts.append(f"{scope}.table {sel}")
-        parts.append(f"{scope}.pcx-table {sel}")
+    for scope in _scopes(key):
+        for tag in tags:
+            sel = f"{tag}{suffix}"
+            parts.append(f"{scope} table {sel}")
+            parts.append(f"{scope} .table {sel}")
+            parts.append(f"{scope} .pcx-table {sel}")
+            parts.append(f"{scope} .results table {sel}")
+            parts.append(f"{scope}.table {sel}")
+            parts.append(f"{scope}.pcx-table {sel}")
     return ",".join(parts)
 
 
@@ -190,17 +259,17 @@ def css_for_layouts(layouts: dict[str, dict[str, Any]]) -> str:
     # Defaults (no surface) first, then surface overrides.
     ordered.sort(key=lambda kv: 1 if "::" in kv[0] else 0)
     for key, cfg in ordered:
-        scope = _scope(key)
+        scope = ",".join(_scopes(key))
         row_h = clamp_row_height(cfg.get("row_height_px"))
         head_h = clamp_row_height(cfg.get("header_height_px"), DEFAULT_HEADER_HEIGHT)
         parts.append(
             f"{scope}{{"
-            f"--table-row-height:{row_h}px;"
-            f"--table-header-height:{head_h}px;"
-            f"--table-header-bg:{_rgba(cfg.get('header_color') or '#f8fafc', cfg.get('header_alpha', 100))};"
-            f"--table-row-selected:{_rgba(cfg.get('row_selected_color') or '#dbeafe', cfg.get('row_selected_alpha', 100))};"
-            f"--table-cell-outline:{_rgba(cfg.get('cell_outline_color') or '#2563eb', cfg.get('cell_outline_alpha', 100))};"
-            f"--table-cell-fill:{_rgba(cfg.get('cell_fill_color') or '#ffffff', cfg.get('cell_fill_alpha', 100))};"
+            f"--table-row-height:{row_h}px !important;"
+            f"--table-header-height:{head_h}px !important;"
+            f"--table-header-bg:{_rgba(cfg.get('header_color') or '#f8fafc', cfg.get('header_alpha', 100))} !important;"
+            f"--table-row-selected:{_rgba(cfg.get('row_selected_color') or '#dbeafe', cfg.get('row_selected_alpha', 100))} !important;"
+            f"--table-cell-outline:{_rgba(cfg.get('cell_outline_color') or '#2563eb', cfg.get('cell_outline_alpha', 100))} !important;"
+            f"--table-cell-fill:{_rgba(cfg.get('cell_fill_color') or '#ffffff', cfg.get('cell_fill_alpha', 100))} !important;"
             "}"
         )
         all_cells = _section_cells(key, ("th", "td"))
@@ -279,19 +348,23 @@ def css_for_layouts(layouts: dict[str, dict[str, Any]]) -> str:
                 "max-height:var(--table-row-height);}}"
             )
         parts.append(
+            f"{header_cells},"
+            f"{scope} .table-scroll thead th,"
+            f"{scope} .table-scroll-wide thead th{{background:var(--table-header-bg) !important;}}"
+        )
+        parts.append(
+            f"{scope} table tbody tr.is-row-selected > td,"
+            f"{scope} table tbody tr.is-row-selected > th,"
             f"{scope} table.js-table-nav tbody tr.is-row-selected > td,"
             f"{scope} table.js-table-nav tbody tr.is-row-selected > th{{"
             "background:var(--table-row-selected) !important;}}"
         )
         parts.append(
-            f"{scope} table.js-table-nav tbody tr.is-row-selected > td.is-cell-focus,"
-            f"{scope} table.js-table-nav tbody tr.is-row-selected > th.is-cell-focus{{"
+            f"{scope} table tbody tr.is-row-selected > td.is-cell-focus,"
+            f"{scope} table tbody tr.is-row-selected > th.is-cell-focus{{"
             "background:var(--table-cell-fill) !important;"
             "outline:1px solid var(--table-cell-outline) !important;"
             "outline-offset:-1px !important;}}"
-        )
-        parts.append(
-            f"{header_cells}{{background:var(--table-header-bg) !important;}}"
         )
         if cfg.get("marquee"):
             parts.append(f"{scope}{{--table-marquee:1;}}")

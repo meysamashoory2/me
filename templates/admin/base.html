@@ -4,7 +4,7 @@
 <html lang="fa" dir="rtl">
 <head>
 <title>{% block title %}{% endblock %}</title>
-<link rel="stylesheet" href="{% static 'css/app.css' %}?v=74">
+<link rel="stylesheet" href="{% static 'css/app.css' %}?v=76">
 <link rel="stylesheet" href="{% block stylesheet %}{% static "admin/css/base.css" %}{% endblock %}">
 {% block dark-mode-vars %}{% endblock %}
 {% block extrastyle %}{% endblock %}
@@ -16,7 +16,7 @@
 {% if LANGUAGE_BIDI %}<link rel="stylesheet" href="{% static "admin/css/responsive_rtl.css" %}">{% endif %}
 {% endblock %}
 <link rel="stylesheet" href="{% static 'css/admin_embed.css' %}?v=6">
-<style>
+<style id="erp-table-layout-css">
   {{ table_layout_css|default:''|safe }}
 </style>
 {% block blockbots %}<meta name="robots" content="NONE,NOARCHIVE">{% endblock %}
@@ -51,7 +51,7 @@
       </div>
     </header>
 
-    <main class="content admin-embed-content">
+    <main class="content admin-embed-content" data-table-section="system" data-table-surface="hub">
       {% block nav-breadcrumbs %}
       <nav class="admin-embed-crumbs" aria-label="{% translate 'Breadcrumbs' %}">
         {% block breadcrumbs %}
@@ -97,7 +97,9 @@
 
 {% block footer %}{% endblock %}
 {% if not is_popup %}
+<script src="{% static 'js/table_nav.js' %}?v=12"></script>
 <script src="{% static 'js/admin_table_layout.js' %}?v=3"></script>
+<script src="{% static 'js/dialog_drag.js' %}?v=3"></script>
 <script src="{% static 'js/naming_preview.js' %}?v=2"></script>
 {% endif %}
 </body>

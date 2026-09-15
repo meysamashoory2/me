@@ -916,15 +916,15 @@ def system_naming_key_delete(request: HttpRequest) -> JsonResponse:
 def system_table_layout(request: HttpRequest) -> HttpResponse:
     """Per-menu header/body table settings, tabbed by sidebar menus."""
     from .models import TableLayoutSettings
-    from .nav import layout_surfaces
+    from .nav import layout_surfaces, surface_preview_href
     from .table_layout import (
         SECTION_CHOICES,
         SECTION_KEYS,
-        clamp_alpha,
-        clamp_row_height,
+        css_for_layouts,
         default_layout,
         layout_storage_key,
         locks_from_layouts,
+        merge_layout_post,
         normalize_section_layout,
     )
 
@@ -949,34 +949,8 @@ def system_table_layout(request: HttpRequest) -> HttpResponse:
 
     if request.method == "POST":
         layouts = settings.layouts_map()
-        current = dict(layouts.get(store_key) or default_layout(active))
-        posted = {
-            "row_height_px": clamp_row_height(request.POST.get("row_height_px"), current["row_height_px"]),
-            "header_height_px": clamp_row_height(
-                request.POST.get("header_height_px"), current["header_height_px"]
-            ),
-            "col_border": request.POST.get("col_border") == "show",
-            "row_border": request.POST.get("row_border") == "show",
-            "header_border": request.POST.get("header_border") == "show",
-            "width_locked": request.POST.get("width_locked") == "1",
-            "header_wrap": request.POST.get("header_wrap") == "1",
-            "body_wrap": request.POST.get("body_wrap") == "1",
-            "marquee": request.POST.get("marquee") == "1",
-            "header_color": request.POST.get("header_color") or current["header_color"],
-            "header_alpha": clamp_alpha(request.POST.get("header_alpha"), current["header_alpha"]),
-            "row_selected_color": request.POST.get("row_selected_color") or current["row_selected_color"],
-            "row_selected_alpha": clamp_alpha(
-                request.POST.get("row_selected_alpha"), current["row_selected_alpha"]
-            ),
-            "cell_outline_color": request.POST.get("cell_outline_color") or current["cell_outline_color"],
-            "cell_outline_alpha": clamp_alpha(
-                request.POST.get("cell_outline_alpha"), current["cell_outline_alpha"]
-            ),
-            "cell_fill_color": request.POST.get("cell_fill_color") or current["cell_fill_color"],
-            "cell_fill_alpha": clamp_alpha(
-                request.POST.get("cell_fill_alpha"), current["cell_fill_alpha"]
-            ),
-        }
+        current = dict(layouts.get(store_key) or layouts.get(active) or default_layout(active))
+        posted = merge_layout_post(current, request.POST)
         layouts[store_key] = normalize_section_layout(active, posted)
         if not surface or (surfaces and surface == surfaces[0].key):
             layouts[active] = layouts[store_key]
@@ -984,6 +958,16 @@ def system_table_layout(request: HttpRequest) -> HttpResponse:
         settings.section_width_locks = locks_from_layouts(layouts)
         settings.row_height_px = int(layouts.get("reports", {}).get("row_height_px") or 36)
         settings.save()
+        if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+            return JsonResponse(
+                {
+                    "ok": True,
+                    "message": "اعمال شد",
+                    "css": css_for_layouts(layouts),
+                    "locks": locks_from_layouts(layouts),
+                }
+            )
+        messages.success(request, "اعمال شد")
         q = f"?section={active}"
         if surface:
             q += f"&surface={surface}"
@@ -1000,6 +984,20 @@ def system_table_layout(request: HttpRequest) -> HttpResponse:
     ]
     current = layouts.get(store_key) or layouts.get(active) or default_layout(active)
     body_wrap_locked = (not current.get("col_border", True)) and (not current.get("row_border", True))
+    from django.urls import reverse
+
+    preview_href = surface_preview_href(
+        active, surface, reverse("system_table_layout") + f"?section={active}&surface={surface}"
+    )
+    if not preview_href:
+        from urllib.parse import urlencode
+
+        preview_href = reverse("dashboard") + "?" + urlencode(
+            {
+                "naming_preview": "1",
+                "ret": reverse("system_table_layout") + f"?section={active}&surface={surface}",
+            }
+        )
     return render(
         request,
         "catalog/system_table_layout.html",
@@ -1011,6 +1009,7 @@ def system_table_layout(request: HttpRequest) -> HttpResponse:
             "layout": current,
             "body_wrap_locked": body_wrap_locked,
             "can_edit": _can_edit_naming(request.user),
+            "preview_href": preview_href,
         },
     )
 

@@ -122,9 +122,6 @@
     if (!table || table.dataset.tableNavBound === "1") return;
     if (table.classList.contains("excel-grid")) return;
     if (table.classList.contains("plan-matrix-table")) return;
-    if (table.getAttribute("data-erp-nav") === "off") return;
-    // System-data accordion / hub menus are not navigable data tables
-    if (table.closest(".system-accordion, .system-acc-body, .system-acc-group")) return;
     table.dataset.tableNavBound = "1";
     table.classList.add("js-table-nav");
     if (!table.hasAttribute("tabindex")) table.setAttribute("tabindex", "0");
@@ -162,7 +159,7 @@
     }
 
     function rowFromEvent(e) {
-      if (e.target.closest(".col-ops, button, select, a, input, textarea, label")) return null;
+      if (e.target.closest(".col-ops, button, select, input, textarea, label, a.btn")) return null;
       var td = e.target.closest("td, th");
       if (!td || !table.contains(td)) return null;
       var tr = td.closest("tr");
@@ -182,6 +179,7 @@
       if (!hit) return;
       selectAt(hit.ri, hit.ci);
       table.focus({ preventScroll: true });
+      window._erpNavTable = table;
     });
 
     // Double click enters the next level (or hints when already at the last one).
@@ -203,46 +201,58 @@
       }
     });
 
-    table.addEventListener("keydown", function (e) {
-      if (isEditableTarget(document.activeElement) && document.activeElement !== table) return;
-      if (table.getAttribute("data-editing") === "1") return;
+    function handleNavKey(e) {
+      if (table.getAttribute("data-editing") === "1") return false;
       var rows = bodyRows(table);
-      if (!rows.length) return;
+      if (!rows.length) return false;
       if (selRow < 0) {
         if (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Enter" || e.key === " ") {
           e.preventDefault();
           selectAt(0, 0);
+          return true;
         }
-        return;
+        return false;
       }
       if (e.key === "ArrowDown") {
         e.preventDefault();
         selectAt(selRow + 1, selCol);
-      } else if (e.key === "ArrowUp") {
+        return true;
+      }
+      if (e.key === "ArrowUp") {
         e.preventDefault();
         selectAt(selRow - 1, selCol);
-      } else if (e.key === "ArrowLeft") {
+        return true;
+      }
+      if (e.key === "ArrowLeft") {
         e.preventDefault();
         selectAt(selRow, rtl ? selCol + 1 : selCol - 1);
-      } else if (e.key === "ArrowRight") {
+        return true;
+      }
+      if (e.key === "ArrowRight") {
         e.preventDefault();
         selectAt(selRow, rtl ? selCol - 1 : selCol + 1);
-      } else if (e.key === "Enter" || e.key === " ") {
+        return true;
+      }
+      if (e.key === "Enter" || e.key === " ") {
         var tr = rows[selRow];
-        if (!tr) return;
+        if (!tr) return false;
         e.preventDefault();
         activateOrHint(tr);
+        return true;
       }
+      return false;
+    }
+    table._erpNavKey = handleNavKey;
+
+    table.addEventListener("keydown", function (e) {
+      if (isEditableTarget(document.activeElement) && document.activeElement !== table) return;
+      handleNavKey(e);
     });
   }
 
   function init(root) {
     var scope = root || document;
-    // Opt-in only: scrollable list tables and explicit nav classes.
-    // Do NOT bind every main table (system-data accordion menus must stay plain).
-    scope.querySelectorAll(
-      ".table-scroll table.table, table.table.js-table-nav, table.table-nav-cells, table.table-list-nav"
-    ).forEach(bindTable);
+    scope.querySelectorAll("table.table, table.pcx-table, .results table").forEach(bindTable);
   }
 
   window.ERPTableNav = {
@@ -261,4 +271,16 @@
   } else {
     init();
   }
+
+  document.addEventListener("keydown", function (e) {
+    if (isEditableTarget(e.target)) return;
+    var table = window._erpNavTable;
+    if (!table || typeof table._erpNavKey !== "function") {
+      var selected = document.querySelector("table.js-table-nav tbody tr.is-row-selected");
+      table = selected ? selected.closest("table") : document.querySelector("table.js-table-nav");
+    }
+    if (!table || typeof table._erpNavKey !== "function") return;
+    if (document.activeElement === table) return;
+    table._erpNavKey(e);
+  });
 })();

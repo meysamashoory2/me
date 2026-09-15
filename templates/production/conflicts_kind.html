@@ -3,6 +3,7 @@
 {% block heading %}نوع تداخل: {{ kind_label }} ({{ group_count }}){% endblock %}
 {% block nav_history %}active{% endblock %}
 {% block table_section %}history{% endblock %}
+{% block table_surface %}conflicts{% endblock %}
 
 {% block topbar_actions %}
 <div class="topbar-actions">
@@ -21,7 +22,7 @@
   </div>
   <p class="panel-hint" style="margin:0 12px 10px">{{ g.message }}</p>
   <div class="table-scroll">
-    <table class="table table-compact" data-erp-nav="off">
+    <table class="table table-compact">
       <thead>
         <tr>
           <th>شماره برنامه</th>
