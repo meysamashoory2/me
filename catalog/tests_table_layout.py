@@ -145,3 +145,40 @@ class TableLayoutHelpersTests(SimpleTestCase):
         )
         self.assertIn("box-shadow:none !important", css)
         self.assertIn(".table-scroll thead th", css)
+
+    def test_css_does_not_clip_ops_columns(self):
+        css = css_for_layouts(
+            {
+                "excel": {
+                    "row_height_px": 20,
+                    "header_height_px": 20,
+                    "col_border": True,
+                    "row_border": True,
+                    "width_locked": True,
+                }
+            }
+        )
+        self.assertIn("td.col-ops", css)
+        self.assertIn("overflow:visible !important", css)
+        self.assertIn("max-height:none !important", css)
+        self.assertIn("td:not(.col-ops)", css)
+        self.assertIn('[data-table-section="excel"] .pcx-table', css)
+        self.assertIn("--table-row-height:20px", css)
+        self.assertIn("--table-header-height:20px", css)
+
+    def test_pipe_calc_css_targets_pcx_tables(self):
+        css = css_for_layouts(
+            {
+                "pipe_calc": {
+                    "row_height_px": 48,
+                    "header_height_px": 40,
+                    "col_border": True,
+                    "row_border": True,
+                    "width_locked": True,
+                }
+            }
+        )
+        self.assertIn('[data-table-section="pipe_calc"] .pcx-table', css)
+        self.assertIn('[data-table-section="pipe_calc"] .pcx-table td:not(.col-ops)', css)
+        self.assertIn("height:var(--table-row-height) !important", css)
+        self.assertIn("height:var(--table-header-height) !important", css)

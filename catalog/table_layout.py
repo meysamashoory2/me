@@ -249,6 +249,9 @@ def _sel(key: str, *suffixes: str) -> str:
     return ",".join(out)
 
 
+_OPS_CELL = ":not(.col-ops):not(.row-actions):not(.actions)"
+
+
 def _section_cells(key: str, tags: tuple[str, ...], suffix: str = "") -> str:
     parts: list[str] = []
     for host in _scopes(key):
@@ -257,8 +260,34 @@ def _section_cells(key: str, tags: tuple[str, ...], suffix: str = "") -> str:
             parts.append(f"{host} table {sel}")
             parts.append(f"{host} .table {sel}")
             parts.append(f"{host} .pcx-table {sel}")
+            parts.append(f"{host} .pcx-defs-table {sel}")
             parts.append(f"{host} .results table {sel}")
     return ",".join(parts)
+
+
+def _ops_protect(key: str) -> str:
+    """Action columns keep native control size — never clip or shrink buttons."""
+    ops = _section_cells(key, ("td", "th"), ".col-ops")
+    extra = _sel(
+        key,
+        " table td.row-actions",
+        " table td.actions",
+        " table td:has(.btn)",
+        " table th:has(.btn)",
+        " table td:has(.ops-inline)",
+        " .table td:has(.btn)",
+        " .pcx-table td:has(.btn)",
+    )
+    cells = ",".join(p for p in (ops, extra) if p)
+    btns = _sel(key, " .col-ops .btn", " .col-ops button", " td:has(.btn) > .btn")
+    return (
+        f"{cells}{{overflow:visible !important;max-height:none !important;"
+        "height:auto !important;white-space:nowrap !important;"
+        "text-overflow:clip !important;max-width:none !important;}}"
+        f"{btns}{{height:auto !important;max-height:none !important;"
+        "overflow:visible !important;white-space:nowrap !important;"
+        "flex-shrink:0;max-width:none !important;}}"
+    )
 
 
 def css_for_layouts(layouts: dict[str, dict[str, Any]]) -> str:
@@ -284,6 +313,22 @@ def css_for_layouts(layouts: dict[str, dict[str, Any]]) -> str:
         all_cells = _section_cells(key, ("th", "td"))
         body_cells = _section_cells(key, ("td",))
         header_cells = _section_cells(key, ("th",))
+        clip_body = _section_cells(key, ("td",), _OPS_CELL)
+        clip_header = _section_cells(key, ("th",), _OPS_CELL)
+        if host:
+            parts.append(
+                f"{host} .pcx-table,"
+                f"{host} .pcx-defs-table,"
+                f"{host} table.table,"
+                f"{host} .results table{{"
+                f"--table-row-height:{row_h}px;"
+                f"--table-header-height:{head_h}px;"
+                f"--table-header-bg:{_rgba(cfg.get('header_color') or '#c7d7ea', cfg.get('header_alpha', 100))};"
+                f"--table-row-selected:{_rgba(cfg.get('row_selected_color') or '#dbeafe', cfg.get('row_selected_alpha', 100))};"
+                f"--table-cell-outline:{_rgba(cfg.get('cell_outline_color') or '#2563eb', cfg.get('cell_outline_alpha', 100))};"
+                f"--table-cell-fill:{_rgba(cfg.get('cell_fill_color') or '#ffffff', cfg.get('cell_fill_alpha', 100))};"
+                "}"
+            )
         if cfg.get("col_border", True):
             between = _section_cells(key, ("th", "td"), ":not(:last-child)")
             parts.append(
@@ -326,36 +371,37 @@ def css_for_layouts(layouts: dict[str, dict[str, Any]]) -> str:
         header_border = bool(cfg.get("header_border", True))
         if header_wrap:
             parts.append(
-                f"{header_cells}{{white-space:normal !important;overflow:hidden !important;"
-                "text-overflow:clip !important;height:var(--table-header-height);"
-                "max-height:var(--table-header-height);vertical-align:middle;}}"
+                f"{clip_header}{{white-space:normal !important;overflow:hidden !important;"
+                "text-overflow:clip !important;height:var(--table-header-height) !important;"
+                "max-height:var(--table-header-height) !important;vertical-align:middle;}}"
             )
         elif header_border:
             parts.append(
-                f"{header_cells}{{white-space:nowrap !important;overflow:hidden !important;"
-                "text-overflow:clip !important;height:var(--table-header-height);"
-                "max-height:var(--table-header-height);}}"
+                f"{clip_header}{{white-space:nowrap !important;overflow:hidden !important;"
+                "text-overflow:clip !important;height:var(--table-header-height) !important;"
+                "max-height:var(--table-header-height) !important;}}"
             )
         else:
             parts.append(
-                f"{header_cells}{{white-space:nowrap !important;overflow:visible !important;"
-                "text-overflow:clip !important;height:var(--table-header-height);"
-                "max-height:var(--table-header-height);}}"
+                f"{clip_header}{{white-space:nowrap !important;overflow:visible !important;"
+                "text-overflow:clip !important;height:var(--table-header-height) !important;"
+                "max-height:var(--table-header-height) !important;}}"
             )
         body_wrap = bool(cfg.get("body_wrap"))
         body_border = bool(cfg.get("col_border", True) or cfg.get("row_border", True))
         if body_wrap or not body_border:
             parts.append(
-                f"{body_cells}{{white-space:normal !important;overflow:hidden !important;"
-                "height:var(--table-row-height);max-height:var(--table-row-height);"
+                f"{clip_body}{{white-space:normal !important;overflow:hidden !important;"
+                "height:var(--table-row-height) !important;max-height:var(--table-row-height) !important;"
                 "vertical-align:middle;}}"
             )
         else:
             parts.append(
-                f"{body_cells}{{white-space:nowrap !important;overflow:hidden !important;"
-                "text-overflow:clip !important;height:var(--table-row-height);"
-                "max-height:var(--table-row-height);}}"
+                f"{clip_body}{{white-space:nowrap !important;overflow:hidden !important;"
+                "text-overflow:clip !important;height:var(--table-row-height) !important;"
+                "max-height:var(--table-row-height) !important;}}"
             )
+        parts.append(_ops_protect(key))
         header_bg = ",".join(
             p
             for p in (
@@ -374,6 +420,8 @@ def css_for_layouts(layouts: dict[str, dict[str, Any]]) -> str:
             " .table tbody tr.is-row-selected > th",
             " .pcx-table tbody tr.is-row-selected > td",
             " .pcx-table tbody tr.is-row-selected > th",
+            " .pcx-defs-table tbody tr.is-row-selected > td",
+            " .pcx-defs-table tbody tr.is-row-selected > th",
         )
         if selected:
             parts.append(f"{selected}{{background:var(--table-row-selected) !important;}}")
@@ -383,6 +431,8 @@ def css_for_layouts(layouts: dict[str, dict[str, Any]]) -> str:
             " table tbody tr.is-row-selected > th.is-cell-focus",
             " .table tbody tr.is-row-selected > td.is-cell-focus",
             " .table tbody tr.is-row-selected > th.is-cell-focus",
+            " .pcx-table tbody tr.is-row-selected > td.is-cell-focus",
+            " .pcx-table tbody tr.is-row-selected > th.is-cell-focus",
         )
         if focus:
             parts.append(

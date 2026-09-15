@@ -7,6 +7,7 @@
   var STORAGE_PREFIX = "erp.table.colwidths.";
   var MIN_COL = 40;
   var MAX_COL = 800;
+  var OPS_MIN_COL = 260;
   /** Constant marquee speed (px/s) — independent of text length. */
   var REVEAL_SPEED_PX_PER_SEC = 52;
   var REVEAL_GAP_EM = 3;
@@ -81,10 +82,33 @@
     table.style.marginInlineEnd = "auto";
   }
 
+  function isOpsCell(cell) {
+    if (!cell || cell.nodeType !== 1) return false;
+    if (cell.classList.contains("col-ops") || cell.classList.contains("row-actions")) return true;
+    if (cell.getAttribute("data-col") === "ops") return true;
+    return !!(cell.querySelector && cell.querySelector(".btn, button, .ops-inline, .row-actions-ops"));
+  }
+
+  function isOpsColumn(table, idx) {
+    var cells = headCells(table);
+    if (idx < 0 || idx >= cells.length) return false;
+    if (isOpsCell(cells[idx])) return true;
+    var row = table.tBodies && table.tBodies[0] && table.tBodies[0].rows[0];
+    return !!(row && row.cells[idx] && isOpsCell(row.cells[idx]));
+  }
+
   function applyFixedWidths(table, widths) {
     var cells = headCells(table);
     if (!cells.length) return;
     cells.forEach(function (th, i) {
+      if (isOpsColumn(table, i)) {
+        var natural = Math.max(OPS_MIN_COL, widths[i] || 0);
+        th.style.width = natural + "px";
+        th.style.minWidth = natural + "px";
+        th.style.maxWidth = "none";
+        widths[i] = natural;
+        return;
+      }
       var w = widths[i];
       if (!w || w <= 0) return;
       th.style.width = w + "px";
@@ -143,6 +167,7 @@
   }
 
   function autoFitColumn(table, idx) {
+    if (isOpsColumn(table, idx)) return;
     var target = measureColumnContentWidth(table, idx);
     if (!target) return;
     target = Math.max(MIN_COL, Math.min(MAX_COL, target));
@@ -171,6 +196,7 @@
 
     cells.forEach(function (th, idx) {
       if (th.querySelector(".col-resizer")) return;
+      if (isOpsColumn(table, idx)) return;
       var inScroll = !!(th.closest && th.closest(".table-scroll, .table-scroll-wide"));
       if (inScroll) {
         th.style.position = "sticky";
@@ -540,6 +566,9 @@
         "table.table[data-table-section], [data-table-section] table.table"
       )
       .forEach(enhanceTable);
+    document.querySelectorAll("[data-table-section] table.pcx-table, table.pcx-table").forEach(function (table) {
+      bindReveal(table);
+    });
     // Marquee reveal for all scrollable data tables (height stays locked via CSS).
     document
       .querySelectorAll(".table-scroll table.table, .table-scroll-wide table.table")

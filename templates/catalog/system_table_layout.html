@@ -194,6 +194,7 @@
       var data = new FormData(form);
       var submitter = e.submitter;
       if (submitter && submitter.name) data.set(submitter.name, submitter.value);
+      var dlg = submitter && submitter.closest ? submitter.closest("dialog") : null;
       fetch(form.getAttribute("action") || window.location.pathname + window.location.search, {
         method: "POST",
         headers: { "X-Requested-With": "XMLHttpRequest", "X-CSRFToken": csrf },
@@ -204,6 +205,10 @@
         if (res.css) injectCss(res.css);
         if (res.locks) {
           document.body.setAttribute("data-table-width-locks", JSON.stringify(res.locks));
+        }
+        if (dlg) {
+          if (dlg.close) dlg.close();
+          else dlg.removeAttribute("open");
         }
         toast(res.message || "اعمال شد");
       });

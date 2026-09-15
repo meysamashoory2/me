@@ -186,6 +186,7 @@ class TableLayoutSettingsTests(TestCase):
         self.assertContains(get, "پیش نمایش تغییرات")
         self.assertContains(get, "برنامه‌ریزی هفتگی تولید")
         self.assertContains(get, "naming_preview=1")
+        self.assertContains(get, "dlg.close")
         programs = self.client.get(url, {"section": "production"})
         self.assertContains(programs, "ثبت تولید روزانه")
         resp = self.client.post(
