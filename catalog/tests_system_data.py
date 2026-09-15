@@ -232,6 +232,25 @@ class TableLayoutSettingsTests(TestCase):
         page = self.client.get(reverse("plan_list"))
         self.assertIn("--table-row-height:52px", page.content.decode())
 
+    def test_layout_css_does_not_paint_page_background(self):
+        import re
+        from catalog.table_layout import css_for_layouts, default_layout
+
+        css = css_for_layouts({"planning": default_layout("planning")})
+        self.assertIn('[data-table-section="planning"]{--table-row-height:', css)
+        for block in css.split("}"):
+            if "background:var(--table-row-selected)" not in block and "background:var(--table-header-bg)" not in block:
+                continue
+            selector = block.split("{", 1)[0]
+            self.assertIn(" ", selector)
+            self.assertNotEqual(selector.strip(), '[data-table-section="planning"]')
+            for part in selector.split(","):
+                part = part.strip()
+                self.assertTrue(
+                    re.search(r"(table|th|td|thead|tr)", part),
+                    msg=f"page-level background selector leaked: {part}",
+                )
+
     def test_table_layout_save_other_section(self):
         from django.urls import reverse
         from catalog.models import TableLayoutSettings

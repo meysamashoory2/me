@@ -49,7 +49,7 @@ def default_layout(section_key: str) -> dict[str, Any]:
         "header_wrap": False,
         "body_wrap": False,
         "marquee": True,
-        "header_color": "#f8fafc",
+        "header_color": "#c7d7ea",
         "header_alpha": 100,
         "row_selected_color": "#dbeafe",
         "row_selected_alpha": 100,
@@ -224,14 +224,16 @@ def _rgba(hex_color: str, alpha: int) -> str:
 
 
 def _scopes(key: str) -> list[str]:
+    """Host elements only — never include a descendant in the same comma list.
+
+    Appending a suffix to a comma-joined list like ``A,B .child`` paints A itself.
+    """
     section, surface = split_layout_key(key)
     if not section:
         return []
     if surface:
-        pair = f'[data-table-section="{section}"][data-table-surface="{surface}"]'
-        return [pair, f'{pair} table', f'table{pair}']
-    host = f'[data-table-section="{section}"]'
-    return [host, f'{host} table', f'table{host}']
+        return [f'[data-table-section="{section}"][data-table-surface="{surface}"]']
+    return [f'[data-table-section="{section}"]']
 
 
 def _scope(key: str) -> str:
@@ -239,17 +241,23 @@ def _scope(key: str) -> str:
     return scopes[0] if scopes else ""
 
 
+def _sel(key: str, *suffixes: str) -> str:
+    out: list[str] = []
+    for host in _scopes(key):
+        for suffix in suffixes:
+            out.append(f"{host}{suffix}")
+    return ",".join(out)
+
+
 def _section_cells(key: str, tags: tuple[str, ...], suffix: str = "") -> str:
     parts: list[str] = []
-    for scope in _scopes(key):
+    for host in _scopes(key):
         for tag in tags:
             sel = f"{tag}{suffix}"
-            parts.append(f"{scope} table {sel}")
-            parts.append(f"{scope} .table {sel}")
-            parts.append(f"{scope} .pcx-table {sel}")
-            parts.append(f"{scope} .results table {sel}")
-            parts.append(f"{scope}.table {sel}")
-            parts.append(f"{scope}.pcx-table {sel}")
+            parts.append(f"{host} table {sel}")
+            parts.append(f"{host} .table {sel}")
+            parts.append(f"{host} .pcx-table {sel}")
+            parts.append(f"{host} .results table {sel}")
     return ",".join(parts)
 
 
@@ -259,19 +267,20 @@ def css_for_layouts(layouts: dict[str, dict[str, Any]]) -> str:
     # Defaults (no surface) first, then surface overrides.
     ordered.sort(key=lambda kv: 1 if "::" in kv[0] else 0)
     for key, cfg in ordered:
-        scope = ",".join(_scopes(key))
+        host = _scope(key)
         row_h = clamp_row_height(cfg.get("row_height_px"))
         head_h = clamp_row_height(cfg.get("header_height_px"), DEFAULT_HEADER_HEIGHT)
-        parts.append(
-            f"{scope}{{"
-            f"--table-row-height:{row_h}px !important;"
-            f"--table-header-height:{head_h}px !important;"
-            f"--table-header-bg:{_rgba(cfg.get('header_color') or '#f8fafc', cfg.get('header_alpha', 100))} !important;"
-            f"--table-row-selected:{_rgba(cfg.get('row_selected_color') or '#dbeafe', cfg.get('row_selected_alpha', 100))} !important;"
-            f"--table-cell-outline:{_rgba(cfg.get('cell_outline_color') or '#2563eb', cfg.get('cell_outline_alpha', 100))} !important;"
-            f"--table-cell-fill:{_rgba(cfg.get('cell_fill_color') or '#ffffff', cfg.get('cell_fill_alpha', 100))} !important;"
-            "}"
-        )
+        if host:
+            parts.append(
+                f"{host}{{"
+                f"--table-row-height:{row_h}px;"
+                f"--table-header-height:{head_h}px;"
+                f"--table-header-bg:{_rgba(cfg.get('header_color') or '#c7d7ea', cfg.get('header_alpha', 100))};"
+                f"--table-row-selected:{_rgba(cfg.get('row_selected_color') or '#dbeafe', cfg.get('row_selected_alpha', 100))};"
+                f"--table-cell-outline:{_rgba(cfg.get('cell_outline_color') or '#2563eb', cfg.get('cell_outline_alpha', 100))};"
+                f"--table-cell-fill:{_rgba(cfg.get('cell_fill_color') or '#ffffff', cfg.get('cell_fill_alpha', 100))};"
+                "}"
+            )
         all_cells = _section_cells(key, ("th", "td"))
         body_cells = _section_cells(key, ("td",))
         header_cells = _section_cells(key, ("th",))
@@ -310,8 +319,8 @@ def css_for_layouts(layouts: dict[str, dict[str, Any]]) -> str:
                 "}"
             )
             parts.append(
-                f"{scope} .table-scroll thead th,"
-                f"{scope} .table-scroll-wide thead th{{box-shadow:none !important;}}"
+                f"{_sel(key, ' .table-scroll thead th', ' .table-scroll-wide thead th')}"
+                f"{{box-shadow:none !important;}}"
             )
         header_wrap = bool(cfg.get("header_wrap"))
         header_border = bool(cfg.get("header_border", True))
@@ -347,27 +356,41 @@ def css_for_layouts(layouts: dict[str, dict[str, Any]]) -> str:
                 "text-overflow:clip !important;height:var(--table-row-height);"
                 "max-height:var(--table-row-height);}}"
             )
-        parts.append(
-            f"{header_cells},"
-            f"{scope} .table-scroll thead th,"
-            f"{scope} .table-scroll-wide thead th{{background:var(--table-header-bg) !important;}}"
+        header_bg = ",".join(
+            p
+            for p in (
+                header_cells,
+                _sel(key, " .table-scroll thead th", " .table-scroll-wide thead th"),
+            )
+            if p
         )
-        parts.append(
-            f"{scope} table tbody tr.is-row-selected > td,"
-            f"{scope} table tbody tr.is-row-selected > th,"
-            f"{scope} table.js-table-nav tbody tr.is-row-selected > td,"
-            f"{scope} table.js-table-nav tbody tr.is-row-selected > th{{"
-            "background:var(--table-row-selected) !important;}}"
+        if header_bg:
+            parts.append(f"{header_bg}{{background:var(--table-header-bg) !important;}}")
+        selected = _sel(
+            key,
+            " table tbody tr.is-row-selected > td",
+            " table tbody tr.is-row-selected > th",
+            " .table tbody tr.is-row-selected > td",
+            " .table tbody tr.is-row-selected > th",
+            " .pcx-table tbody tr.is-row-selected > td",
+            " .pcx-table tbody tr.is-row-selected > th",
         )
-        parts.append(
-            f"{scope} table tbody tr.is-row-selected > td.is-cell-focus,"
-            f"{scope} table tbody tr.is-row-selected > th.is-cell-focus{{"
-            "background:var(--table-cell-fill) !important;"
-            "outline:1px solid var(--table-cell-outline) !important;"
-            "outline-offset:-1px !important;}}"
+        if selected:
+            parts.append(f"{selected}{{background:var(--table-row-selected) !important;}}")
+        focus = _sel(
+            key,
+            " table tbody tr.is-row-selected > td.is-cell-focus",
+            " table tbody tr.is-row-selected > th.is-cell-focus",
+            " .table tbody tr.is-row-selected > td.is-cell-focus",
+            " .table tbody tr.is-row-selected > th.is-cell-focus",
         )
-        if cfg.get("marquee"):
-            parts.append(f"{scope}{{--table-marquee:1;}}")
-        else:
-            parts.append(f"{scope}{{--table-marquee:0;}}")
+        if focus:
+            parts.append(
+                f"{focus}{{"
+                "background:var(--table-cell-fill) !important;"
+                "outline:1px solid var(--table-cell-outline) !important;"
+                "outline-offset:-1px !important;}}"
+            )
+        if host:
+            parts.append(f"{host}{{--table-marquee:{1 if cfg.get('marquee') else 0};}}")
     return "".join(parts)
