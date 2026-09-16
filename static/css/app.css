@@ -484,10 +484,10 @@ tr.is-conflict-row > td {
 }
 .system-acc-item:hover,
 .system-acc-item:focus-visible {
-  background: linear-gradient(270deg, #e8eef8 0%, #f3f7fc 58%, #ffffff 100%);
+  background: linear-gradient(270deg, #dbe7f6 0%, #eef4fb 50%, #f8fbfe 100%);
   box-shadow:
-    inset -3px 0 0 #2563eb,
-    0 6px 14px -8px rgba(15, 23, 42, 0.38);
+    inset -4px 0 0 #2563eb,
+    0 8px 16px -6px rgba(15, 23, 42, 0.28);
   outline: none;
   z-index: 1;
 }
@@ -3648,6 +3648,7 @@ fieldset.layout-field-choice {
   box-shadow: 0 1px 0 rgba(255, 255, 255, 0.8);
 }
 .table-layout-form .layout-field > span,
+.table-layout-form fieldset.layout-field-choice > span,
 .table-layout-form fieldset.layout-field-choice > legend {
   flex: 0 0 138px;
   width: 138px;

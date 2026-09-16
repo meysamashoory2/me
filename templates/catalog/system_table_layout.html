@@ -32,7 +32,7 @@
           <input class="input" type="number" name="header_height_px" min="5" max="120" value="{{ layout.header_height_px }}">
         </label>
         <fieldset class="layout-field layout-field-choice">
-          <legend>مرزبندی</legend>
+          <span>مرزبندی</span>
           <div class="layout-choice-row">
             <label class="layout-choice"><input type="radio" name="header_border" value="show" {% if layout.header_border %}checked{% endif %}> نمایش</label>
             <label class="layout-choice"><input type="radio" name="header_border" value="hide" {% if not layout.header_border %}checked{% endif %}> مخفی</label>
@@ -65,14 +65,14 @@
           <input class="input" type="number" name="row_height_px" min="5" max="120" value="{{ layout.row_height_px }}">
         </label>
         <fieldset class="layout-field layout-field-choice">
-          <legend>مرزبندی ستون‌ها</legend>
+          <span>مرزبندی ستون‌ها</span>
           <div class="layout-choice-row">
             <label class="layout-choice"><input type="radio" name="col_border" value="show" {% if layout.col_border %}checked{% endif %}> نمایش</label>
             <label class="layout-choice"><input type="radio" name="col_border" value="hide" {% if not layout.col_border %}checked{% endif %}> مخفی</label>
           </div>
         </fieldset>
         <fieldset class="layout-field layout-field-choice">
-          <legend>مرزبندی ردیف‌ها</legend>
+          <span>مرزبندی ردیف‌ها</span>
           <div class="layout-choice-row">
             <label class="layout-choice"><input type="radio" name="row_border" value="show" {% if layout.row_border %}checked{% endif %}> نمایش</label>
             <label class="layout-choice"><input type="radio" name="row_border" value="hide" {% if not layout.row_border %}checked{% endif %}> مخفی</label>
