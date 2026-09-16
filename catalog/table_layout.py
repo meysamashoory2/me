@@ -59,9 +59,25 @@ def clamp_alpha(value: Any, default: int = 100) -> int:
     return max(0, min(100, n))
 
 
-def default_width_locked(section_key: str) -> bool:
-    base = str(section_key or "").split("::", 1)[0]
-    return base not in UNLOCKED_WIDTH_DEFAULTS
+CSS_HOST = "main.content"
+GLOBAL_LAYOUT_KEY = "all"
+
+
+def default_width_locked(section_key: str = "") -> bool:
+    return True
+
+
+def resolve_global_layout(layouts: Any) -> dict[str, Any]:
+    stored = layouts if isinstance(layouts, dict) else {}
+    raw = stored.get(GLOBAL_LAYOUT_KEY)
+    if not isinstance(raw, dict):
+        raw = stored.get("planning")
+    if not isinstance(raw, dict):
+        for value in stored.values():
+            if isinstance(value, dict):
+                raw = value
+                break
+    return normalize_section_layout(GLOBAL_LAYOUT_KEY, raw if isinstance(raw, dict) else {})
 
 
 def default_layout(section_key: str) -> dict[str, Any]:
@@ -217,35 +233,19 @@ def normalize_all_layouts(
     legacy_locks: dict[str, bool] | None = None,
 ) -> dict[str, dict[str, Any]]:
     stored = stored if isinstance(stored, dict) else {}
-    legacy_locks = legacy_locks if isinstance(legacy_locks, dict) else {}
-    fallback_height = (
-        clamp_row_height(legacy_height)
-        if legacy_height is not None
-        else DEFAULT_ROW_HEIGHT
-    )
-    out: dict[str, dict[str, Any]] = {}
-    for key, _label in SECTION_CHOICES:
-        raw = stored.get(key)
-        if isinstance(raw, dict):
-            out[key] = normalize_section_layout(key, raw)
-            continue
-        layout = default_layout(key)
-        layout["row_height_px"] = fallback_height
-        if bool(legacy_locks.get(key)):
+    layout = resolve_global_layout(stored)
+    has_saved = any(isinstance(v, dict) for v in stored.values())
+    if not has_saved:
+        if legacy_height is not None:
+            layout["row_height_px"] = clamp_row_height(legacy_height)
+        if isinstance(legacy_locks, dict) and any(bool(v) for v in legacy_locks.values()):
             layout["width_locked"] = True
-        out[key] = layout
-    for key, raw in stored.items():
-        if key in out or not isinstance(raw, dict):
-            continue
-        section, _surface = split_layout_key(str(key))
-        if section not in SECTION_KEYS:
-            continue
-        out[str(key)] = normalize_section_layout(section, raw)
-    return out
+    return {GLOBAL_LAYOUT_KEY: layout}
 
 
 def locks_from_layouts(layouts: dict[str, dict[str, Any]]) -> dict[str, bool]:
-    return {key: bool(cfg.get("width_locked")) for key, cfg in layouts.items()}
+    cfg = resolve_global_layout(layouts)
+    return {GLOBAL_LAYOUT_KEY: bool(cfg.get("width_locked"))}
 
 
 def _rgba(hex_color: str, alpha: int) -> str:
@@ -259,65 +259,35 @@ def _rgba(hex_color: str, alpha: int) -> str:
     return f"rgba({r},{g},{b},{a:.2f})"
 
 
-def _scopes(key: str) -> list[str]:
-    """Host elements only — never include a descendant in the same comma list.
-
-    Appending a suffix to a comma-joined list like ``A,B .child`` paints A itself.
-    """
-    section, surface = split_layout_key(key)
-    if not section:
-        return []
-    if surface:
-        return [f'[data-table-section="{section}"][data-table-surface="{surface}"]']
-    return [f'[data-table-section="{section}"]']
-
-
-def _scope(key: str) -> str:
-    scopes = _scopes(key)
-    return scopes[0] if scopes else ""
-
-
-def _sel(key: str, *suffixes: str) -> str:
-    out: list[str] = []
-    for host in _scopes(key):
-        for suffix in suffixes:
-            out.append(f"{host}{suffix}")
-    return ",".join(out)
-
-
+_TABLES = ("table.table", ".pcx-table", ".pcx-defs-table", ".results table")
 _OPS_CELL = ":not(.col-ops):not(.row-actions):not(.actions)"
 
 
-def _section_cells(key: str, tags: tuple[str, ...], suffix: str = "") -> str:
+def _cells(tags: tuple[str, ...], suffix: str = "") -> str:
     parts: list[str] = []
-    for host in _scopes(key):
+    for table in _TABLES:
         for tag in tags:
-            sel = f"{tag}{suffix}"
-            parts.append(f"{host} table {sel}")
-            parts.append(f"{host} .table {sel}")
-            parts.append(f"{host} .pcx-table {sel}")
-            parts.append(f"{host} .pcx-defs-table {sel}")
-            parts.append(f"{host} .results table {sel}")
+            parts.append(f"{CSS_HOST} {table} {tag}{suffix}")
     return ",".join(parts)
 
 
-def _ops_protect(key: str) -> str:
-    """Action columns keep native control size — never clip or shrink buttons."""
-    ops = _section_cells(key, ("td", "th"), ".col-ops")
+def _sel(*suffixes: str) -> str:
+    return ",".join(f"{CSS_HOST}{suffix}" for suffix in suffixes)
+
+
+def _ops_protect() -> str:
+    ops = _cells(("td", "th"), ".col-ops")
     extra = _sel(
-        key,
-        " table td.row-actions",
-        " table td.actions",
-        " table td:has(.btn)",
-        " table th:has(.btn)",
-        " table td:has(.ops-inline)",
-        " .table td:has(.btn)",
+        " table.table td.row-actions",
+        " table.table td.actions",
+        " table.table td:has(.btn)",
+        " table.table th:has(.btn)",
+        " table.table td:has(.ops-inline)",
         " .pcx-table td:has(.btn)",
     )
-    cells = ",".join(p for p in (ops, extra) if p)
-    btns = _sel(key, " .col-ops .btn", " .col-ops button", " td:has(.btn) > .btn")
+    btns = _sel(" .col-ops .btn", " .col-ops button", " td:has(.btn) > .btn")
     return (
-        f"{cells}{{overflow:visible !important;max-height:none !important;"
+        f"{ops},{extra}{{overflow:visible !important;max-height:none !important;"
         "height:auto !important;white-space:nowrap !important;"
         "text-overflow:clip !important;max-width:none !important;}}"
         f"{btns}{{height:auto !important;max-height:none !important;"
@@ -326,182 +296,145 @@ def _ops_protect(key: str) -> str:
     )
 
 
+def _menu_reset() -> str:
+    """Dropdown/accordion menus are not data tables — never inherit grid styling."""
+    return (
+        f"{CSS_HOST} .system-accordion table,"
+        f"{CSS_HOST} .system-accordion th,"
+        f"{CSS_HOST} .system-accordion td,"
+        f"{CSS_HOST} .sidebar table,"
+        f"{CSS_HOST} .nav table{{"
+        "height:auto !important;max-height:none !important;min-height:0 !important;"
+        "overflow:visible !important;background-image:none !important;"
+        "white-space:normal !important;text-overflow:unset !important;"
+        "background-color:transparent !important;}}"
+    )
+
+
 def css_for_layouts(layouts: dict[str, dict[str, Any]]) -> str:
+    cfg = resolve_global_layout(layouts)
     parts: list[str] = []
-    ordered = sorted(layouts.items(), key=lambda kv: (0 if "::" in kv[0] else -1, kv[0]))
-    # Defaults (no surface) first, then surface overrides.
-    ordered.sort(key=lambda kv: 1 if "::" in kv[0] else 0)
-    for key, cfg in ordered:
-        host = _scope(key)
-        row_h = clamp_row_height(cfg.get("row_height_px"))
-        head_h = clamp_row_height(cfg.get("header_height_px"), DEFAULT_HEADER_HEIGHT)
-        if host:
-            parts.append(
-                f"{host}{{"
-                f"--table-row-height:{row_h}px;"
-                f"--table-header-height:{head_h}px;"
-                f"--table-header-bg:{_rgba(cfg.get('header_color') or '#c7d7ea', cfg.get('header_alpha', 100))};"
-                f"--table-row-selected:{_rgba(cfg.get('row_selected_color') or '#dbeafe', cfg.get('row_selected_alpha', 100))};"
-                f"--table-cell-outline:{_rgba(cfg.get('cell_outline_color') or '#2563eb', cfg.get('cell_outline_alpha', 100))};"
-                f"--table-cell-fill:{_rgba(cfg.get('cell_fill_color') or '#ffffff', cfg.get('cell_fill_alpha', 100))};"
-                "}"
-            )
-        all_cells = _section_cells(key, ("th", "td"))
-        body_cells = _section_cells(key, ("td",))
-        header_cells = _section_cells(key, ("th",))
-        clip_body = _section_cells(key, ("td",), _OPS_CELL)
-        clip_header = _section_cells(key, ("th",), _OPS_CELL)
-        if host:
-            parts.append(
-                f"{host} .pcx-table,"
-                f"{host} .pcx-defs-table,"
-                f"{host} table.table,"
-                f"{host} .results table{{"
-                f"--table-row-height:{row_h}px;"
-                f"--table-header-height:{head_h}px;"
-                f"--table-header-bg:{_rgba(cfg.get('header_color') or '#c7d7ea', cfg.get('header_alpha', 100))};"
-                f"--table-row-selected:{_rgba(cfg.get('row_selected_color') or '#dbeafe', cfg.get('row_selected_alpha', 100))};"
-                f"--table-cell-outline:{_rgba(cfg.get('cell_outline_color') or '#2563eb', cfg.get('cell_outline_alpha', 100))};"
-                f"--table-cell-fill:{_rgba(cfg.get('cell_fill_color') or '#ffffff', cfg.get('cell_fill_alpha', 100))};"
-                "}"
-            )
-        if cfg.get("col_border", True):
-            between = _section_cells(key, ("th", "td"), ":not(:last-child)")
-            parts.append(
-                f"{between}{{"
-                f"background-image:linear-gradient({COLUMN_BORDER_COLOR},{COLUMN_BORDER_COLOR}) !important;"
-                "background-repeat:no-repeat !important;"
-                "background-size:1px 100% !important;"
-                "background-position:left center !important;"
-                "}"
-            )
-        else:
-            parts.append(
-                f"{all_cells}{{"
-                "border-left:none !important;"
-                "border-right:none !important;"
-                "border-inline-start:none !important;"
-                "border-inline-end:none !important;"
-                "background-image:none !important;"
-                "}"
-            )
-        if not cfg.get("row_border", True):
-            parts.append(
-                f"{body_cells}{{"
-                "border-top-color:transparent !important;"
-                "border-bottom-color:transparent !important;"
-                "}"
-            )
-        if not cfg.get("header_border", True):
-            parts.append(
-                f"{header_cells}{{"
-                "border-top-color:transparent !important;"
-                "border-bottom-color:transparent !important;"
-                "}"
-            )
-            parts.append(
-                f"{_sel(key, ' .table-scroll thead th', ' .table-scroll-wide thead th')}"
-                f"{{box-shadow:none !important;}}"
-            )
-        header_wrap = bool(cfg.get("header_wrap"))
-        header_border = bool(cfg.get("header_border", True))
-        if header_wrap:
-            parts.append(
-                f"{clip_header}{{white-space:normal !important;overflow:hidden !important;"
-                "text-overflow:clip !important;height:var(--table-header-height) !important;"
-                "max-height:var(--table-header-height) !important;vertical-align:middle;}}"
-            )
-        elif header_border:
-            parts.append(
-                f"{clip_header}{{white-space:nowrap !important;overflow:hidden !important;"
-                "text-overflow:clip !important;height:var(--table-header-height) !important;"
-                "max-height:var(--table-header-height) !important;}}"
-            )
-        else:
-            parts.append(
-                f"{clip_header}{{white-space:nowrap !important;overflow:visible !important;"
-                "text-overflow:clip !important;height:var(--table-header-height) !important;"
-                "max-height:var(--table-header-height) !important;}}"
-            )
-        body_wrap = bool(cfg.get("body_wrap"))
-        body_border = bool(cfg.get("col_border", True) or cfg.get("row_border", True))
-        if body_wrap or not body_border:
-            parts.append(
-                f"{clip_body}{{white-space:normal !important;overflow:hidden !important;"
-                "height:var(--table-row-height) !important;max-height:var(--table-row-height) !important;"
-                "vertical-align:middle;}}"
-            )
-        else:
-            parts.append(
-                f"{clip_body}{{white-space:nowrap !important;overflow:hidden !important;"
-                "text-overflow:clip !important;height:var(--table-row-height) !important;"
-                "max-height:var(--table-row-height) !important;}}"
-            )
-        parts.append(_ops_protect(key))
-        header_bg = ",".join(
-            p
-            for p in (
-                header_cells,
-                _sel(key, " .table-scroll thead th", " .table-scroll-wide thead th"),
-            )
-            if p
+    row_h = clamp_row_height(cfg.get("row_height_px"))
+    head_h = clamp_row_height(cfg.get("header_height_px"), DEFAULT_HEADER_HEIGHT)
+    vars_block = (
+        f"--table-row-height:{row_h}px;"
+        f"--table-header-height:{head_h}px;"
+        f"--table-header-bg:{_rgba(cfg.get('header_color') or DEFAULT_HEADER_COLOR, cfg.get('header_alpha', 100))};"
+        f"--table-row-selected:{_rgba(cfg.get('row_selected_color') or DEFAULT_ROW_SELECTED_COLOR, cfg.get('row_selected_alpha', 100))};"
+        f"--table-cell-outline:{_rgba(cfg.get('cell_outline_color') or DEFAULT_CELL_OUTLINE_COLOR, cfg.get('cell_outline_alpha', 100))};"
+        f"--table-cell-fill:{_rgba(cfg.get('cell_fill_color') or DEFAULT_CELL_FILL_COLOR, cfg.get('cell_fill_alpha', 100))};"
+        f"--table-marquee:{1 if cfg.get('marquee') else 0};"
+    )
+    parts.append(f"{CSS_HOST}{{{vars_block}}}")
+    tables = _sel(" table.table", " .pcx-table", " .pcx-defs-table", " .results table")
+    parts.append(f"{tables}{{{vars_block}}}")
+
+    all_cells = _cells(("th", "td"))
+    body_cells = _cells(("td",))
+    header_cells = _cells(("th",))
+    clip_body = _cells(("td",), _OPS_CELL)
+    clip_header = _cells(("th",), _OPS_CELL)
+
+    if cfg.get("col_border", True):
+        between = _cells(("th", "td"), ":not(:last-child)")
+        parts.append(
+            f"{between}{{"
+            f"background-image:linear-gradient({COLUMN_BORDER_COLOR},{COLUMN_BORDER_COLOR}) !important;"
+            "background-repeat:no-repeat !important;"
+            "background-size:1px 100% !important;"
+            "background-position:left center !important;}}"
         )
-        if header_bg:
-            parts.append(f"{header_bg}{{background-color:var(--table-header-bg) !important;}}")
-        pcx_heads = _sel(
-            key,
-            " .pcx-table thead th",
-            " .pcx-table th",
-            " .pcx-defs-table thead th",
-            " .pcx-defs-table th",
+    else:
+        parts.append(
+            f"{all_cells}{{"
+            "border-left:none !important;border-right:none !important;"
+            "border-inline-start:none !important;border-inline-end:none !important;"
+            "background-image:none !important;}}"
         )
-        if pcx_heads:
-            parts.append(
-                f"{pcx_heads}{{"
-                "background-color:var(--table-header-bg) !important;"
-                "backdrop-filter:none !important;}}"
-            )
-        pcx_hover = _sel(
-            key,
-            " .pcx-table tbody tr:hover > td",
-            " .pcx-table tbody tr:hover > th",
-            " .pcx-table-calc tbody tr:hover > td",
-            " .pcx-defs-table tbody tr:hover > td",
+    if not cfg.get("row_border", True):
+        parts.append(
+            f"{body_cells}{{"
+            "border-top-color:transparent !important;"
+            "border-bottom-color:transparent !important;}}"
         )
-        if pcx_hover:
-            parts.append(
-                f"{pcx_hover}{{"
-                "background-color:color-mix(in srgb,var(--table-row-selected) 45%,transparent) !important;}}"
-            )
-        selected = _sel(
-            key,
-            " table tbody tr.is-row-selected > td",
-            " table tbody tr.is-row-selected > th",
-            " .table tbody tr.is-row-selected > td",
-            " .table tbody tr.is-row-selected > th",
-            " .pcx-table tbody tr.is-row-selected > td",
-            " .pcx-table tbody tr.is-row-selected > th",
-            " .pcx-defs-table tbody tr.is-row-selected > td",
-            " .pcx-defs-table tbody tr.is-row-selected > th",
+    if not cfg.get("header_border", True):
+        parts.append(
+            f"{header_cells}{{"
+            "border-top-color:transparent !important;"
+            "border-bottom-color:transparent !important;}}"
         )
-        if selected:
-            parts.append(f"{selected}{{background-color:var(--table-row-selected) !important;}}")
-        focus = _sel(
-            key,
-            " table tbody tr.is-row-selected > td.is-cell-focus",
-            " table tbody tr.is-row-selected > th.is-cell-focus",
-            " .table tbody tr.is-row-selected > td.is-cell-focus",
-            " .table tbody tr.is-row-selected > th.is-cell-focus",
-            " .pcx-table tbody tr.is-row-selected > td.is-cell-focus",
-            " .pcx-table tbody tr.is-row-selected > th.is-cell-focus",
+        parts.append(
+            f"{_sel(' .table-scroll thead th', ' .table-scroll-wide thead th')}"
+            f"{{box-shadow:none !important;}}"
         )
-        if focus:
-            parts.append(
-                f"{focus}{{"
-                "background-color:var(--table-cell-fill) !important;"
-                "outline:1px solid var(--table-cell-outline) !important;"
-                "outline-offset:-1px !important;}}"
-            )
-        if host:
-            parts.append(f"{host}{{--table-marquee:{1 if cfg.get('marquee') else 0};}}")
+    header_wrap = bool(cfg.get("header_wrap"))
+    header_border = bool(cfg.get("header_border", True))
+    if header_wrap:
+        parts.append(
+            f"{clip_header}{{white-space:normal !important;overflow:hidden !important;"
+            "text-overflow:clip !important;height:var(--table-header-height) !important;"
+            "max-height:var(--table-header-height) !important;vertical-align:middle;}}"
+        )
+    elif header_border:
+        parts.append(
+            f"{clip_header}{{white-space:nowrap !important;overflow:hidden !important;"
+            "text-overflow:clip !important;height:var(--table-header-height) !important;"
+            "max-height:var(--table-header-height) !important;}}"
+        )
+    else:
+        parts.append(
+            f"{clip_header}{{white-space:nowrap !important;overflow:visible !important;"
+            "text-overflow:clip !important;height:var(--table-header-height) !important;"
+            "max-height:var(--table-header-height) !important;}}"
+        )
+    body_wrap = bool(cfg.get("body_wrap"))
+    body_border = bool(cfg.get("col_border", True) or cfg.get("row_border", True))
+    if body_wrap or not body_border:
+        parts.append(
+            f"{clip_body}{{white-space:normal !important;overflow:hidden !important;"
+            "height:var(--table-row-height) !important;max-height:var(--table-row-height) !important;"
+            "vertical-align:middle;}}"
+        )
+    else:
+        parts.append(
+            f"{clip_body}{{white-space:nowrap !important;overflow:hidden !important;"
+            "text-overflow:clip !important;height:var(--table-row-height) !important;"
+            "max-height:var(--table-row-height) !important;}}"
+        )
+    parts.append(_ops_protect())
+    header_bg = _sel(
+        " table.table thead th",
+        " .pcx-table thead th",
+        " .pcx-table th",
+        " .pcx-defs-table thead th",
+        " .pcx-defs-table th",
+        " .table-scroll thead th",
+        " .table-scroll-wide thead th",
+        " .results table thead th",
+    )
+    parts.append(f"{header_bg}{{background-color:var(--table-header-bg) !important;backdrop-filter:none !important;}}")
+    parts.append(
+        f"{_sel(' .pcx-table tbody tr:hover > td', ' .pcx-table-calc tbody tr:hover > td', ' .pcx-defs-table tbody tr:hover > td')}"
+        "{{background-color:color-mix(in srgb,var(--table-row-selected) 45%,transparent) !important;}}"
+    )
+    selected = _sel(
+        " table.table tbody tr.is-row-selected > td",
+        " table.table tbody tr.is-row-selected > th",
+        " .pcx-table tbody tr.is-row-selected > td",
+        " .pcx-table tbody tr.is-row-selected > th",
+        " .pcx-defs-table tbody tr.is-row-selected > td",
+        " .results table tbody tr.is-row-selected > td",
+    )
+    parts.append(f"{selected}{{background-color:var(--table-row-selected) !important;}}")
+    focus = _sel(
+        " table.table tbody tr.is-row-selected > td.is-cell-focus",
+        " .pcx-table tbody tr.is-row-selected > td.is-cell-focus",
+    )
+    parts.append(
+        f"{focus}{{"
+        "background-color:var(--table-cell-fill) !important;"
+        "outline:1px solid var(--table-cell-outline) !important;"
+        "outline-offset:-1px !important;}}"
+    )
+    parts.append(_menu_reset())
     return "".join(parts)

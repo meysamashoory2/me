@@ -508,7 +508,8 @@
     if (!table || table.getAttribute("data-layout-ready") === "1") return;
     if (
       table.classList.contains("naming-keys-table") ||
-      table.classList.contains("naming-cols-table")
+      table.classList.contains("naming-cols-table") ||
+      (table.closest && table.closest(".system-accordion, .sidebar, nav.nav"))
     ) {
       return;
     }
@@ -518,11 +519,11 @@
     var host = table.closest("[data-table-surface]");
     if (host) surface = host.getAttribute("data-table-surface") || "";
     var locks = locksFromBody();
-    var locked = false;
+    var locked = Object.prototype.hasOwnProperty.call(locks, "all")
+      ? !!locks.all
+      : !!(section && locks[section]);
     if (section && surface && Object.prototype.hasOwnProperty.call(locks, section + "::" + surface)) {
       locked = !!locks[section + "::" + surface];
-    } else if (section) {
-      locked = !!locks[section];
     }
     if (table.getAttribute("data-lock-widths") === "1") locked = true;
 

@@ -863,17 +863,19 @@ class TableLayoutSettings(models.Model):
         from .table_layout import DEFAULT_ROW_HEIGHT, clamp_row_height
 
         layouts = self.layouts_map()
-        reports = layouts.get("reports") or {}
+        reports = layouts.get("reports") or layouts.get("all") or {}
         return clamp_row_height(reports.get("row_height_px"), DEFAULT_ROW_HEIGHT)
 
     def is_width_locked(self, section_key: str) -> bool:
         from .table_layout import default_width_locked
 
         layouts = self.layouts_map()
-        key = str(section_key or "")
-        if key in layouts:
-            return bool(layouts[key]["width_locked"])
-        return default_width_locked(key)
+        cfg = layouts.get("all") or next(iter(layouts.values()), {})
+        if str(section_key or "") in layouts:
+            cfg = layouts[str(section_key)]
+        if "width_locked" in cfg:
+            return bool(cfg["width_locked"])
+        return default_width_locked(section_key)
 
     def normalized_locks(self) -> dict[str, bool]:
         from .table_layout import locks_from_layouts

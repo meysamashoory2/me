@@ -7,45 +7,26 @@
 {% block topbar_actions %}
 <div class="topbar-actions">
   <a class="btn btn-sm btn-ghost" href="{% url 'system_data' %}">بازگشت به مدیریت داده‌ها</a>
+  <a class="btn btn-sm btn-ghost" href="{{ preview_href }}">پیش نمایش</a>
 </div>
 {% endblock %}
 
 {% block content %}
-<form method="get" class="panel panel-compact table-layout-form" data-table-section="system" id="table-layout-nav">
+<div class="panel panel-compact table-layout-form" id="table-layout-nav">
   <div class="panel-body">
-    <nav class="tabs table-layout-tabs" aria-label="منوهای سامانه">
-      {% for tab in tabs %}
-      <a class="tab {% if tab.active %}active{% endif %}" href="?section={{ tab.key }}">{{ tab.label }}</a>
-      {% endfor %}
+    <p class="panel-hint">این تنظیم برای تمام جداول داده اعمال می‌شود. منوهای آبشاری جزء جدول نیستند و تغییر نمی‌کنند.</p>
+    <nav class="tabs table-layout-tabs" aria-label="بخش تنظیم جدول">
+      <a class="tab {% if active_tab == 'header' %}active{% endif %}" href="?tab=header">سرستون جداول</a>
+      <a class="tab {% if active_tab == 'body' %}active{% endif %}" href="?tab=body">بدنه جداول</a>
     </nav>
-    {% if surfaces %}
-    <label class="field table-layout-surface">
-      <span>صفحه با سرتیتر</span>
-      <select class="input" name="surface" onchange="this.form.submit()">
-        {% for s in surfaces %}
-        <option value="{{ s.key }}" {% if s.key == active_surface %}selected{% endif %}>{{ s.title }}</option>
-        {% endfor %}
-      </select>
-      <input type="hidden" name="section" value="{{ active_section }}">
-    </label>
-    {% endif %}
-    <div class="table-layout-actions">
-      <button type="button" class="btn btn-primary-soft" id="open-header-dialog" {% if not can_edit %}disabled{% endif %}>سرستون</button>
-      <button type="button" class="btn btn-primary-soft" id="open-body-dialog" {% if not can_edit %}disabled{% endif %}>بدنه جداول</button>
-      <a class="btn btn-primary-soft" id="layout-preview-btn" href="{{ preview_href }}">پیش نمایش تغییرات</a>
-    </div>
-  </div>
-</form>
 
-<form method="post" id="table-layout-save" data-defaults="{{ layout_defaults_json|escape }}">
-  {% csrf_token %}
-  <input type="hidden" name="section" value="{{ active_section }}">
-  <input type="hidden" name="surface" value="{{ active_surface }}">
+    <form method="post" id="table-layout-save" data-defaults="{{ layout_defaults_json|escape }}">
+      {% csrf_token %}
+      <input type="hidden" name="tab" value="{{ active_tab }}">
+      <input type="hidden" name="layout_part" value="{{ active_tab }}">
 
-  <dialog id="layout-header-dialog" class="dialog layout-float-dialog">
-    <div data-dialog-body>
-      <div class="dialog-titlebar" data-dialog-drag>سرستون</div>
-      <div class="layout-dialog-fields">
+      {% if active_tab == 'header' %}
+      <div class="layout-page-fields">
         <label class="layout-field">
           <span>ارتفاع سرستون</span>
           <input class="input" type="number" name="header_height_px" min="5" max="120" value="{{ layout.header_height_px }}">
@@ -77,17 +58,8 @@
           </div>
         </div>
       </div>
-      <div class="dialog-actions">
-        <button type="submit" class="btn btn-ghost" name="layout_reset" value="header">پیش‌فرض</button>
-        <button type="submit" class="btn btn-primary-soft" name="layout_part" value="header">اعمال</button>
-      </div>
-    </div>
-  </dialog>
-
-  <dialog id="layout-body-dialog" class="dialog layout-float-dialog">
-    <div data-dialog-body>
-      <div class="dialog-titlebar" data-dialog-drag>بدنه جداول</div>
-      <div class="layout-dialog-fields">
+      {% else %}
+      <div class="layout-page-fields">
         <label class="layout-field">
           <span>ارتفاع ردیف</span>
           <input class="input" type="number" name="row_height_px" min="5" max="120" value="{{ layout.row_height_px }}">
@@ -149,13 +121,15 @@
           </div>
         </div>
       </div>
-      <div class="dialog-actions">
-        <button type="submit" class="btn btn-ghost" name="layout_reset" value="body">پیش‌فرض</button>
-        <button type="submit" class="btn btn-primary-soft" name="layout_part" value="body">اعمال</button>
+      {% endif %}
+
+      <div class="layout-page-actions">
+        <button type="submit" class="btn btn-ghost" name="layout_reset" value="{{ active_tab }}" {% if not can_edit %}disabled{% endif %}>پیش‌فرض</button>
+        <button type="submit" class="btn btn-primary-soft" {% if not can_edit %}disabled{% endif %}>اعمال</button>
       </div>
-    </div>
-  </dialog>
-</form>
+    </form>
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -164,6 +138,8 @@
   var csrf = (document.querySelector("[name=csrfmiddlewaretoken]") || {}).value
     || (document.cookie.match(/csrftoken=([^;]+)/) || [])[1] || "";
   var form = document.getElementById("table-layout-save");
+  var wrap = document.getElementById("body-wrap");
+  var marquee = document.getElementById("body-marquee");
 
   function toast(text) {
     var stack = document.getElementById("toast-stack");
@@ -189,16 +165,6 @@
     }
     tag.textContent = css || "";
   }
-
-  function openDlg(id) {
-    var dlg = document.getElementById(id);
-    if (!dlg) return;
-    if (dlg.show) dlg.show();
-    else dlg.setAttribute("open", "");
-  }
-
-  var wrap = document.getElementById("body-wrap");
-  var marquee = document.getElementById("body-marquee");
 
   function syncTint(box) {
     var color = box.querySelector('input[type="color"]');
@@ -249,20 +215,12 @@
     setInput("cell_outline_alpha", layout.cell_outline_alpha);
     setInput("cell_fill_color", layout.cell_fill_color);
     setInput("cell_fill_alpha", layout.cell_fill_alpha);
-    if (wrap && marquee) {
-      var locked = wrap.disabled;
-      if (!locked) {
-        marquee.disabled = !!wrap.checked;
-        if (wrap.checked) marquee.checked = false;
-      }
+    if (wrap && marquee && !wrap.disabled) {
+      marquee.disabled = !!wrap.checked;
+      if (wrap.checked) marquee.checked = false;
     }
     document.querySelectorAll("[data-tint]").forEach(syncTint);
   }
-
-  var headerBtn = document.getElementById("open-header-dialog");
-  var bodyBtn = document.getElementById("open-body-dialog");
-  if (headerBtn) headerBtn.addEventListener("click", function () { openDlg("layout-header-dialog"); });
-  if (bodyBtn) bodyBtn.addEventListener("click", function () { openDlg("layout-body-dialog"); });
 
   if (form) {
     form.addEventListener("submit", function (e) {
@@ -270,7 +228,6 @@
       var data = new FormData(form);
       var submitter = e.submitter;
       if (submitter && submitter.name) data.set(submitter.name, submitter.value);
-      var dlg = submitter && submitter.closest ? submitter.closest("dialog") : null;
       fetch(form.getAttribute("action") || window.location.pathname + window.location.search, {
         method: "POST",
         headers: { "X-Requested-With": "XMLHttpRequest", "X-CSRFToken": csrf },
@@ -283,10 +240,6 @@
           document.body.setAttribute("data-table-width-locks", JSON.stringify(res.locks));
         }
         if (res.layout) fillLayout(res.layout);
-        if (dlg) {
-          if (dlg.close) dlg.close();
-          else dlg.removeAttribute("open");
-        }
         toast(res.message || "اعمال شد");
       });
     });

@@ -130,7 +130,9 @@ class SystemDataNoShortcutsTests(TestCase):
         self.assertIn("naming_preview=1", naming.content.decode())
         self.assertNotIn('<span class="naming-address">', naming.content.decode())
         layout = self.client.get(reverse("system_table_layout"))
+        self.assertContains(layout, "سرستون جداول")
         self.assertContains(layout, "بدنه جداول")
+        self.assertNotContains(layout, "dlg.close")
         cfg = self.client.get(reverse("system_menu_config"), {"menu": "planning"})
         self.assertEqual(cfg.status_code, 200)
         self.assertContains(cfg, "برنامه‌ریزی هفتگی")
@@ -164,7 +166,7 @@ class TableLayoutSettingsTests(TestCase):
         from catalog.models import TableLayoutSettings
 
         settings = TableLayoutSettings.load()
-        self.assertFalse(settings.is_width_locked("reports"))
+        self.assertTrue(settings.is_width_locked("reports"))
         self.assertTrue(settings.is_width_locked("product_data"))
         self.assertTrue(settings.is_width_locked("planning"))
         self.assertTrue(settings.is_width_locked("systemic"))
@@ -177,49 +179,41 @@ class TableLayoutSettingsTests(TestCase):
         url = reverse("system_table_layout")
         get = self.client.get(url)
         self.assertEqual(get.status_code, 200)
-        self.assertContains(get, "ارتفاع ردیف")
         self.assertContains(get, "قفل کردن ستون")
-        self.assertContains(get, "برنامه‌ریزی هفتگی")
-        self.assertContains(get, "برنامه‌ریزی هوشمند")
-        self.assertContains(get, "سرستون")
+        self.assertContains(get, "سرستون جداول")
         self.assertContains(get, "بدنه جداول")
-        self.assertContains(get, "پیش نمایش تغییرات")
-        self.assertContains(get, "برنامه‌ریزی هفتگی تولید")
-        self.assertContains(get, "naming_preview=1")
-        self.assertContains(get, "dlg.close")
         self.assertContains(get, "layout-tint-num")
-        self.assertContains(get, 'data-tint')
         self.assertContains(get, "پیش‌فرض")
         self.assertContains(get, 'name="layout_reset"')
-        programs = self.client.get(url, {"section": "production"})
-        self.assertContains(programs, "ثبت تولید روزانه")
+        self.assertNotContains(get, "dlg.close")
+        body = self.client.get(url, {"tab": "body"})
+        self.assertContains(body, "ارتفاع ردیف")
         resp = self.client.post(
             url,
             {
-                "section": "reports",
+                "tab": "body",
+                "layout_part": "body",
                 "row_height_px": "44",
                 "col_border": "show",
                 "row_border": "show",
-                "width_locked": "1",
             },
         )
         self.assertEqual(resp.status_code, 302)
         settings = TableLayoutSettings.load()
         self.assertEqual(settings.clamped_row_height(), 44)
         self.assertTrue(settings.is_width_locked("reports"))
-        self.assertTrue(settings.is_width_locked("product_data"))
 
     def test_table_layout_ajax_save_returns_css(self):
         from django.urls import reverse
         from catalog.models import TableLayoutSettings
+        from catalog.table_layout import GLOBAL_LAYOUT_KEY
 
         self.client.login(username="admin", password="erp12345")
         url = reverse("system_table_layout")
         resp = self.client.post(
             url,
             {
-                "section": "planning",
-                "surface": "list",
+                "tab": "body",
                 "layout_part": "body",
                 "row_height_px": "52",
                 "col_border": "show",
@@ -231,24 +225,26 @@ class TableLayoutSettingsTests(TestCase):
         payload = resp.json()
         self.assertTrue(payload["ok"])
         self.assertIn("--table-row-height:52px", payload["css"])
-        self.assertIn('data-table-surface="list"', payload["css"])
+        self.assertIn("main.content", payload["css"])
+        self.assertNotIn('data-table-surface="list"', payload["css"])
         settings = TableLayoutSettings.load()
-        self.assertEqual(settings.layouts_map()["planning"]["row_height_px"], 52)
+        self.assertEqual(settings.layouts_map()[GLOBAL_LAYOUT_KEY]["row_height_px"], 52)
         page = self.client.get(reverse("plan_list"))
         self.assertIn("--table-row-height:52px", page.content.decode())
+        history = self.client.get(reverse("production_history"))
+        self.assertIn("--table-row-height:52px", history.content.decode())
 
     def test_table_layout_reset_restores_default_header_color(self):
         from django.urls import reverse
         from catalog.models import TableLayoutSettings
-        from catalog.table_layout import DEFAULT_HEADER_COLOR
+        from catalog.table_layout import DEFAULT_HEADER_COLOR, GLOBAL_LAYOUT_KEY
 
         self.client.login(username="admin", password="erp12345")
         url = reverse("system_table_layout")
         self.client.post(
             url,
             {
-                "section": "pipe_calc",
-                "surface": "hub",
+                "tab": "header",
                 "layout_part": "header",
                 "header_height_px": "90",
                 "header_border": "show",
@@ -260,8 +256,7 @@ class TableLayoutSettingsTests(TestCase):
         resp = self.client.post(
             url,
             {
-                "section": "pipe_calc",
-                "surface": "hub",
+                "tab": "header",
                 "layout_reset": "header",
             },
             HTTP_X_REQUESTED_WITH="XMLHttpRequest",
@@ -273,108 +268,90 @@ class TableLayoutSettingsTests(TestCase):
         self.assertEqual(payload["layout"]["header_alpha"], 100)
         self.assertEqual(payload["layout"]["header_height_px"], 36)
         settings = TableLayoutSettings.load()
-        self.assertEqual(settings.layouts_map()["pipe_calc"]["header_color"], DEFAULT_HEADER_COLOR)
+        self.assertEqual(settings.layouts_map()[GLOBAL_LAYOUT_KEY]["header_color"], DEFAULT_HEADER_COLOR)
 
     def test_layout_css_does_not_paint_page_background(self):
         import re
-        from catalog.table_layout import css_for_layouts, default_layout
+        from catalog.table_layout import CSS_HOST, css_for_layouts, default_layout
 
-        css = css_for_layouts({"planning": default_layout("planning")})
-        self.assertIn('[data-table-section="planning"]{--table-row-height:', css)
+        css = css_for_layouts({"all": default_layout("all")})
+        self.assertIn(f"{CSS_HOST}{{--table-row-height:", css)
         for block in css.split("}"):
             if "var(--table-row-selected)" not in block and "var(--table-header-bg)" not in block:
                 continue
+            if "transparent" in block:
+                continue
             selector = block.split("{", 1)[0]
             self.assertIn(" ", selector)
-            self.assertNotEqual(selector.strip(), '[data-table-section="planning"]')
+            self.assertNotEqual(selector.strip(), CSS_HOST)
             for part in selector.split(","):
                 part = part.strip()
                 self.assertTrue(
-                    re.search(r"(table|th|td|thead|tr)", part),
+                    re.search(r"(table|th|td|thead|tr|accordion|sidebar|nav)", part),
                     msg=f"page-level background selector leaked: {part}",
                 )
 
     def test_table_layout_save_other_section(self):
         from django.urls import reverse
         from catalog.models import TableLayoutSettings
+        from catalog.table_layout import GLOBAL_LAYOUT_KEY
 
         self.client.login(username="admin", password="erp12345")
         url = reverse("system_table_layout")
         resp = self.client.post(
             url,
             {
-                "section": "planning",
+                "tab": "body",
+                "layout_part": "body",
                 "row_height_px": "8",
                 "col_border": "hide",
                 "row_border": "show",
             },
         )
         self.assertEqual(resp.status_code, 302)
-        self.assertIn("section=planning", resp["Location"])
+        self.assertIn("tab=body", resp["Location"])
         settings = TableLayoutSettings.load()
-        layout = settings.layouts_map()["planning"]
+        layout = settings.layouts_map()[GLOBAL_LAYOUT_KEY]
         self.assertEqual(layout["row_height_px"], 8)
         self.assertFalse(layout["col_border"])
         self.assertTrue(layout["row_border"])
-        self.assertTrue(layout["width_locked"])
-        self.assertFalse(settings.is_width_locked("reports"))
-        get = self.client.get(url, {"section": "planning"})
+        get = self.client.get(url, {"tab": "body"})
         self.assertContains(get, 'value="8"')
         self.assertContains(get, 'name="col_border" value="hide"')
 
     def test_column_border_toggle_reaches_planning_and_history_pages(self):
         from django.urls import reverse
-        from catalog.table_layout import COLUMN_BORDER_COLOR
+        from catalog.table_layout import COLUMN_BORDER_COLOR, CSS_HOST
 
         self.client.login(username="admin", password="erp12345")
         layout_url = reverse("system_table_layout")
         show_rule = (
             f"background-image:linear-gradient({COLUMN_BORDER_COLOR},{COLUMN_BORDER_COLOR}) !important"
         )
-        planning_show = '[data-table-section="planning"] table th:not(:last-child)'
-        history_show = '[data-table-section="history"] table th:not(:last-child)'
+        show_sel = f"{CSS_HOST} table.table th:not(:last-child)"
 
         self.client.post(
             layout_url,
             {
-                "section": "planning",
+                "tab": "body",
+                "layout_part": "body",
                 "row_height_px": "36",
                 "col_border": "show",
                 "row_border": "show",
                 "header_border": "show",
             },
         )
-        self.client.post(
-            layout_url,
-            {
-                "section": "history",
-                "row_height_px": "36",
-                "col_border": "show",
-                "row_border": "show",
-                "header_border": "show",
-            },
-        )
-        plans = self.client.get(reverse("plan_list"))
-        self.assertEqual(plans.status_code, 200)
-        plans_html = plans.content.decode()
-        self.assertIn('data-table-section="planning"', plans_html)
-        self.assertIn(planning_show, plans_html)
+        plans_html = self.client.get(reverse("plan_list")).content.decode()
+        self.assertIn(show_sel, plans_html)
         self.assertIn(show_rule, plans_html)
-        self.assertIn(
-            f"background-image:linear-gradient({COLUMN_BORDER_COLOR},{COLUMN_BORDER_COLOR}) !important",
-            plans_html,
-        )
-
-        history = self.client.get(reverse("production_history"))
-        self.assertEqual(history.status_code, 200)
-        history_html = history.content.decode()
-        self.assertIn('data-table-section="history"', history_html)
-        self.assertIn(history_show, history_html)
+        history_html = self.client.get(reverse("production_history")).content.decode()
+        self.assertIn(show_sel, history_html)
 
         self.client.post(
             layout_url,
             {
-                "section": "planning",
+                "tab": "body",
+                "layout_part": "body",
                 "row_height_px": "36",
                 "col_border": "hide",
                 "row_border": "show",
@@ -382,14 +359,18 @@ class TableLayoutSettingsTests(TestCase):
             },
         )
         plans_hidden = self.client.get(reverse("plan_list")).content.decode()
-        self.assertNotIn(planning_show, plans_hidden)
-        self.assertIn('[data-table-section="planning"] table th,', plans_hidden)
+        self.assertNotIn(show_sel, plans_hidden)
         self.assertIn("border-left:none !important", plans_hidden)
-        self.assertIn("border-inline-end:none !important", plans_hidden)
-        self.assertIn("background-image:none !important", plans_hidden)
-        self.assertNotIn(
-            '[data-table-section="planning"] table th:not(:last-child)',
-            plans_hidden,
-        )
-        # History keeps its own painted rules.
-        self.assertIn(history_show, plans_hidden)
+        history_hidden = self.client.get(reverse("production_history")).content.decode()
+        self.assertNotIn(show_sel, history_hidden)
+
+    def test_system_hub_accordion_is_not_a_data_table(self):
+        from django.urls import reverse
+
+        self.client.login(username="admin", password="erp12345")
+        html = self.client.get(reverse("system_data")).content.decode()
+        self.assertIn("system-acc-item", html)
+        self.assertNotIn('class="table table-compact table-plan-list"', html)
+        start = html.find('id="system-accordion"')
+        chunk = html[start : html.find("</main>", start)]
+        self.assertNotIn("<table", chunk)

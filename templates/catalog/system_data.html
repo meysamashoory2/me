@@ -24,27 +24,16 @@
         <span class="muted system-acc-count">{{ g.items|length }} مورد</span>
       </summary>
       <div class="system-acc-body">
-        <table class="table table-compact table-plan-list" data-table-section="system">
-          <thead>
-            <tr>
-              <th style="width:70px" data-col="row">{% system_col "catalog.system_data_hub" "row" "ردیف" %}</th>
-              <th data-col="section">{% system_col "catalog.system_data_hub" "section" "بخش" %}</th>
-              <th style="width:100px" data-col="count">{% system_col "catalog.system_data_hub" "count" "تعداد" %}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for s in g.items %}
-            <tr class="system-acc-row" data-acc-item="{{ s.key }}">
-              <td class="num">{{ forloop.counter }}</td>
-              <td>
-                <a class="list-title system-acc-item-link" href="{{ s.url }}">{{ s.title }}</a>
-                {% if s.description %}<div class="list-desc">{{ s.description }}</div>{% endif %}
-              </td>
-              <td class="num">{{ s.count }}</td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
+        {% for s in g.items %}
+        <a class="system-acc-item system-acc-item-link" href="{{ s.url }}" data-acc-item="{{ s.key }}">
+          <span class="system-acc-item-index">{{ forloop.counter }}</span>
+          <span class="system-acc-item-text">
+            <span class="system-acc-item-title">{{ s.title }}</span>
+            {% if s.description %}<span class="system-acc-item-desc">{{ s.description }}</span>{% endif %}
+          </span>
+          <span class="system-acc-item-count">{{ s.count }}</span>
+        </a>
+        {% endfor %}
       </div>
     </details>
     {% endfor %}
@@ -67,13 +56,6 @@
       if (d !== t) d.removeAttribute("open");
     });
   }, true);
-  root.addEventListener("click", function (e) {
-    if (e.target.closest("a, summary, button")) return;
-    var row = e.target.closest("tr.system-acc-row");
-    if (!row) return;
-    var link = row.querySelector("a.system-acc-item-link");
-    if (link && link.href) window.location.href = link.href;
-  });
 })();
 </script>
 {% endblock %}
