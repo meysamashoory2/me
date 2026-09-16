@@ -265,8 +265,8 @@
     var id = params.get("focus_id") || "";
     if (!key && !id) return;
     var tr = null;
-    if (key) tr = document.querySelector("table.js-table-nav tbody tr[data-key=\"" + CSS.escape(key) + "\"]");
-    if (!tr && id) tr = document.querySelector("table.js-table-nav tbody tr[data-id=\"" + CSS.escape(id) + "\"]");
+    if (key) tr = document.querySelector('table.js-table-nav tbody tr[data-key="' + key.replace(/"/g, "") + '"]');
+    if (!tr && id) tr = document.querySelector('table.js-table-nav tbody tr[data-id="' + id.replace(/"/g, "") + '"]');
     if (!tr) return;
     var table = tr.closest("table");
     if (!table) return;
