@@ -16,11 +16,55 @@
   var frame = null;
   var back = null;
 
+  function goBack() {
+    window.location.href = ret || "/";
+  }
+
   function visibleRect(el) {
     if (!el || !el.getBoundingClientRect) return null;
     var r = el.getBoundingClientRect();
     if (r.width < 2 && r.height < 2) return null;
     return r;
+  }
+
+  function revealIfHidden(el) {
+    if (!el) return;
+    var cur = el;
+    while (cur && cur !== document.body) {
+      if (cur.tagName === "DETAILS") cur.open = true;
+      cur = cur.parentElement;
+    }
+    try {
+      var cs = getComputedStyle(el);
+      if (cs.display === "none" || cs.visibility === "hidden") {
+        el.classList.add("naming-ghost-slot");
+        el.style.setProperty("display", el.tagName === "TH" || el.tagName === "TD" ? "table-cell" : "block", "important");
+        el.style.setProperty("visibility", "visible", "important");
+      }
+    } catch (e) {}
+  }
+
+  function injectGhost() {
+    var ghost = document.createElement("div");
+    ghost.className = "naming-ghost-slot naming-ghost-injected";
+    ghost.textContent = "جای خالی این مورد";
+    var host = document.querySelector("main.content") || document.body;
+    if (hl.indexOf("data-nav-") >= 0) {
+      host = document.querySelector("nav.nav") || host;
+    } else if (hl.indexOf("data-acc-") >= 0) {
+      host = document.querySelector("#system-accordion") || host;
+    } else if (hl.indexOf("thead") >= 0 || hl.indexOf("data-col") >= 0) {
+      var table = document.querySelector("main.content table") || document.querySelector("table");
+      if (table && table.tHead && table.tHead.rows[0]) {
+        var th = document.createElement("th");
+        th.className = "naming-ghost-slot";
+        th.textContent = "جای خالی";
+        table.tHead.rows[0].appendChild(th);
+        return th;
+      }
+    }
+    host.appendChild(ghost);
+    return ghost;
   }
 
   function pickTarget() {
@@ -40,13 +84,18 @@
         if (el.tagName === "DIALOG") s += 15;
         if (el.hasAttribute && el.hasAttribute("data-nav-key")) s += 12;
         if (el.hasAttribute && el.hasAttribute("data-nav-heading")) s += 12;
+        if (el.classList && el.classList.contains("naming-ghost-slot")) s += 25;
         var r = el.getBoundingClientRect ? el.getBoundingClientRect() : { width: 0, height: 0 };
         if (r.width > 1 && r.height > 1) s += 10;
         return s;
       }
       return score(b) - score(a);
     });
-    return ranked[0] || document.querySelector(".topbar-title") || document.querySelector("main.content") || document.body;
+    var found = ranked[0] || null;
+    if (found) revealIfHidden(found);
+    if (found && visibleRect(found)) return found;
+    if (found) return found;
+    return injectGhost();
   }
 
   function openDialog(el) {
@@ -77,6 +126,10 @@
     back.className = "naming-preview-back";
     back.href = ret || "/";
     back.textContent = "بازگشت";
+    back.addEventListener("click", function (e) {
+      e.preventDefault();
+      goBack();
+    });
     chrome.appendChild(frame);
     chrome.appendChild(back);
     document.body.appendChild(chrome);
@@ -132,6 +185,12 @@
       e.stopPropagation();
     }, true);
     document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        goBack();
+        return;
+      }
       if (e.target.closest && e.target.closest(".naming-preview-back")) return;
       var pass = { ArrowUp: 1, ArrowDown: 1, PageUp: 1, PageDown: 1, Home: 1, End: 1 };
       if (pass[e.key]) return;

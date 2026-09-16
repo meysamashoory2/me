@@ -315,6 +315,8 @@ def _reverse_preview_path(url_name: str, fallback_name: str = "") -> str:
 def surface_preview_href(section_key: str, surface_key: str, return_path: str) -> str:
     from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
+    from catalog.naming_registry import _with_focus_on_return
+
     item = layout_item_for_section(section_key)
     surfaces = layout_surfaces(section_key)
     chosen = None
@@ -330,6 +332,8 @@ def surface_preview_href(section_key: str, surface_key: str, return_path: str) -
     if not path:
         return ""
     highlight = (chosen.highlight if chosen else "") or "main.content table"
+    hk = f"layout.{section_key}.{surface_key or 'main'}"
+    ret = _with_focus_on_return(return_path, hk)
     parts = urlsplit(path)
     query = [
         (k, v)
@@ -339,9 +343,9 @@ def surface_preview_href(section_key: str, surface_key: str, return_path: str) -
     query.extend(
         [
             ("naming_preview", "1"),
-            ("hk", f"layout.{section_key}.{surface_key or 'main'}"),
+            ("hk", hk),
             ("hl", highlight),
-            ("ret", return_path),
+            ("ret", ret),
         ]
     )
     return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
@@ -360,9 +364,10 @@ def build_nav_for_request(request) -> list[dict]:
     from django.urls import NoReverseMatch, reverse
 
     from accounts.permissions import get_profile
-    from catalog.naming_registry import lookup_naming_rows
+    from catalog.naming_registry import lookup_naming_rows, naming_preview_key
 
     profile = get_profile(request.user) if getattr(request, "user", None) and request.user.is_authenticated else None
+    preview_hk = naming_preview_key(request)
     url_name = ""
     match = getattr(request, "resolver_match", None)
     if match is not None:
@@ -378,14 +383,19 @@ def build_nav_for_request(request) -> list[dict]:
     out: list[dict] = []
     for section in NAV_SECTIONS:
         heading_row = rows.get(f"nav.heading.{section.key}")
-        if heading_row is not None and not heading_row.is_active:
+        heading_ghost = bool(heading_row is not None and not heading_row.is_active)
+        if heading_ghost and preview_hk not in {
+            f"nav.heading.{section.key}",
+            *[f"nav.item.{it.key}" for it in section.items],
+        }:
             continue
         heading = heading_row.label if heading_row and heading_row.label else section.title
         items_out: list[dict] = []
         section_active = False
         for item in section.items:
             item_row = rows.get(f"nav.item.{item.key}")
-            if item_row is not None and not item_row.is_active:
+            item_ghost = bool(item_row is not None and not item_row.is_active)
+            if item_ghost and preview_hk != f"nav.item.{item.key}":
                 continue
             if item.perm == "users" and not (
                 profile and (profile.can_manage_users or getattr(request.user, "is_superuser", False))
@@ -415,6 +425,7 @@ def build_nav_for_request(request) -> list[dict]:
                     "active": active,
                     "kind": item.kind,
                     "table_section": item.table_section,
+                    "ghost": item_ghost,
                 }
             )
         if not items_out:
@@ -426,6 +437,7 @@ def build_nav_for_request(request) -> list[dict]:
                 "solo": section.solo,
                 "active": section_active,
                 "items": items_out,
+                "ghost": heading_ghost,
             }
         )
     return out

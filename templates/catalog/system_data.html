@@ -15,7 +15,7 @@
   {% if groups %}
   <div class="system-accordion" id="system-accordion">
     {% for g in groups %}
-    <details class="system-acc-group" name="system-hub" data-acc-group="{{ g.key }}">
+    <details class="system-acc-group{% if g.ghost %} naming-ghost-slot{% endif %}" name="system-hub" data-acc-group="{{ g.key }}" {% if g.open %}open{% endif %}>
       <summary class="system-acc-summary">
         <span class="system-acc-left">
           <span class="system-acc-arrow" aria-hidden="true"></span>
@@ -25,7 +25,7 @@
       </summary>
       <div class="system-acc-body">
         {% for s in g.items %}
-        <a class="system-acc-item system-acc-item-link" href="{{ s.url }}" data-acc-item="{{ s.key }}">
+        <a class="system-acc-item system-acc-item-link{% if s.ghost %} naming-ghost-slot{% endif %}" href="{{ s.url }}" data-acc-item="{{ s.key }}">
           <span class="system-acc-item-index">{{ forloop.counter }}</span>
           <span class="system-acc-item-text">
             <span class="system-acc-item-title">{{ s.title }}</span>

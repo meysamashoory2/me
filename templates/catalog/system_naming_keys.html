@@ -72,7 +72,7 @@
       </thead>
       <tbody>
         {% for row in rows %}
-        <tr data-id="{{ row.pk }}" class="{% if not row.is_active %}is-inactive{% endif %}">
+        <tr data-id="{{ row.pk }}" data-key="{{ row.key }}" class="{% if not row.is_active %}is-inactive{% endif %}">
           <td class="num">{{ forloop.counter }}</td>
           <td>{{ row.kind_label }}</td>
           <td>

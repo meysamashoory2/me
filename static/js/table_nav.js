@@ -7,7 +7,7 @@
  *   (data-href or data-drill-index / erp-row-activate)
  * - Activating a non-drillable row on a table that carries
  *   data-lastlevel-msg dispatches `erp-row-inactive` so the page can show a hint
- * - Cursor: default on unselected rows; pointer on the selected row
+ * - Cursor: pointer on links; pointer on the selected row only if it has a next page
  */
 (function () {
   function isEditableTarget(el) {
@@ -107,6 +107,7 @@
     if (!rows.length || selRow < 0 || selRow >= rows.length) return;
     var tr = rows[selRow];
     tr.classList.add("is-row-selected");
+    tr.classList.toggle("is-drillable", rowCanActivate(tr));
     var cells = focusableCells(tr);
     if (!cells.length) return;
     var ci = Math.max(0, Math.min(selCol, cells.length - 1));
@@ -125,6 +126,9 @@
     table.dataset.tableNavBound = "1";
     table.classList.add("js-table-nav");
     if (!table.hasAttribute("tabindex")) table.setAttribute("tabindex", "0");
+    bodyRows(table).forEach(function (tr) {
+      tr.classList.toggle("is-drillable", rowCanActivate(tr));
+    });
 
     var selRow = -1;
     var selCol = 0;
@@ -255,6 +259,25 @@
     scope.querySelectorAll("table.table, table.pcx-table, .results table").forEach(bindTable);
   }
 
+  function restoreFocusFromUrl() {
+    var params = new URLSearchParams(window.location.search);
+    var key = params.get("focus_key") || "";
+    var id = params.get("focus_id") || "";
+    if (!key && !id) return;
+    var tr = null;
+    if (key) tr = document.querySelector("table.js-table-nav tbody tr[data-key=\"" + CSS.escape(key) + "\"]");
+    if (!tr && id) tr = document.querySelector("table.js-table-nav tbody tr[data-id=\"" + CSS.escape(id) + "\"]");
+    if (!tr) return;
+    var table = tr.closest("table");
+    if (!table) return;
+    var rows = bodyRows(table);
+    var ri = rows.indexOf(tr);
+    if (ri < 0) return;
+    window.ERPTableNav.select(table, ri, 0);
+    window._erpNavTable = table;
+    try { table.focus({ preventScroll: true }); } catch (e) {}
+  }
+
   window.ERPTableNav = {
     init: init,
     bind: bindTable,
@@ -267,9 +290,10 @@
   };
 
   if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", function () { init(); });
+    document.addEventListener("DOMContentLoaded", function () { init(); restoreFocusFromUrl(); });
   } else {
     init();
+    restoreFocusFromUrl();
   }
 
   document.addEventListener("keydown", function (e) {
@@ -282,5 +306,26 @@
     if (!table || typeof table._erpNavKey !== "function") return;
     if (document.activeElement === table) return;
     table._erpNavKey(e);
+  });
+
+  function isAppHome() {
+    var p = (window.location.pathname || "/").replace(/\/+$/, "") || "/";
+    return p === "/";
+  }
+
+  function isReportViewer() {
+    return !!(document.body && document.body.hasAttribute("data-report-level"));
+  }
+
+  document.addEventListener("keydown", function (e) {
+    if (e.key !== "Escape") return;
+    if (document.documentElement.classList.contains("naming-preview-mode")) return;
+    if (isReportViewer()) return;
+    if (document.querySelector("dialog[open]")) return;
+    if (isEditableTarget(e.target)) return;
+    if (isAppHome()) return;
+    if (window.history.length <= 1) return;
+    e.preventDefault();
+    window.history.back();
   });
 })();

@@ -5,7 +5,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ report.heading_label }}</title>
-  <link rel="stylesheet" href="{% static 'css/report_app.css' %}?v=8">
+  <link rel="stylesheet" href="{% static 'css/report_app.css' %}?v=9">
   <style>
     :root { --table-row-height: {{ table_row_height_px|default:36 }}px; }
     {{ table_layout_css|default:''|safe }}
@@ -161,7 +161,7 @@
 {% if runtime_params %}{{ runtime_params|json_script:"runtime-parameters" }}{% else %}<script id="runtime-parameters" type="application/json">[]</script>{% endif %}
 
 <script src="{% static 'js/number_normalize.js' %}?v=1"></script>
-<script src="{% static 'js/table_nav.js' %}?v=10"></script>
+<script src="{% static 'js/table_nav.js' %}?v=17"></script>
 <script src="{% static 'js/table_layout.js' %}?v=13"></script>
 <script src="{% static 'js/form_enter_nav.js' %}?v=2"></script>
 <script>

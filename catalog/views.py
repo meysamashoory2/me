@@ -53,6 +53,7 @@ def system_data_hub(request: HttpRequest) -> HttpResponse:
     from .naming_registry import (
         ensure_registry_seeded,
         lookup_naming_rows,
+        naming_preview_key,
     )
     from .system_sections import build_system_groups
 
@@ -65,19 +66,23 @@ def system_data_hub(request: HttpRequest) -> HttpResponse:
         for item in group.items:
             naming_keys.append(f"system.section.{item.key}")
     naming_rows = lookup_naming_rows(naming_keys)
+    preview_hk = naming_preview_key(request)
 
     groups_out = []
     for group in groups:
         group_key = f"system.group.{group.key}"
         group_row = naming_rows.get(group_key)
-        if group_row is not None and not group_row.is_active:
+        group_ghost = bool(group_row is not None and not group_row.is_active)
+        item_keys = [f"system.section.{item.key}" for item in group.items]
+        if group_ghost and preview_hk not in {group_key, *item_keys}:
             continue
         group_title = (group_row.label if group_row and group_row.label else group.title)
         items_out = []
         for item in group.items:
             item_key = f"system.section.{item.key}"
             item_row = naming_rows.get(item_key)
-            if item_row is not None and not item_row.is_active:
+            item_ghost = bool(item_row is not None and not item_row.is_active)
+            if item_ghost and preview_hk != item_key:
                 continue
             # Prefer Django-admin changelist (real system edit) over app-page shortcuts.
             url = ""
@@ -114,12 +119,21 @@ def system_data_hub(request: HttpRequest) -> HttpResponse:
                     "url": url,
                     "can_add": bool(add_url),
                     "add_url": add_url,
+                    "ghost": item_ghost,
                 }
             )
         if not items_out:
             continue
         groups_out.append(
-            {"key": group.key, "title": group_title, "items": items_out}
+            {
+                "key": group.key,
+                "title": group_title,
+                "items": items_out,
+                "ghost": group_ghost,
+                "open": preview_hk == group_key or any(
+                    preview_hk == f"system.section.{it['key']}" for it in items_out
+                ),
+            }
         )
     return render(
         request,

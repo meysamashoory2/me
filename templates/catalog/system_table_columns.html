@@ -72,7 +72,7 @@
       </thead>
       <tbody id="naming-cols-body">
         {% for row in columns %}
-        <tr data-id="{{ row.pk }}" class="{% if not row.is_active %}is-inactive{% endif %}">
+        <tr data-id="{{ row.pk }}" data-key="{{ row.key }}" class="{% if not row.is_active %}is-inactive{% endif %}">
           <td>
             {% if can_edit %}
             <input class="input naming-order-input" data-field="order" type="number" min="0" value="{{ row.order }}">

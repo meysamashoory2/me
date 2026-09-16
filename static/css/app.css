@@ -572,6 +572,20 @@ tr.is-conflict-row > td {
 }
 .naming-keys-table tr.is-inactive,
 .naming-cols-table tr.is-inactive { opacity: .55; }
+.naming-address-link { cursor: pointer; }
+a[href] { cursor: pointer; }
+.naming-ghost-slot {
+  opacity: 0.48;
+  outline: 2px dashed #eab308;
+  outline-offset: -2px;
+  background: repeating-linear-gradient(135deg, #fff7d6, #fff7d6 6px, #fff 6px, #fff 12px);
+}
+.naming-ghost-injected {
+  margin: 12px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-weight: 700;
+}
 .naming-label-input, .naming-link-select, .naming-order-input { width: 100%; min-width: 0; }
 .naming-order-input { max-width: 72px; }
 .naming-default { font-size: 11px; margin-top: 2px; }
@@ -2337,8 +2351,8 @@ body.excel-resizing-row, body.excel-resizing-row * { cursor: row-resize !importa
 
 .table-list-nav tbody tr.list-row { cursor: default; }
 .table-list-nav tbody tr.list-row:hover { background: #f1f5f9; }
-.table-list-nav tbody tr.list-row.is-row-selected,
-.table-list-nav tbody tr.list-row.is-row-selected:hover { cursor: pointer; }
+.table-list-nav tbody tr.list-row.is-row-selected.is-drillable,
+.table-list-nav tbody tr.list-row.is-row-selected.is-drillable:hover { cursor: pointer; }
 .table-list-nav tbody tr.list-row:focus { outline: 2px solid rgba(59, 130, 246, .35); outline-offset: -2px; }
 
 .topbar-actions-pair { gap: 8px; flex-wrap: wrap; }
@@ -2380,8 +2394,8 @@ body.excel-resizing-row, body.excel-resizing-row * { cursor: row-resize !importa
   outline-offset: -2px;
 }
 .table-nav-cells tbody tr.data-row { cursor: default; }
-.table-nav-cells tbody tr.data-row.is-row-selected,
-.table-nav-cells tbody tr.data-row.is-row-selected:hover { cursor: pointer; }
+.table-nav-cells tbody tr.data-row.is-row-selected.is-drillable,
+.table-nav-cells tbody tr.data-row.is-row-selected.is-drillable:hover { cursor: pointer; }
 .table-nav-cells tbody tr.data-row:hover { background: #f8fafc; }
 .table-nav-cells tbody tr.data-row.is-row-selected:hover { background: #dbeafe; }
 .table-nav-cells tbody tr.data-row.is-row-selected:hover td.is-cell-focus {
@@ -2402,8 +2416,8 @@ table.js-table-nav tbody tr.is-row-selected > th.is-cell-focus {
   outline-offset: -2px;
 }
 table.js-table-nav tbody tr { cursor: default; }
-table.js-table-nav tbody tr.is-row-selected,
-table.js-table-nav tbody tr.is-row-selected:hover { cursor: pointer; }
+table.js-table-nav tbody tr.is-row-selected.is-drillable,
+table.js-table-nav tbody tr.is-row-selected.is-drillable:hover { cursor: pointer; }
 .table-nav-cells td.is-entry-edit {
   padding: 4px !important;
   vertical-align: middle;
@@ -2847,8 +2861,8 @@ input[type=number].spin {
 }
 .level-back { margin-inline-start: auto; }
 .drill-row { cursor: default; }
-.drill-row.is-row-selected,
-.drill-row.is-row-selected:hover { cursor: pointer; }
+.drill-row.is-row-selected.is-drillable,
+.drill-row.is-row-selected.is-drillable:hover { cursor: pointer; }
 .drill-row:hover { background: #f8fafc !important; }
 .drill-row.is-row-selected:hover { background: #dbeafe !important; }
 

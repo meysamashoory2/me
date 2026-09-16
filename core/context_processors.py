@@ -18,10 +18,23 @@ def chrome_nav(request):
         return {"nav_sections": []}
 
 
-def _hidden_column_css() -> str:
+def _hidden_column_css(request=None) -> str:
     try:
         from catalog.models import SystemNamingKey
+        from catalog.naming_registry import naming_preview_key
 
+        preview_hk = naming_preview_key(request) if request is not None else ""
+        preview_col = ""
+        if preview_hk:
+            prow = (
+                SystemNamingKey.objects.filter(key=preview_hk)
+                .only("column_key")
+                .first()
+            )
+            if prow and prow.column_key:
+                preview_col = prow.column_key
+            elif ".col." in preview_hk:
+                preview_col = preview_hk.rsplit(".col.", 1)[-1]
         rules = []
         qs = SystemNamingKey.objects.filter(
             is_active=False,
@@ -30,6 +43,13 @@ def _hidden_column_css() -> str:
         for row in qs.only("column_key"):
             ck = (row.column_key or "").replace('"', "")
             if not ck:
+                continue
+            if preview_col and ck == preview_col.replace('"', ""):
+                rules.append(
+                    f'[data-col="{ck}"]{{display:table-cell !important;'
+                    f"opacity:.42;box-shadow:inset 0 0 0 2px #eab308;"
+                    f"background:repeating-linear-gradient(135deg,#fff7d6,#fff7d6 6px,#fff 6px,#fff 12px);}}"
+                )
                 continue
             rules.append(f'[data-col="{ck}"]{{display:none !important;}}')
         return "".join(rules)
@@ -54,7 +74,7 @@ def table_layout(request):
             "table_width_locks_json": json.dumps(locks, ensure_ascii=False),
             "table_section_layouts": layouts,
             "table_section_layouts_json": json.dumps(layouts, ensure_ascii=False),
-            "table_layout_css": css_for_layouts(layouts) + _hidden_column_css(),
+            "table_layout_css": css_for_layouts(layouts) + _hidden_column_css(request),
         }
     except Exception:  # noqa: BLE001 — migrations / early boot
         return {

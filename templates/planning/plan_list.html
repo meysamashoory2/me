@@ -61,7 +61,7 @@
       </thead>
       <tbody>
         {% for plan in plans %}
-        <tr>
+        <tr data-href="{% url 'plan_detail' plan.pk %}?mode=view">
           <td data-col="row" data-value="{{ forloop.counter }}">{{ forloop.counter }}</td>
           <td data-col="program_number" data-value="{{ plan.program_number|program_no }}">{{ plan.program_number|program_no }}</td>
           <td data-col="date" data-value="{{ plan.date|jdate }}">{{ plan.date|jdate }}</td>
@@ -81,7 +81,7 @@
           </td>
           <td data-col="mold_count" data-value="{{ plan.mold_count }}">{{ plan.mold_count }}</td>
           <td data-col="active_mold_count" data-value="{{ plan.active_mold_count }}">{{ plan.active_mold_count }}</td>
-          <td>
+          <td class="col-ops">
             <form method="post" action="{% url 'plan_operate' plan.pk %}" class="ops-apply-form">
               {% csrf_token %}
               <select name="action" class="ops-select input">

@@ -9,6 +9,14 @@ from django.db import transaction
 from catalog.models import SystemNamingKey
 
 
+def naming_preview_key(request) -> str:
+    """Return the naming-key being previewed, or empty when not in preview."""
+    get = getattr(request, "GET", None)
+    if get is None or get.get("naming_preview") != "1":
+        return ""
+    return str(get.get("hk") or "").strip()
+
+
 def resolve_label(key: str, default: str = "") -> str:
     """Return the current display label for a naming key (or default/key)."""
     key = (key or "").strip()
@@ -686,9 +694,20 @@ _UI_TABLE_PAGES: dict[str, tuple[str, str]] = {
 }
 
 
+def _with_focus_on_return(return_path: str, key: str) -> str:
+    from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
+    parts = urlsplit(return_path or "")
+    query = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True) if k != "focus_key"]
+    if key:
+        query.append(("focus_key", key))
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
+
+
 def _with_preview_query(path: str, *, key: str, highlight: str, return_path: str) -> str:
     from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
+    ret = _with_focus_on_return(return_path, key)
     parts = urlsplit(path)
     query = [
         (k, v)
@@ -700,7 +719,7 @@ def _with_preview_query(path: str, *, key: str, highlight: str, return_path: str
             ("naming_preview", "1"),
             ("hk", key),
             ("hl", highlight or ""),
-            ("ret", return_path),
+            ("ret", ret),
         ]
     )
     return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))

@@ -16,7 +16,7 @@
     </tr></thead>
     <tbody>
       {% for row in rows %}
-      <tr>
+      <tr data-href="{% url 'program_status' row.program.pk %}">
         <td>{{ row.program.resolved_uid }}</td>
         <td>{{ row.program.item.plan.program_number }}</td>
         <td>{{ row.program.machine_label }}</td>

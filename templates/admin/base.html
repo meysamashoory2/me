@@ -4,7 +4,7 @@
 <html lang="fa" dir="rtl">
 <head>
 <title>{% block title %}{% endblock %}</title>
-<link rel="stylesheet" href="{% static 'css/app.css' %}?v=82">
+<link rel="stylesheet" href="{% static 'css/app.css' %}?v=83">
 <link rel="stylesheet" href="{% block stylesheet %}{% static "admin/css/base.css" %}{% endblock %}">
 {% block dark-mode-vars %}{% endblock %}
 {% block extrastyle %}{% endblock %}
@@ -97,10 +97,10 @@
 
 {% block footer %}{% endblock %}
 {% if not is_popup %}
-<script src="{% static 'js/table_nav.js' %}?v=12"></script>
+<script src="{% static 'js/table_nav.js' %}?v=17"></script>
 <script src="{% static 'js/admin_table_layout.js' %}?v=3"></script>
 <script src="{% static 'js/dialog_drag.js' %}?v=3"></script>
-<script src="{% static 'js/naming_preview.js' %}?v=2"></script>
+<script src="{% static 'js/naming_preview.js' %}?v=3"></script>
 {% endif %}
 </body>
 </html>

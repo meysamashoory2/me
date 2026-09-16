@@ -34,7 +34,7 @@
       </thead>
       <tbody>
         {% for row in rows %}
-        <tr>
+        <tr data-href="{% url 'excel_detail' row.upload.pk %}">
           <td>
             <a class="excel-file-link" href="{% url 'excel_detail' row.upload.pk %}">{{ row.upload.title }}</a>
             {% if row.upload.original_name and row.upload.original_name != row.upload.title %}

@@ -245,11 +245,71 @@ class SystemNamingRegistryTests(TestCase):
         self.assertIn("naming_preview=1", href)
         self.assertIn(reverse("plan_list"), href)
         self.assertIn("data-col", href)
+        self.assertIn("focus_key", href)
         nav = preview_href("nav.item.planning", return_path="/x/")
         self.assertTrue(nav)
         self.assertIn("naming_preview=1", nav)
         dest = preview_href("transfer.dest.production_history", return_path="/x/")
         self.assertTrue(dest)
+
+    def test_preview_keeps_inactive_nav_and_hub_slot(self):
+        sync_naming_registry()
+        nav_row = SystemNamingKey.objects.get(key="nav.item.pipe_calc")
+        nav_row.is_active = False
+        nav_row.save(update_fields=["is_active"])
+        hub_row = SystemNamingKey.objects.get(key="system.section.transfer_dialog_labels")
+        hub_row.is_active = False
+        hub_row.save(update_fields=["is_active"])
+        self.client.login(username="admin", password="erp12345")
+        hidden = self.client.get(reverse("dashboard"))
+        self.assertNotContains(hidden, 'data-nav-key="pipe_calc"')
+        preview = self.client.get(
+            reverse("pipe_calc"),
+            {"naming_preview": "1", "hk": "nav.item.pipe_calc"},
+        )
+        self.assertEqual(preview.status_code, 200)
+        self.assertContains(preview, 'data-nav-key="pipe_calc"')
+        self.assertContains(preview, "naming-ghost-slot")
+        hub = self.client.get(reverse("system_data"))
+        self.assertNotContains(hub, "عناوین دیالوگ و مقاصد انتقال داده")
+        hub_preview = self.client.get(
+            reverse("system_data"),
+            {"naming_preview": "1", "hk": "system.section.transfer_dialog_labels"},
+        )
+        self.assertContains(hub_preview, "عناوین دیالوگ و مقاصد انتقال داده")
+        self.assertContains(hub_preview, "naming-ghost-slot")
+
+    def test_inactive_column_preview_unhides_slot(self):
+        from core.context_processors import _hidden_column_css
+        from django.test import RequestFactory
+
+        sync_naming_registry()
+        row = SystemNamingKey.objects.get(key="ui.table.planning.plan_list.col.creator")
+        row.is_active = False
+        row.save(update_fields=["is_active"])
+        hidden = _hidden_column_css()
+        self.assertIn('data-col="creator"', hidden)
+        self.assertIn("display:none", hidden)
+        req = RequestFactory().get(
+            reverse("plan_list"),
+            {"naming_preview": "1", "hk": row.key},
+        )
+        preview_css = _hidden_column_css(req)
+        self.assertIn("display:table-cell", preview_css)
+        self.assertNotIn('[data-col="creator"]{display:none', preview_css)
+
+    def test_plan_list_double_click_opens_view(self):
+        self.client.login(username="admin", password="erp12345")
+        page = self.client.get(reverse("plan_list"))
+        self.assertEqual(page.status_code, 200)
+        self.assertContains(page, "mode=view")
+        self.assertContains(page, "data-href")
+
+    def test_naming_rows_carry_key_for_return_focus(self):
+        sync_naming_registry()
+        self.client.login(username="admin", password="erp12345")
+        page = self.client.get(reverse("system_naming_keys"))
+        self.assertContains(page, 'data-key="nav.item.planning"')
 
     def test_excel_list_uses_renamed_column_label(self):
         from catalog.models import ExcelUpload

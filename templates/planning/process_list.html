@@ -32,7 +32,7 @@
       </thead>
       <tbody>
         {% for p in processes %}
-        <tr>
+        <tr data-href="{% url 'planning_process_detail' p.pk %}">
           <td dir="ltr">{{ p.code }}</td>
           <td>
             <span class="list-title">{{ p.title }}</span>
@@ -41,8 +41,7 @@
           <td class="num">{{ p.entry_step_number }}</td>
           <td class="num">{{ p.step_count }}</td>
           <td class="num">{{ p.decision_count }}</td>
-          <td>
-            <a class="btn btn-sm btn-ghost" href="{% url 'planning_process_detail' p.pk %}">مشاهده مراحل</a>
+          <td class="col-ops">
             {% if can_edit %}
             <a class="btn btn-sm" href="{% url 'planning_process_edit' p.pk %}">بازتعریف</a>
             {% endif %}
