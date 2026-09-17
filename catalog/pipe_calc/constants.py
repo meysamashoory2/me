@@ -139,6 +139,21 @@ DEFAULT_PACK_QTY: Final[dict[int, int]] = {
     200: 4,
 }
 
+# O-ring bag sizes (pieces per bag). Size 200 has no spacer.
+ORING_BAG_QTY: Final[dict[int, int]] = {
+    40: 2700,
+    50: 2235,
+    75: 1470,
+    110: 867,
+    125: 595,
+    160: 357,
+    200: 150,
+}
+NO_SPACER_SIZE_MM = 200
+COVER_ROLL_KG = 25.0
+SHIFT_HOURS = 12.0
+WORKING_DAY_HOURS = 24.0
+
 # Placeholder depot ceilings (pieces) until factory file is provided.
 DEFAULT_DEPOT_CEILING: Final[dict[int, int]] = {
     40: 5000,

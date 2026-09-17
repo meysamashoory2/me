@@ -346,11 +346,52 @@ def pipe_calc_save_defs(request: HttpRequest) -> HttpResponse:
         return JsonResponse({"ok": False, "error": "داده نامعتبر است."}, status=400)
 
     rows = payload.get("rows")
-    if not isinstance(rows, list) or not rows:
+    size_patch = payload.get("size") if isinstance(payload.get("size"), dict) else {}
+    if (not isinstance(rows, list) or not rows) and not size_patch:
         return JsonResponse({"ok": False, "error": "ردیفی برای ذخیره نیست."}, status=400)
 
+    saved_size = None
+    if size_patch.get("size_id"):
+        try:
+            size = PipeSizeProfile.objects.get(pk=int(size_patch["size_id"]))
+        except (TypeError, ValueError, PipeSizeProfile.DoesNotExist):
+            return JsonResponse({"ok": False, "error": "سایز نامعتبر"}, status=400)
+        fields: list[str] = []
+        mapping = {
+            "billing_cycle_seconds": ("billing_cycle_seconds", float),
+            "billing_cavities": ("billing_cavities", float),
+            "kg_per_meter": ("kg_per_meter", float),
+            "cover_g_per_m": ("cover_g_per_m", float),
+            "socket_cap_bag_qty": ("socket_cap_bag_qty", int),
+            "pipe_cap_bag_qty": ("pipe_cap_bag_qty", int),
+            "spacer_bag_qty": ("spacer_bag_qty", int),
+            "oring_bag_qty": ("oring_bag_qty", int),
+        }
+        for key, (attr, caster) in mapping.items():
+            if key not in size_patch:
+                continue
+            try:
+                value = caster(size_patch.get(key) or 0)
+            except (TypeError, ValueError):
+                return JsonResponse({"ok": False, "error": "مقدار سایز نامعتبر"}, status=400)
+            setattr(size, attr, max(0, value))
+            fields.append(attr)
+        if fields:
+            size.save(update_fields=fields)
+        saved_size = {
+            "size_id": size.id,
+            "billing_cycle_seconds": float(size.billing_cycle_seconds or 0),
+            "billing_cavities": float(size.billing_cavities or 0),
+            "kg_per_meter": float(size.kg_per_meter or 0),
+            "cover_g_per_m": float(size.cover_g_per_m or 0),
+            "socket_cap_bag_qty": size.socket_cap_bag_qty,
+            "pipe_cap_bag_qty": size.pipe_cap_bag_qty,
+            "spacer_bag_qty": size.spacer_bag_qty,
+            "oring_bag_qty": size.oring_bag_qty,
+        }
+
     saved: list[dict] = []
-    for item in rows:
+    for item in rows or []:
         if not isinstance(item, dict) or not item.get("id"):
             continue
         try:
@@ -381,6 +422,31 @@ def pipe_calc_save_defs(request: HttpRequest) -> HttpResponse:
                 fields.append("line_speed_m_per_min")
             except (TypeError, ValueError):
                 return JsonResponse({"ok": False, "error": "سرعت خط نامعتبر"}, status=400)
+        if "cut_length_m" in item:
+            try:
+                cut_m = max(0.0, float(item.get("cut_length_m") or 0))
+                length.cut_length_mm = int(round(cut_m * 1000))
+                fields.append("cut_length_mm")
+            except (TypeError, ValueError):
+                return JsonResponse({"ok": False, "error": "طول برش نامعتبر"}, status=400)
+        if "pack_qty" in item:
+            try:
+                length.pack_qty = max(0, int(item.get("pack_qty") or 0))
+                fields.append("pack_qty")
+            except (TypeError, ValueError):
+                return JsonResponse({"ok": False, "error": "تعداد بسته نامعتبر"}, status=400)
+        if "spacers_per_pack" in item:
+            try:
+                length.spacers_per_pack = max(0, int(item.get("spacers_per_pack") or 0))
+                fields.append("spacers_per_pack")
+            except (TypeError, ValueError):
+                return JsonResponse({"ok": False, "error": "اسپیسر نامعتبر"}, status=400)
+        if "cover_cm" in item:
+            try:
+                length.cover_cm = max(0, float(item.get("cover_cm") or 0))
+                fields.append("cover_cm")
+            except (TypeError, ValueError):
+                return JsonResponse({"ok": False, "error": "طول کاور نامعتبر"}, status=400)
         if fields:
             length.save(update_fields=fields)
         saved.append(
@@ -390,10 +456,15 @@ def pipe_calc_save_defs(request: HttpRequest) -> HttpResponse:
                 "avg_monthly_sales": float(length.avg_monthly_sales or 0),
                 "line_speed_m_per_min": float(length.line_speed_m_per_min or 0)
                 or float(length.size_profile.line_speed_m_per_min or 0),
+                "cut_length_m": round(float(length.cut_length_mm or 0) / 1000.0, 3),
+                "pack_qty": length.pack_qty,
+                "spacers_per_pack": length.spacers_per_pack,
+                "cover_cm": float(length.cover_cm or 0),
+                "sku_code": length.sku_code,
             }
         )
 
-    return JsonResponse({"ok": True, "rows": saved})
+    return JsonResponse({"ok": True, "rows": saved, "size": saved_size})
 
 
 @login_required
