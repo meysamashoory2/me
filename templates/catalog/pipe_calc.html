@@ -110,15 +110,21 @@
       <h3>تعاریف اولیه — سایز <span id="pcx-defs-size-label"></span></h3>
       <button type="button" class="btn btn-sm btn-ghost" data-dialog-close aria-label="بستن">✕</button>
     </div>
-    <p class="panel-hint" style="margin-top:0">سقف دپو، میانگین فروش ماهانه و سرعت تولید خط را برای هر طول اسمی تعریف کنید.</p>
+    <p class="panel-hint" style="margin-top:0">پارامترهای کارخانه برای همین سایز و هر طول اسمی. سقف دپو تا رسیدن فایل کارخانه قابل ویرایش است.</p>
+    <div class="pcx-size-defs" id="pcx-size-defs"></div>
     <div class="pcx-scroll">
       <table class="pcx-defs-table">
         <thead>
           <tr>
             <th>طول اسمی</th>
+            <th>کد کالا</th>
             <th>سقف دپو</th>
             <th>میانگین فروش</th>
-            <th>سرعت تولید خط (m/min)</th>
+            <th>سرعت (m/min)</th>
+            <th>طول برش (m)</th>
+            <th>تعداد در بسته</th>
+            <th>اسپیسر در بسته</th>
+            <th>طول کاور (cm)</th>
           </tr>
         </thead>
         <tbody id="pcx-defs-body"></tbody>
@@ -175,6 +181,7 @@
   var prodBody = document.getElementById("pcx-prod-body");
   var defsDialog = document.getElementById("pcx-defs-dialog");
   var defsBody = document.getElementById("pcx-defs-body");
+  var defsSizeBox = document.getElementById("pcx-size-defs");
   var defsSizeLabel = document.getElementById("pcx-defs-size-label");
   var openDefsBtn = document.getElementById("pcx-open-defs");
   var saveDefsBtn = document.getElementById("pcx-defs-save");
@@ -261,18 +268,30 @@
     }).join("");
   }
 
+  function fmtTimePair(hours, days) {
+    return fmtNum(hours, 1) + " ساعت / " + fmtNum(days, 1) + " روز";
+  }
+
   function renderProduction(prod) {
     if (!prod) return;
     var headers = prod.material_headers || [];
     prodHead.innerHTML =
       "<tr>" +
       "<th>طول اسمی</th>" +
-      "<th>زمان تولید خط لوله</th>" +
-      "<th>زمان تولید بلینگ</th>" +
+      "<th>مقدار</th>" +
+      "<th>زمان اکسترود</th>" +
+      "<th>زمان بلینگ</th>" +
+      "<th>شات بلینگ</th>" +
+      "<th>اورینگ</th>" +
+      "<th>کیسه اورینگ</th>" +
       "<th>درپوش سوکت</th>" +
+      "<th>کیسه درپوش سوکت</th>" +
       "<th>درپوش لوله</th>" +
+      "<th>کیسه درپوش لوله</th>" +
       "<th>اسپیسر</th>" +
-      "<th>کاور</th>" +
+      "<th>کیسه اسپیسر</th>" +
+      "<th>کاور (kg)</th>" +
+      "<th>رول کاور</th>" +
       headers.map(function (h) { return "<th>" + (h.label || h.key) + "</th>"; }).join("") +
       "</tr>";
     prodBody.innerHTML = (prod.rows || []).map(function (row) {
@@ -280,14 +299,22 @@
       return (
         "<tr>" +
           '<td class="pcx-sticky">' + (row.label || row.length_code || "") + "</td>" +
-          '<td class="pcx-num">' + (row.line_fmt || "—") + "</td>" +
-          '<td class="pcx-num">' + (row.billing_fmt || "—") + "</td>" +
-          '<td class="pcx-num">' + fmtNum(row.socket_caps, 2) + "</td>" +
-          '<td class="pcx-num">' + fmtNum(row.pipe_caps, 2) + "</td>" +
-          '<td class="pcx-num">' + fmtNum(row.spacers, 2) + "</td>" +
-          '<td class="pcx-num">' + fmtNum(row.covers, 2) + "</td>" +
+          '<td class="pcx-num">' + fmtNum(row.qty, 0) + "</td>" +
+          '<td class="pcx-num">' + fmtTimePair(row.line_hours, row.line_days) + "</td>" +
+          '<td class="pcx-num">' + fmtTimePair(row.billing_hours, row.billing_days) + "</td>" +
+          '<td class="pcx-num">' + fmtNum(row.billing_shots, 1) + "</td>" +
+          '<td class="pcx-num">' + fmtNum(row.orings, 0) + "</td>" +
+          '<td class="pcx-num">' + fmtNum(row.oring_bags, 1) + "</td>" +
+          '<td class="pcx-num">' + fmtNum(row.socket_caps, 0) + "</td>" +
+          '<td class="pcx-num">' + fmtNum(row.socket_cap_bags, 1) + "</td>" +
+          '<td class="pcx-num">' + fmtNum(row.pipe_caps, 0) + "</td>" +
+          '<td class="pcx-num">' + fmtNum(row.pipe_cap_bags, 1) + "</td>" +
+          '<td class="pcx-num">' + fmtNum(row.spacers, 0) + "</td>" +
+          '<td class="pcx-num">' + fmtNum(row.spacer_bags, 1) + "</td>" +
+          '<td class="pcx-num">' + fmtNum(row.cover_kg, 2) + "</td>" +
+          '<td class="pcx-num">' + fmtNum(row.cover_rolls, 1) + "</td>" +
           headers.map(function (h) {
-            return '<td class="pcx-num">' + fmtNum(mats[h.key], 4) + "</td>";
+            return '<td class="pcx-num">' + fmtNum(mats[h.key], 2) + "</td>";
           }).join("") +
         "</tr>"
       );
@@ -346,29 +373,67 @@
     else dialog.removeAttribute("open");
   }
 
+  function sizeDefInput(key, value, step) {
+    return '<input class="pcx-input" data-size-def="' + key + '" type="number" min="0" step="' + step + '" value="' + (value || 0) + '"' + (canEdit ? "" : " disabled") + ">";
+  }
+
   function renderDefsForm() {
     defsSizeLabel.textContent = "Ø" + sizeSel.value;
+    var size = matrix.size_defs || {};
+    defsSizeBox.innerHTML =
+      '<label>سیکل بلینگ (ثانیه)' + sizeDefInput("billing_cycle_seconds", size.billing_cycle_seconds, "0.1") + "</label>" +
+      "<label>حفره بلینگ" + sizeDefInput("billing_cavities", size.billing_cavities, "0.1") + "</label>" +
+      "<label>وزن متر لوله (kg)" + sizeDefInput("kg_per_meter", size.kg_per_meter, "0.001") + "</label>" +
+      "<label>وزن متر کاور (g)" + sizeDefInput("cover_g_per_m", size.cover_g_per_m, "0.1") + "</label>" +
+      "<label>درپوش سوکت در کیسه" + sizeDefInput("socket_cap_bag_qty", size.socket_cap_bag_qty, "1") + "</label>" +
+      "<label>درپوش لوله در کیسه" + sizeDefInput("pipe_cap_bag_qty", size.pipe_cap_bag_qty, "1") + "</label>" +
+      "<label>اسپیسر در کیسه" + sizeDefInput("spacer_bag_qty", size.spacer_bag_qty, "1") + "</label>" +
+      "<label>اورینگ در کیسه" + sizeDefInput("oring_bag_qty", size.oring_bag_qty, "1") + "</label>";
     defsBody.innerHTML = (matrix.depot_rows || []).map(function (row, idx) {
       return (
         '<tr data-idx="' + idx + '" data-id="' + (row.id || "") + '">' +
           "<td>" + (row.label || row.length_code || "") + "</td>" +
+          '<td class="pcx-num">' + (row.sku_code || "—") + "</td>" +
           '<td><input class="pcx-input" data-def="depot_ceiling" type="number" min="0" step="1" value="' + (row.depot_ceiling || 0) + '"' + (canEdit ? "" : " disabled") + "></td>" +
           '<td><input class="pcx-input" data-def="avg_monthly_sales" type="number" min="0" step="0.01" value="' + (row.avg_monthly_sales || 0) + '"' + (canEdit ? "" : " disabled") + "></td>" +
           '<td><input class="pcx-input" data-def="line_speed_m_per_min" type="number" min="0" step="0.001" value="' + (row.line_speed_m_per_min || 0) + '"' + (canEdit ? "" : " disabled") + "></td>" +
+          '<td><input class="pcx-input" data-def="cut_length_m" type="number" min="0" step="0.01" value="' + (row.cut_length_m || 0) + '"' + (canEdit ? "" : " disabled") + "></td>" +
+          '<td><input class="pcx-input" data-def="pack_qty" type="number" min="0" step="1" value="' + (row.pack_qty || 0) + '"' + (canEdit ? "" : " disabled") + "></td>" +
+          '<td><input class="pcx-input" data-def="spacers_per_pack" type="number" min="0" step="1" value="' + (row.spacers_per_pack || 0) + '"' + (canEdit ? "" : " disabled") + "></td>" +
+          '<td><input class="pcx-input" data-def="cover_cm" type="number" min="0" step="0.1" value="' + (row.cover_cm || 0) + '"' + (canEdit ? "" : " disabled") + "></td>" +
         "</tr>"
       );
     }).join("");
+  }
+
+  function collectSizeDefs() {
+    var size = Object.assign({}, matrix.size_defs || {});
+    Array.prototype.forEach.call(defsSizeBox.querySelectorAll("[data-size-def]"), function (input) {
+      var key = input.getAttribute("data-size-def");
+      var raw = input.value;
+      size[key] = key.indexOf("bag") >= 0 || key.indexOf("qty") >= 0 ? (parseInt(raw, 10) || 0) : (parseFloat(raw) || 0);
+    });
+    return size;
   }
 
   function collectDefsRows() {
     return Array.prototype.map.call(defsBody.querySelectorAll("tr"), function (tr) {
       var idx = parseInt(tr.getAttribute("data-idx"), 10);
       var row = matrix.depot_rows[idx] || {};
+      function val(name, asInt) {
+        var el = tr.querySelector('[data-def="' + name + '"]');
+        if (!el) return 0;
+        return asInt ? (parseInt(el.value, 10) || 0) : (parseFloat(el.value) || 0);
+      }
       return {
         id: parseInt(tr.getAttribute("data-id"), 10) || row.id,
-        depot_ceiling: Math.max(0, parseInt(tr.querySelector('[data-def="depot_ceiling"]').value, 10) || 0),
-        avg_monthly_sales: Math.max(0, parseFloat(tr.querySelector('[data-def="avg_monthly_sales"]').value) || 0),
-        line_speed_m_per_min: Math.max(0, parseFloat(tr.querySelector('[data-def="line_speed_m_per_min"]').value) || 0)
+        depot_ceiling: Math.max(0, val("depot_ceiling", true)),
+        avg_monthly_sales: Math.max(0, val("avg_monthly_sales", false)),
+        line_speed_m_per_min: Math.max(0, val("line_speed_m_per_min", false)),
+        cut_length_m: Math.max(0, val("cut_length_m", false)),
+        pack_qty: Math.max(0, val("pack_qty", true)),
+        spacers_per_pack: Math.max(0, val("spacers_per_pack", true)),
+        cover_cm: Math.max(0, val("cover_cm", false))
       };
     });
   }
@@ -393,7 +458,7 @@
         "X-CSRFToken": csrfToken(),
         "X-Requested-With": "XMLHttpRequest"
       },
-      body: JSON.stringify({ rows: rows })
+      body: JSON.stringify({ rows: rows, size: collectSizeDefs() })
     })
       .then(function (res) { return res.json(); })
       .then(function (data) {
@@ -404,12 +469,17 @@
         }
         var byId = {};
         (data.rows || []).forEach(function (r) { byId[r.id] = r; });
+        if (data.size) matrix.size_defs = Object.assign(matrix.size_defs || {}, data.size);
         (matrix.depot_rows || []).forEach(function (row) {
           var saved = byId[row.id];
           if (!saved) return;
           row.depot_ceiling = saved.depot_ceiling;
           row.avg_monthly_sales = saved.avg_monthly_sales;
           row.line_speed_m_per_min = saved.line_speed_m_per_min;
+          if (saved.cut_length_m !== undefined) row.cut_length_m = saved.cut_length_m;
+          if (saved.pack_qty !== undefined) row.pack_qty = saved.pack_qty;
+          if (saved.spacers_per_pack !== undefined) row.spacers_per_pack = saved.spacers_per_pack;
+          if (saved.cover_cm !== undefined) row.cover_cm = saved.cover_cm;
           row._requiredTouched = false;
         });
         renderDepot();

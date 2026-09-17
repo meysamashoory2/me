@@ -9,10 +9,6 @@ from django.db.models import Prefetch
 from catalog.models import FlexibleDataset, FlexibleRow, Product
 
 from .engine import (
-    calc_depot_matrix_row,
-    calc_production_matrix_row,
-    resolve_qty_from_depot_row,
-
     CalcItemInput,
     ScenarioResult,
     aggregate_times,
@@ -22,7 +18,12 @@ from .engine import (
     calc_production_time,
     format_duration,
 )
-from .models import PipeCalcRule, PipeLengthCut, PipeProductLine, PipeSizeProfile
+from .matrix import (
+    calc_depot_matrix_row,
+    calc_production_matrix_row,
+    resolve_qty_from_depot_row,
+)
+from .models import PipeLengthCut, PipeProductLine, PipeSizeProfile
 from .constants import (
     MATRIX_LINE_CODES,
     NOMINAL_LENGTHS,
@@ -165,16 +166,23 @@ def run_scenario(
         profile.extras.get("default_cut_mm") or 1000
     )
     sockets = int(length.socket_ends) if length else 1
+    speed = 0.0
+    if length is not None:
+        speed = float(length.line_speed_m_per_min or 0)
+    if speed <= 0:
+        speed = float(profile.line_speed_m_per_min or 0)
     item = CalcItemInput(
         key=f"{line.code}-{profile.size_mm}-{getattr(length, 'length_code', 'm')}",
         pieces=pieces,
         cut_length_mm=cut_mm,
-        line_speed_m_per_min=float(profile.line_speed_m_per_min or 0),
+        line_speed_m_per_min=speed,
         billing_pieces_per_hour=float(profile.billing_pieces_per_hour or 0),
         socket_ends=sockets,
-        pack_qty=int(profile.pack_qty or 0),
-        needs_billing=bool(line.needs_billing),
+        pack_qty=int((length.pack_qty if length else 0) or profile.pack_qty or 0),
+        needs_billing=bool(line.needs_billing) and sockets > 0,
         label=f"{line.name} Ø{profile.size_mm}",
+        billing_cycle_s=float(profile.billing_cycle_seconds or 0),
+        billing_cavities=float(profile.billing_cavities or 1),
     )
     time_res = calc_production_time(item)
     stock = (
@@ -297,6 +305,10 @@ def line_overview(line: PipeProductLine) -> dict[str, Any]:
                 "size_mm": p.size_mm,
                 "line_speed_m_per_min": float(p.line_speed_m_per_min or 0),
                 "billing_pieces_per_hour": float(p.billing_pieces_per_hour or 0),
+                "billing_cycle_seconds": float(p.billing_cycle_seconds or 0),
+                "billing_cavities": float(p.billing_cavities or 0),
+                "kg_per_meter": float(p.kg_per_meter or 0),
+                "cover_g_per_m": float(p.cover_g_per_m or 0),
                 "pack_qty": p.pack_qty,
                 "depot_ceiling": p.depot_ceiling,
                 "stock_on_hand": p.stock_on_hand,
@@ -309,6 +321,11 @@ def line_overview(line: PipeProductLine) -> dict[str, Any]:
                         "nominal_cm": lc.nominal_cm,
                         "cut_length_mm": lc.cut_length_mm,
                         "socket_ends": lc.socket_ends,
+                        "sku_code": lc.sku_code,
+                        "cover_cm": float(lc.cover_cm or 0),
+                        "pack_qty": int(lc.pack_qty or p.pack_qty or 0),
+                        "spacers_per_pack": int(lc.spacers_per_pack or 0),
+                        "pipe_cap_per_piece": float(lc.pipe_cap_per_piece or 0),
                         "depot_ceiling": int(lc.depot_ceiling or 0),
                         "avg_monthly_sales": float(lc.avg_monthly_sales or 0),
                         "stock_on_hand": int(lc.stock_on_hand or 0),
@@ -403,14 +420,6 @@ def _sync_length_stock_from_products(profile: PipeSizeProfile) -> None:
             )
 
 
-def _resolve_calc_rule(line: PipeProductLine) -> PipeCalcRule | None:
-    rule = (
-        PipeCalcRule.objects.filter(line=line, code="default", is_active=True).first()
-        or PipeCalcRule.objects.filter(line__isnull=True, code="default", is_active=True).first()
-    )
-    return rule
-
-
 def build_depot_matrix(profile: PipeSizeProfile) -> list[dict[str, Any]]:
     """Upper planning table rows for one size."""
     _sync_length_stock_from_products(profile)
@@ -432,7 +441,13 @@ def build_depot_matrix(profile: PipeSizeProfile) -> list[dict[str, Any]]:
         data["id"] = lc.id
         data["nominal_cm"] = lc.nominal_cm
         data["cut_length_mm"] = lc.cut_length_mm
+        data["cut_length_m"] = round(float(lc.cut_length_mm or 0) / 1000.0, 3)
         data["socket_ends"] = lc.socket_ends
+        data["sku_code"] = lc.sku_code
+        data["cover_cm"] = float(lc.cover_cm or 0)
+        data["pack_qty"] = int(lc.pack_qty or profile.pack_qty or 0)
+        data["spacers_per_pack"] = int(lc.spacers_per_pack or 0)
+        data["pipe_cap_per_piece"] = float(lc.pipe_cap_per_piece or 0)
         cut_speed = float(lc.line_speed_m_per_min or 0)
         profile_speed = float(profile.line_speed_m_per_min or 0)
         data["line_speed_m_per_min"] = cut_speed if cut_speed > 0 else profile_speed
@@ -448,12 +463,10 @@ def build_production_matrix(
 ) -> dict[str, Any]:
     """Lower computational table + material column headers."""
     line = profile.line
-    rule = _resolve_calc_rule(line)
-    socket_cap = float(rule.socket_cap_per_socket) if rule else 1.0
-    pipe_cap = float(rule.pipe_cap_per_piece) if rule else 1.0
-    spacer = float(rule.spacer_per_piece) if rule else 0.0
-    cover = float(rule.cover_per_piece) if rule else 0.0
-    material_factors = (rule.material_factors if rule else {}) or {}
+    extras = profile.extras or {}
+    mix = list(extras.get("mix") or [])
+    middle_share = float(extras.get("middle_share") or 100)
+    skin_share = float(extras.get("skin_share") or 0)
 
     layers = [
         {
@@ -465,28 +478,24 @@ def build_production_matrix(
         }
         for ly in profile.layers.all()
     ]
-    # Also fold BOM component names into material columns when present.
-    bom_comps = _bom_components_for_product(profile.product)
 
     material_headers: list[dict[str, str]] = []
     seen: set[str] = set()
-    for ly in layers:
-        key = ly["layer"]
-        if key in seen:
-            continue
-        seen.add(key)
-        material_headers.append(
-            {
-                "key": f"layer:{key}",
-                "label": ly["material_name"] or ly["material_code"] or key,
-            }
-        )
-    for comp in bom_comps:
-        key = f"bom:{(comp.get('code') or comp.get('name') or '').strip()}"
+    for item in mix:
+        key = str(item.get("code") or item.get("name") or "")
         if not key or key in seen:
             continue
         seen.add(key)
-        material_headers.append({"key": key, "label": comp.get("name") or comp.get("code") or key})
+        material_headers.append({"key": key, "label": str(item.get("name") or key)})
+    if not material_headers:
+        for ly in layers:
+            key = f"layer:{ly['layer']}"
+            if key in seen:
+                continue
+            seen.add(key)
+            material_headers.append(
+                {"key": key, "label": ly["material_name"] or ly["material_code"] or ly["layer"]}
+            )
 
     length_by_code = {
         lc.length_code: lc for lc in profile.length_cuts.filter(is_active=True)
@@ -500,7 +509,6 @@ def build_production_matrix(
         qty = resolve_qty_from_depot_row(depot, qty_source)
         cut_speed = float(lc.line_speed_m_per_min or 0)
         profile_speed = float(profile.line_speed_m_per_min or 0)
-        # Prefer explicit depot-row override from definitions dialog when present.
         try:
             row_speed = float(depot.get("line_speed_m_per_min") or 0)
         except (TypeError, ValueError):
@@ -516,21 +524,30 @@ def build_production_matrix(
             socket_ends=int(lc.socket_ends or 0),
             needs_billing=bool(line.needs_billing),
             layers=layers,
-            socket_cap_per_socket=socket_cap,
-            pipe_cap_per_piece=pipe_cap,
-            spacer_per_piece=spacer,
-            cover_per_piece=cover,
-            material_factors={str(k): float(v) for k, v in material_factors.items()},
+            size_mm=profile.size_mm,
+            pack_qty=int(lc.pack_qty or profile.pack_qty or 0),
+            spacers_per_pack=int(lc.spacers_per_pack or 0),
+            pipe_cap_per_piece=float(lc.pipe_cap_per_piece or 0),
+            cover_cm=float(lc.cover_cm or 0),
+            cover_g_per_m=float(profile.cover_g_per_m or 0),
+            billing_cycle_s=float(profile.billing_cycle_seconds or 0),
+            billing_cavities=float(profile.billing_cavities or 1),
+            socket_cap_bag=int(profile.socket_cap_bag_qty or 0),
+            pipe_cap_bag=int(profile.pipe_cap_bag_qty or 0),
+            spacer_bag=int(profile.spacer_bag_qty or 0),
+            oring_bag=int(profile.oring_bag_qty or 0),
+            kg_per_meter=float(profile.kg_per_meter or 0),
+            mix=mix,
+            middle_share=middle_share,
+            skin_share=skin_share,
         )
         data = prod.to_dict()
-        # Flatten materials for table cells.
         material_values: dict[str, float] = {}
         for mat in data.get("materials") or []:
-            material_values[f"layer:{mat.get('layer')}"] = float(mat.get("kg_total") or 0)
-        for comp in bom_comps:
-            key = f"bom:{(comp.get('code') or comp.get('name') or '').strip()}"
-            per = float(comp.get("qty_per_unit") or 0)
-            material_values[key] = round(qty * per, 4)
+            key = str(mat.get("key") or mat.get("layer") or mat.get("name") or "")
+            material_values[key] = float(mat.get("kg_total") or 0)
+            if mat.get("layer"):
+                material_values[f"layer:{mat.get('layer')}"] = float(mat.get("kg_total") or 0)
         data["material_values"] = material_values
         data["qty_source"] = qty_source
         out_rows.append(data)
@@ -540,14 +557,6 @@ def build_production_matrix(
         "qty_source_choices": [{"value": v, "label": lbl} for v, lbl in QTY_SOURCE_CHOICES],
         "material_headers": material_headers,
         "rows": out_rows,
-        "rule": {
-            "code": rule.code if rule else "default",
-            "name": rule.name if rule else "پیش‌فرض",
-            "socket_cap_per_socket": socket_cap,
-            "pipe_cap_per_piece": pipe_cap,
-            "spacer_per_piece": spacer,
-            "cover_per_piece": cover,
-        },
     }
 
 
@@ -563,6 +572,18 @@ def size_matrix_payload(
         "size_id": profile.id,
         "line_code": profile.line.code,
         "is_matrix_line": profile.line.code in MATRIX_LINE_CODES,
+        "size_defs": {
+            "size_id": profile.id,
+            "size_mm": profile.size_mm,
+            "billing_cycle_seconds": float(profile.billing_cycle_seconds or 0),
+            "billing_cavities": float(profile.billing_cavities or 0),
+            "kg_per_meter": float(profile.kg_per_meter or 0),
+            "cover_g_per_m": float(profile.cover_g_per_m or 0),
+            "socket_cap_bag_qty": int(profile.socket_cap_bag_qty or 0),
+            "pipe_cap_bag_qty": int(profile.pipe_cap_bag_qty or 0),
+            "spacer_bag_qty": int(profile.spacer_bag_qty or 0),
+            "oring_bag_qty": int(profile.oring_bag_qty or 0),
+        },
         "depot_rows": depot_rows,
         "qty_source_choices": [{"value": v, "label": lbl} for v, lbl in QTY_SOURCE_CHOICES],
         "default_qty_source": QTY_SOURCE_DEDUCT_STOCK,

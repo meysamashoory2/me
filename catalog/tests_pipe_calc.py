@@ -112,6 +112,67 @@ class PipeCalcEngineTests(TestCase):
         self.assertAlmostEqual(agg.line_seconds, a.line.seconds + b.line.seconds, places=1)
 
 
+class PipeCalcFactoryFormulaTests(TestCase):
+    def test_protect_110_two_socket_locked_example(self):
+        from catalog.pipe_calc.engine import days_1dp, hours_1dp
+        from catalog.pipe_calc.matrix import calc_production_matrix_row
+
+        row = calc_production_matrix_row(
+            length_code="200cm_2s",
+            label="لوله 110 دو متری دوسر سوکت",
+            qty=800,
+            cut_length_mm=2140,
+            line_speed_m_per_min=3.0,
+            socket_ends=2,
+            needs_billing=True,
+            size_mm=110,
+            pack_qty=6,
+            spacers_per_pack=3,
+            pipe_cap_per_piece=0,
+            cover_cm=254,
+            cover_g_per_m=164,
+            billing_cycle_s=30,
+            billing_cavities=2,
+            socket_cap_bag=150,
+            pipe_cap_bag=120,
+            spacer_bag=30,
+            oring_bag=867,
+            kg_per_meter=0.945,
+            mix=[{"name": "ZB332", "percent": 17.7, "bucket": "all"}],
+        )
+        self.assertAlmostEqual(row.line_seconds, 34240.0, delta=1)
+        self.assertEqual(hours_1dp(row.line_seconds), 9.5)
+        self.assertEqual(days_1dp(row.line_seconds), 0.4)
+        self.assertAlmostEqual(row.billing_seconds, 24000.0, places=1)
+        self.assertEqual(hours_1dp(row.billing_seconds), 6.7)
+        self.assertEqual(row.billing_shots, 800.0)
+        self.assertEqual(row.spacers, 402)
+        self.assertEqual(row.pipe_caps, 0)
+        self.assertEqual(row.socket_caps, 1600)
+        self.assertEqual(row.orings, 1600)
+
+    def test_size_200_skips_spacers(self):
+        from catalog.pipe_calc.accessories import calc_accessories
+
+        acc = calc_accessories(
+            qty=10,
+            size_mm=200,
+            socket_ends=1,
+            pack_qty=2,
+            spacers_per_pack=3,
+            pipe_cap_per_piece=1,
+            cover_cm=78,
+            cover_g_per_m=160,
+            socket_cap_bag=36,
+            pipe_cap_bag=36,
+            spacer_bag=0,
+            oring_bag=150,
+        )
+        self.assertEqual(acc["spacers"], 0)
+        self.assertEqual(acc["pipe_caps"], 10)
+        self.assertEqual(acc["packs"], 5)
+
+
 class PipeCalcSeedAndServiceTests(TestCase):
     def setUp(self):
         seed_pipe_calc_defaults()
@@ -130,6 +191,11 @@ class PipeCalcSeedAndServiceTests(TestCase):
         cut_30 = PipeLengthCut.objects.get(size_profile=profile, length_code="30cm_1s")
         cut_50 = PipeLengthCut.objects.get(size_profile=profile, length_code="50cm_1s")
         coupler = PipeLengthCut.objects.get(size_profile=profile, length_code="coupler")
+        cut_110 = PipeLengthCut.objects.get(size_profile=profile, length_code="200cm_2s")
+        self.assertEqual(cut_110.sku_code, "70211020")
+        self.assertEqual(cut_110.cut_length_mm, 2140)
+        self.assertEqual(float(cut_110.line_speed_m_per_min), 3.0)
+        self.assertEqual(float(profile.billing_cycle_seconds), 30)
         self.assertLess(cut_30.cut_length_mm, cut_50.cut_length_mm)
         self.assertEqual(coupler.label, "رابط")
 
@@ -218,6 +284,12 @@ class PipeCalcViewTests(TestCase):
         self.assertEqual(matrix["depot_rows"][-1]["label"], "رابط")
         self.assertIn("production", matrix)
         self.assertTrue(matrix["production"]["rows"])
+        prod_row = next(
+            r for r in matrix["production"]["rows"] if r["length_code"] == "200cm_2s"
+        )
+        self.assertIn("billing_shots", prod_row)
+        self.assertIn("oring_bags", prod_row)
+        self.assertEqual(matrix["size_defs"]["billing_cycle_seconds"], 32.0)
 
     def test_run_endpoint_legacy_scenario(self):
         resp = self.client.post(
@@ -249,7 +321,7 @@ class PipeCalcViewTests(TestCase):
 
 class PipeCalcMatrixEngineTests(TestCase):
     def test_depot_matrix_row_math(self):
-        from catalog.pipe_calc.engine import calc_depot_matrix_row
+        from catalog.pipe_calc.matrix import calc_depot_matrix_row
 
         row = calc_depot_matrix_row(
             length_code="100cm_1s",
@@ -306,4 +378,5 @@ class PipeCalcDefsApiTests(TestCase):
         hub = self.client.get("/data/pipe-calc/?line=protect&size=110")
         self.assertContains(hub, "تعاریف اولیه")
         self.assertContains(hub, "pcx-defs-dialog")
+        self.assertContains(hub, "کد کالا")
         self.assertNotContains(hub, 'data-field="depot_ceiling"')

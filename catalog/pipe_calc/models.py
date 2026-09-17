@@ -70,7 +70,35 @@ class PipeSizeProfile(models.Model):
         max_digits=10,
         decimal_places=2,
         default=Decimal("0"),
-        help_text="برای دوسر سوکت زمان بلینگ تقریباً دوبرابر می‌شود.",
+        help_text="قدیمی؛ اگر سیکل و حفره پر باشد استفاده نمی‌شود.",
+    )
+    billing_cycle_seconds = models.DecimalField(
+        "سیکل بلینگ (ثانیه)",
+        max_digits=10,
+        decimal_places=2,
+        default=Decimal("0"),
+    )
+    billing_cavities = models.DecimalField(
+        "حفره بلینگ",
+        max_digits=6,
+        decimal_places=1,
+        default=Decimal("1"),
+    )
+    socket_cap_bag_qty = models.PositiveIntegerField("درپوش سوکت در کیسه", default=0)
+    pipe_cap_bag_qty = models.PositiveIntegerField("درپوش لوله در کیسه", default=0)
+    spacer_bag_qty = models.PositiveIntegerField("اسپیسر در کیسه", default=0)
+    oring_bag_qty = models.PositiveIntegerField("اورینگ در کیسه", default=0)
+    cover_g_per_m = models.DecimalField(
+        "وزن یک متر کاور (گرم)",
+        max_digits=10,
+        decimal_places=3,
+        default=Decimal("0"),
+    )
+    kg_per_meter = models.DecimalField(
+        "وزن یک متر لوله (kg)",
+        max_digits=12,
+        decimal_places=5,
+        default=Decimal("0"),
     )
     pack_qty = models.PositiveIntegerField("تعداد در بسته", default=0)
     depot_ceiling = models.PositiveIntegerField("سقف دپو (عدد)", default=0)
@@ -116,6 +144,21 @@ class PipeLengthCut(models.Model):
     nominal_cm = models.PositiveIntegerField("طول اسمی (cm)")
     cut_length_mm = models.PositiveIntegerField("طول برش واقعی (mm)")
     socket_ends = models.PositiveSmallIntegerField("تعداد سر سوکت", default=1)
+    sku_code = models.CharField("کد کالا", max_length=40, blank=True)
+    cover_cm = models.DecimalField(
+        "طول کاور (cm)",
+        max_digits=10,
+        decimal_places=2,
+        default=Decimal("0"),
+    )
+    pack_qty = models.PositiveIntegerField("تعداد در بسته", default=0)
+    spacers_per_pack = models.PositiveIntegerField("اسپیسر در هر بسته", default=0)
+    pipe_cap_per_piece = models.DecimalField(
+        "درپوش لوله برای هر شاخه",
+        max_digits=8,
+        decimal_places=2,
+        default=Decimal("0"),
+    )
     depot_ceiling = models.PositiveIntegerField(
         "سقف دپو (عدد)",
         default=0,

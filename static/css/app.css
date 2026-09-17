@@ -3104,9 +3104,21 @@ input[type=number].spin {
 .pcx-defs-table th:first-child {
   text-align: right;
 }
-.pcx-defs-table .pcx-input {
+.pcx-size-defs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px 12px;
+  margin: 0 0 14px;
+}
+.pcx-size-defs label {
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  color: #57534e;
+}
+.pcx-size-defs .pcx-input {
   width: 100%;
-  max-width: 120px;
+  max-width: none;
 }
 .pcx-defs-foot {
   display: flex;

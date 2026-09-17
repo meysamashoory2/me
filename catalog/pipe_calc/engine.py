@@ -10,6 +10,8 @@ from dataclasses import asdict, dataclass, field
 from decimal import Decimal
 from typing import Any, Iterable, Sequence
 
+from .constants import SHIFT_HOURS, WORKING_DAY_HOURS
+
 
 def _f(value: Any) -> float:
     if value is None:
@@ -21,6 +23,22 @@ def _f(value: Any) -> float:
 
 def _hours(seconds: float) -> float:
     return round(seconds / 3600.0, 4) if seconds else 0.0
+
+
+def hours_1dp(seconds: float) -> float:
+    return round(max(0.0, seconds) / 3600.0, 1) if seconds else 0.0
+
+
+def days_1dp(seconds: float) -> float:
+    if not seconds:
+        return 0.0
+    return round(max(0.0, seconds) / (WORKING_DAY_HOURS * 3600.0), 1)
+
+
+def shifts_1dp(seconds: float) -> float:
+    if not seconds:
+        return 0.0
+    return round(max(0.0, seconds) / (SHIFT_HOURS * 3600.0), 1)
 
 
 @dataclass(frozen=True)
@@ -118,11 +136,13 @@ class CalcItemInput:
     pieces: int
     cut_length_mm: float
     line_speed_m_per_min: float
-    billing_pieces_per_hour: float
+    billing_pieces_per_hour: float = 0.0
     socket_ends: int = 1
     pack_qty: int = 0
     needs_billing: bool = True
     label: str = ""
+    billing_cycle_s: float = 0.0
+    billing_cavities: float = 1.0
 
 
 def calc_line_time_seconds(
@@ -142,18 +162,38 @@ def calc_line_time_seconds(
 
 def calc_billing_time_seconds(
     pieces: int,
-    billing_pieces_per_hour: float,
+    billing_pieces_per_hour: float = 0.0,
     socket_ends: int = 1,
+    billing_cycle_s: float = 0.0,
+    billing_cavities: float = 1.0,
 ) -> float:
-    """Billing time scales with socket ends (دوسر ≈ ۲× یک‌سر)."""
+    """Belling = (branches × socket_ends) / cavities × cycle_s.
+
+    Falls back to pieces/hour when cycle is not set.
+    """
     pieces = max(0, int(pieces))
-    rate = _f(billing_pieces_per_hour)
-    ends = max(1, int(socket_ends or 1))
-    if pieces <= 0 or rate <= 0:
+    ends = max(0, int(socket_ends or 0))
+    if pieces <= 0 or ends <= 0:
         return 0.0
-    # Effective rate drops when both ends need socketing on same machine.
-    effective_rate = rate / ends
-    return (pieces / effective_rate) * 3600.0
+    cycle = _f(billing_cycle_s)
+    cavities = _f(billing_cavities)
+    if cycle > 0 and cavities > 0:
+        shots = (pieces * ends) / cavities
+        return shots * cycle
+    rate = _f(billing_pieces_per_hour)
+    if rate <= 0:
+        return 0.0
+    effective_ends = max(1, ends)
+    return (pieces / (rate / effective_ends)) * 3600.0
+
+
+def billing_shots(pieces: int, socket_ends: int, cavities: float) -> float:
+    pieces = max(0, int(pieces))
+    ends = max(0, int(socket_ends or 0))
+    cav = _f(cavities)
+    if pieces <= 0 or ends <= 0 or cav <= 0:
+        return 0.0
+    return round((pieces * ends) / cav, 1)
 
 
 def calc_production_time(item: CalcItemInput) -> ProductionTimeResult:
@@ -164,7 +204,11 @@ def calc_production_time(item: CalcItemInput) -> ProductionTimeResult:
     notes: list[str] = []
     if item.needs_billing:
         billing_sec = calc_billing_time_seconds(
-            item.pieces, item.billing_pieces_per_hour, item.socket_ends
+            item.pieces,
+            item.billing_pieces_per_hour,
+            item.socket_ends,
+            billing_cycle_s=item.billing_cycle_s,
+            billing_cavities=item.billing_cavities,
         )
     else:
         notes.append("بلینگ برای این خط فعال نیست.")
@@ -316,166 +360,3 @@ class ScenarioResult:
                 "total": format_duration(self.time.total.seconds),
             },
         }
-
-
-@dataclass(frozen=True)
-class DepotMatrixRow:
-    """One nominal-length row for the upper depot planning table."""
-
-    length_code: str
-    label: str
-    depot_ceiling: int
-    stock: int
-    voucher: int
-    remaining_after_voucher: int
-    avg_monthly_sales: float
-    months_remaining: float | None
-    depot_remaining_pct: float | None
-    deduct_from_depot_stock: int
-    deduct_from_depot_remaining: int
-    required_qty: int
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
-
-def calc_depot_matrix_row(
-    *,
-    length_code: str,
-    label: str,
-    depot_ceiling: int,
-    stock: int,
-    voucher: int,
-    avg_monthly_sales: float,
-    required_qty: int | None = None,
-) -> DepotMatrixRow:
-    """Derive planning columns from ceiling / stock / voucher / avg sales."""
-    ceiling = max(0, int(depot_ceiling or 0))
-    stock_i = int(stock or 0)
-    voucher_i = max(0, int(voucher or 0))
-    remaining = stock_i - voucher_i
-    avg = max(0.0, _f(avg_monthly_sales))
-    months = round(remaining / avg, 2) if avg > 0 else None
-    pct = round((remaining / ceiling) * 100.0, 2) if ceiling > 0 else None
-    deduct_stock = max(0, ceiling - stock_i)
-    deduct_remaining = max(0, ceiling - remaining)
-    req = int(required_qty) if required_qty is not None else deduct_stock
-    return DepotMatrixRow(
-        length_code=length_code,
-        label=label,
-        depot_ceiling=ceiling,
-        stock=stock_i,
-        voucher=voucher_i,
-        remaining_after_voucher=remaining,
-        avg_monthly_sales=avg,
-        months_remaining=months,
-        depot_remaining_pct=pct,
-        deduct_from_depot_stock=deduct_stock,
-        deduct_from_depot_remaining=deduct_remaining,
-        required_qty=max(0, req),
-    )
-
-
-@dataclass(frozen=True)
-class ProductionMatrixRow:
-    """Lower computational table row after «محاسبه»."""
-
-    length_code: str
-    label: str
-    qty: int
-    line_seconds: float
-    billing_seconds: float
-    socket_caps: float
-    pipe_caps: float
-    spacers: float
-    covers: float
-    materials: tuple[dict[str, Any], ...]
-
-    def to_dict(self) -> dict[str, Any]:
-        data = asdict(self)
-        data["line_fmt"] = format_duration(self.line_seconds)
-        data["billing_fmt"] = format_duration(self.billing_seconds)
-        return data
-
-
-def calc_production_matrix_row(
-    *,
-    length_code: str,
-    label: str,
-    qty: int,
-    cut_length_mm: float,
-    line_speed_m_per_min: float,
-    billing_pieces_per_hour: float,
-    socket_ends: int,
-    needs_billing: bool,
-    layers: Sequence[dict[str, Any]],
-    socket_cap_per_socket: float = 1.0,
-    pipe_cap_per_piece: float = 1.0,
-    spacer_per_piece: float = 0.0,
-    cover_per_piece: float = 0.0,
-    material_factors: dict[str, float] | None = None,
-) -> ProductionMatrixRow:
-    """Time + accessories + material mix for one length × selected qty source."""
-    qty_i = max(0, int(qty or 0))
-    time = calc_production_time(
-        CalcItemInput(
-            key=length_code,
-            pieces=qty_i,
-            cut_length_mm=cut_length_mm,
-            line_speed_m_per_min=line_speed_m_per_min,
-            billing_pieces_per_hour=billing_pieces_per_hour,
-            socket_ends=max(0, int(socket_ends or 0)) or 1,
-            pack_qty=0,
-            needs_billing=bool(needs_billing) and int(socket_ends or 0) > 0,
-            label=label,
-        )
-    )
-    ends = max(0, int(socket_ends or 0))
-    socket_caps = round(qty_i * ends * _f(socket_cap_per_socket), 4)
-    pipe_caps = round(qty_i * _f(pipe_cap_per_piece), 4)
-    spacers = round(qty_i * _f(spacer_per_piece), 4)
-    covers = round(qty_i * _f(cover_per_piece), 4)
-
-    factors = material_factors or {}
-    materials: list[dict[str, Any]] = []
-    for layer in layers:
-        kg_m = _f(layer.get("kg_per_meter") or 0)
-        factor = _f(factors.get(str(layer.get("layer") or ""), 1.0))
-        kg_total = round(time.meters * kg_m * factor, 4)
-        materials.append(
-            {
-                "layer": layer.get("layer") or "single",
-                "material_code": layer.get("material_code") or "",
-                "material_name": layer.get("material_name") or "",
-                "kg_per_meter": kg_m,
-                "factor": factor,
-                "kg_total": kg_total,
-                "share_percent": _f(layer.get("share_percent") or 0),
-            }
-        )
-    return ProductionMatrixRow(
-        length_code=length_code,
-        label=label,
-        qty=qty_i,
-        line_seconds=time.line.seconds,
-        billing_seconds=time.billing.seconds if needs_billing else 0.0,
-        socket_caps=socket_caps,
-        pipe_caps=pipe_caps,
-        spacers=spacers,
-        covers=covers,
-        materials=tuple(materials),
-    )
-
-
-def resolve_qty_from_depot_row(row: DepotMatrixRow | dict[str, Any], source: str) -> int:
-    """Map qty-source selector onto a depot matrix row."""
-    if isinstance(row, DepotMatrixRow):
-        data = row.to_dict()
-    else:
-        data = row
-    if source == "deduct_remaining":
-        return max(0, int(data.get("deduct_from_depot_remaining") or 0))
-    if source == "required":
-        return max(0, int(data.get("required_qty") or 0))
-    # default: deduct_stock
-    return max(0, int(data.get("deduct_from_depot_stock") or 0))

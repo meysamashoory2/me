@@ -38,6 +38,7 @@ from .constants import (
     PROTECT_SIZES,
     SILENT_SIZES,
 )
+from .factory_seed import apply_all_factory_csvs
 from .models import (
     PipeCalcRule,
     PipeLayerSpec,
@@ -197,39 +198,27 @@ def seed_pipe_calc_defaults(*, force_rates: bool = False) -> dict[str, int]:
         notes="محاسبات کامل: خط تولید + بلینگ + سقف دپو + BOM لایه‌ای.",
     )
     counts["lines"] += 1
-    for size in PROTECT_SIZES:
-        if force_rates or not PipeSizeProfile.objects.filter(line=protect, size_mm=size).exists():
-            _ensure_size(protect, size, with_lengths=True, layer_mode=protect.layer_mode)
-        else:
-            profile = PipeSizeProfile.objects.get(line=protect, size_mm=size)
-            _ensure_lengths(profile)
-            if not profile.layers.exists():
-                _ensure_size(protect, size, with_lengths=True, layer_mode=protect.layer_mode)
-        counts["sizes"] += 1
-
-    for code, sizes, order in (
-        (LINE_GENERAL, GENERAL_SIZES, 20),
-        (LINE_SILENT, SILENT_SIZES, 30),
-    ):
-        line = _line(
-            code,
-            order=order,
-            layer_mode=PipeProductLine.LayerMode.TRIPLE,
-            needs_billing=True,
-            uses_nominal=True,
-            scaffold=False,
-            notes="سه‌لایه (درونی/میانی/بیرونی)؛ سایز ۴۰ و ۲۰۰ ندارد.",
-        )
-        counts["lines"] += 1
-        for size in sizes:
-            if force_rates or not PipeSizeProfile.objects.filter(line=line, size_mm=size).exists():
-                _ensure_size(line, size, with_lengths=True, layer_mode=line.layer_mode)
-            else:
-                profile = PipeSizeProfile.objects.get(line=line, size_mm=size)
-                _ensure_lengths(profile)
-                if profile.layers.count() < 3:
-                    _ensure_size(line, size, with_lengths=True, layer_mode=line.layer_mode)
-            counts["sizes"] += 1
+    _line(
+        LINE_GENERAL,
+        order=20,
+        layer_mode=PipeProductLine.LayerMode.TRIPLE,
+        needs_billing=True,
+        uses_nominal=True,
+        scaffold=False,
+        notes="سه‌لایه (درونی/میانی/بیرونی)؛ سایز ۴۰ و ۲۰۰ ندارد.",
+    )
+    counts["lines"] += 1
+    _line(
+        LINE_SILENT,
+        order=30,
+        layer_mode=PipeProductLine.LayerMode.TRIPLE,
+        needs_billing=True,
+        uses_nominal=True,
+        scaffold=False,
+        notes="سه‌لایه (درونی/میانی/بیرونی)؛ سایز ۴۰ و ۲۰۰ ندارد.",
+    )
+    counts["lines"] += 1
+    counts["sizes"] = apply_all_factory_csvs()
 
     scaffolds = (
         (
