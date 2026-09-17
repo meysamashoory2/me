@@ -3229,9 +3229,6 @@ input[type=number].spin {
 .pcx-table-calc .pcx-num {
   direction: rtl;
 }
-.pcx-table-calc tfoot td.pcx-stack {
-  font-weight: 700;
-}
 .pcx-stack {
   display: flex;
   flex-direction: column;

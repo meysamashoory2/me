@@ -271,6 +271,7 @@ class PipeCalcViewTests(TestCase):
         self.assertContains(resp, "Ø110")
         self.assertContains(resp, "زمان تولید لوله")
         self.assertContains(resp, "اورینگ مورد نیاز")
+        self.assertContains(resp, 'div class="pcx-stack"')
         self.assertNotContains(resp, "زمان اکسترود")
         self.assertNotContains(resp, "شات بلینگ")
         self.assertNotContains(resp, "اسکلت")
