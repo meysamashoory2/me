@@ -269,6 +269,10 @@ class PipeCalcViewTests(TestCase):
         self.assertContains(resp, "سایز لوله")
         self.assertContains(resp, "سقف دپو")
         self.assertContains(resp, "Ø110")
+        self.assertContains(resp, "زمان تولید لوله")
+        self.assertContains(resp, "اورینگ مورد نیاز")
+        self.assertNotContains(resp, "زمان اکسترود")
+        self.assertNotContains(resp, "شات بلینگ")
         self.assertNotContains(resp, "اسکلت")
         self.assertNotContains(resp, "بعداً تکمیل می‌شود")
 
@@ -286,12 +290,11 @@ class PipeCalcViewTests(TestCase):
         self.assertEqual(matrix["depot_rows"][-1]["length_code"], "coupler")
         self.assertEqual(matrix["depot_rows"][-1]["label"], "رابط")
         self.assertIn("production", matrix)
-        self.assertTrue(matrix["production"]["rows"])
-        prod_row = next(
-            r for r in matrix["production"]["rows"] if r["length_code"] == "200cm_2s"
-        )
-        self.assertIn("billing_shots", prod_row)
-        self.assertIn("oring_bags", prod_row)
+        self.assertIn("totals", matrix["production"])
+        totals = matrix["production"]["totals"]
+        self.assertIn("line_hours", totals)
+        self.assertIn("line_days", totals)
+        self.assertIn("oring_bags", totals)
         self.assertEqual(matrix["size_defs"]["billing_cycle_seconds"], 32.0)
 
     def test_run_endpoint_legacy_scenario(self):

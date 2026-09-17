@@ -98,6 +98,7 @@
         <table class="pcx-table pcx-table-calc">
           <thead id="pcx-prod-head"></thead>
           <tbody id="pcx-prod-body"></tbody>
+          <tfoot id="pcx-prod-foot"></tfoot>
         </table>
       </div>
     </article>
@@ -179,6 +180,7 @@
   var qtySel = document.getElementById("pcx-qty-source");
   var prodHead = document.getElementById("pcx-prod-head");
   var prodBody = document.getElementById("pcx-prod-body");
+  var prodFoot = document.getElementById("pcx-prod-foot");
   var defsDialog = document.getElementById("pcx-defs-dialog");
   var defsBody = document.getElementById("pcx-defs-body");
   var defsSizeBox = document.getElementById("pcx-size-defs");
@@ -268,8 +270,16 @@
     }).join("");
   }
 
-  function fmtTimePair(hours, days) {
-    return fmtNum(hours, 1) + " ساعت / " + fmtNum(days, 1) + " روز";
+  function fmtHours(value) {
+    return fmtNum(value, 1) + " ساعت";
+  }
+
+  function fmtDays(value) {
+    return fmtNum(value, 1) + " روز";
+  }
+
+  function stackCell(top, bottom) {
+    return '<td class="pcx-num pcx-stack"><span>' + top + "</span><span>" + bottom + "</span></td>";
   }
 
   function renderProduction(prod) {
@@ -279,19 +289,13 @@
       "<tr>" +
       "<th>طول اسمی</th>" +
       "<th>مقدار</th>" +
-      "<th>زمان اکسترود</th>" +
+      "<th>زمان تولید لوله</th>" +
       "<th>زمان بلینگ</th>" +
-      "<th>شات بلینگ</th>" +
-      "<th>اورینگ</th>" +
-      "<th>کیسه اورینگ</th>" +
+      "<th>اورینگ مورد نیاز</th>" +
       "<th>درپوش سوکت</th>" +
-      "<th>کیسه درپوش سوکت</th>" +
       "<th>درپوش لوله</th>" +
-      "<th>کیسه درپوش لوله</th>" +
       "<th>اسپیسر</th>" +
-      "<th>کیسه اسپیسر</th>" +
       "<th>کاور (kg)</th>" +
-      "<th>رول کاور</th>" +
       headers.map(function (h) { return "<th>" + (h.label || h.key) + "</th>"; }).join("") +
       "</tr>";
     prodBody.innerHTML = (prod.rows || []).map(function (row) {
@@ -300,25 +304,36 @@
         "<tr>" +
           '<td class="pcx-sticky">' + (row.label || row.length_code || "") + "</td>" +
           '<td class="pcx-num">' + fmtNum(row.qty, 0) + "</td>" +
-          '<td class="pcx-num">' + fmtTimePair(row.line_hours, row.line_days) + "</td>" +
-          '<td class="pcx-num">' + fmtTimePair(row.billing_hours, row.billing_days) + "</td>" +
-          '<td class="pcx-num">' + fmtNum(row.billing_shots, 1) + "</td>" +
+          '<td class="pcx-num">' + fmtHours(row.line_hours) + "</td>" +
+          '<td class="pcx-num">' + fmtHours(row.billing_hours) + "</td>" +
           '<td class="pcx-num">' + fmtNum(row.orings, 0) + "</td>" +
-          '<td class="pcx-num">' + fmtNum(row.oring_bags, 1) + "</td>" +
           '<td class="pcx-num">' + fmtNum(row.socket_caps, 0) + "</td>" +
-          '<td class="pcx-num">' + fmtNum(row.socket_cap_bags, 1) + "</td>" +
           '<td class="pcx-num">' + fmtNum(row.pipe_caps, 0) + "</td>" +
-          '<td class="pcx-num">' + fmtNum(row.pipe_cap_bags, 1) + "</td>" +
           '<td class="pcx-num">' + fmtNum(row.spacers, 0) + "</td>" +
-          '<td class="pcx-num">' + fmtNum(row.spacer_bags, 1) + "</td>" +
           '<td class="pcx-num">' + fmtNum(row.cover_kg, 2) + "</td>" +
-          '<td class="pcx-num">' + fmtNum(row.cover_rolls, 1) + "</td>" +
           headers.map(function (h) {
             return '<td class="pcx-num">' + fmtNum(mats[h.key], 2) + "</td>";
           }).join("") +
         "</tr>"
       );
     }).join("");
+    var tot = prod.totals || {};
+    var totMats = tot.material_values || {};
+    prodFoot.innerHTML =
+      '<tr class="pcx-total">' +
+        '<td class="pcx-sticky">مجموع</td>' +
+        '<td class="pcx-num">' + fmtNum(tot.qty, 0) + "</td>" +
+        stackCell(fmtHours(tot.line_hours), fmtDays(tot.line_days)) +
+        stackCell(fmtHours(tot.billing_hours), fmtDays(tot.billing_days)) +
+        stackCell(fmtNum(tot.orings, 0), fmtNum(tot.oring_bags, 1) + " کیسه") +
+        stackCell(fmtNum(tot.socket_caps, 0), fmtNum(tot.socket_cap_bags, 1) + " کیسه") +
+        stackCell(fmtNum(tot.pipe_caps, 0), fmtNum(tot.pipe_cap_bags, 1) + " کیسه") +
+        stackCell(fmtNum(tot.spacers, 0), fmtNum(tot.spacer_bags, 1) + " کیسه") +
+        stackCell(fmtNum(tot.cover_kg, 2), fmtNum(tot.cover_rolls, 1) + " رول") +
+        headers.map(function (h) {
+          return '<td class="pcx-num">' + fmtNum(totMats[h.key], 2) + "</td>";
+        }).join("") +
+      "</tr>";
     fillQtyChoices(prod.qty_source_choices || matrix.qty_source_choices, prod.qty_source || matrix.default_qty_source);
     results.hidden = false;
   }

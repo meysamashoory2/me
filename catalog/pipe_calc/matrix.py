@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass
 from typing import Any, Sequence
 
 from .accessories import calc_accessories, split_material_kg
+from .constants import COVER_ROLL_KG
 from .engine import (
     CalcItemInput,
     billing_shots,
@@ -243,3 +244,56 @@ def resolve_qty_from_depot_row(row: DepotMatrixRow | dict[str, Any], source: str
         return max(0, int(data.get("required_qty") or 0))
     # default: deduct_stock
     return max(0, int(data.get("deduct_from_depot_stock") or 0))
+
+
+def _bag_qty(pieces: float, per_bag: int) -> float:
+    if pieces <= 0 or per_bag <= 0:
+        return 0.0
+    return pieces / per_bag
+
+
+def aggregate_production_rows(
+    rows: Sequence[dict[str, Any]],
+    *,
+    oring_bag: int,
+    socket_cap_bag: int,
+    pipe_cap_bag: int,
+    spacer_bag: int,
+    cover_roll_kg: float = COVER_ROLL_KG,
+    material_keys: Sequence[str] = (),
+) -> dict[str, Any]:
+    """Totals under رابط: hours+days for times, count+bags for accessories."""
+    line_s = sum(float(row.get("line_seconds") or 0) for row in rows)
+    bill_s = sum(float(row.get("billing_seconds") or 0) for row in rows)
+    orings = sum(float(row.get("orings") or 0) for row in rows)
+    socket_caps = sum(float(row.get("socket_caps") or 0) for row in rows)
+    pipe_caps = sum(float(row.get("pipe_caps") or 0) for row in rows)
+    spacers = sum(float(row.get("spacers") or 0) for row in rows)
+    cover_kg = sum(float(row.get("cover_kg") or 0) for row in rows)
+    roll_kg = cover_roll_kg or COVER_ROLL_KG
+    materials: dict[str, float] = {}
+    for key in material_keys:
+        materials[key] = round(
+            sum(float((row.get("material_values") or {}).get(key) or 0) for row in rows),
+            4,
+        )
+    return {
+        "qty": sum(int(row.get("qty") or 0) for row in rows),
+        "line_seconds": round(line_s, 2),
+        "billing_seconds": round(bill_s, 2),
+        "line_hours": hours_1dp(line_s),
+        "line_days": days_1dp(line_s),
+        "billing_hours": hours_1dp(bill_s),
+        "billing_days": days_1dp(bill_s),
+        "orings": orings,
+        "oring_bags": _bag_qty(orings, oring_bag),
+        "socket_caps": socket_caps,
+        "socket_cap_bags": _bag_qty(socket_caps, socket_cap_bag),
+        "pipe_caps": pipe_caps,
+        "pipe_cap_bags": _bag_qty(pipe_caps, pipe_cap_bag),
+        "spacers": spacers,
+        "spacer_bags": _bag_qty(spacers, spacer_bag),
+        "cover_kg": round(cover_kg, 4),
+        "cover_rolls": (cover_kg / roll_kg) if roll_kg else 0.0,
+        "material_values": materials,
+    }

@@ -19,6 +19,7 @@ from .engine import (
     format_duration,
 )
 from .matrix import (
+    aggregate_production_rows,
     calc_depot_matrix_row,
     calc_production_matrix_row,
     resolve_qty_from_depot_row,
@@ -552,11 +553,20 @@ def build_production_matrix(
         data["qty_source"] = qty_source
         out_rows.append(data)
 
+    totals = aggregate_production_rows(
+        out_rows,
+        oring_bag=int(profile.oring_bag_qty or 0),
+        socket_cap_bag=int(profile.socket_cap_bag_qty or 0),
+        pipe_cap_bag=int(profile.pipe_cap_bag_qty or 0),
+        spacer_bag=int(profile.spacer_bag_qty or 0),
+        material_keys=[h["key"] for h in material_headers],
+    )
     return {
         "qty_source": qty_source,
         "qty_source_choices": [{"value": v, "label": lbl} for v, lbl in QTY_SOURCE_CHOICES],
         "material_headers": material_headers,
         "rows": out_rows,
+        "totals": totals,
     }
 
 
