@@ -56,7 +56,11 @@ def _apply_layers(profile: PipeSizeProfile, rec: FactorySize, layer_mode: str) -
 
 
 def apply_factory_line(line: PipeProductLine, data: FactoryLineData) -> int:
-    """Upsert factory rates. Does not overwrite stock, voucher, ceiling, or sales."""
+    """Upsert factory rates. Stock, voucher, and monthly sales stay as-is.
+
+    Depot ceiling is loaded from the factory file as the default, then remains
+    editable in تعاریف اولیه because it can change in some periods.
+    """
     touched = 0
     skus_by_size: dict[int, list] = {}
     for sku in data.skus:
@@ -86,13 +90,16 @@ def apply_factory_line(line: PipeProductLine, data: FactoryLineData) -> int:
                 "extras": extras,
             },
         )
-        if not profile.depot_ceiling:
+        size_ceilings = [sku.depot_ceiling for sku in skus_by_size.get(size_mm, []) if sku.depot_ceiling]
+        if size_ceilings:
+            profile.depot_ceiling = max(size_ceilings)
+            profile.save(update_fields=["depot_ceiling"])
+        elif not profile.depot_ceiling:
             profile.depot_ceiling = DEFAULT_DEPOT_CEILING.get(size_mm, 0)
             profile.save(update_fields=["depot_ceiling"])
         _apply_layers(profile, rec, line.layer_mode)
         for sku in skus_by_size.get(size_mm, []):
             label = sku.label or sku.length_code
-            existing = PipeLengthCut.objects.filter(size_profile=profile, length_code=sku.length_code).first()
             defaults = {
                 "label": label,
                 "nominal_cm": _nominal_cm(sku.length_code),
@@ -104,10 +111,9 @@ def apply_factory_line(line: PipeProductLine, data: FactoryLineData) -> int:
                 "spacers_per_pack": sku.spacers_per_pack,
                 "pipe_cap_per_piece": _dec(sku.pipe_cap_per_piece),
                 "line_speed_m_per_min": _dec(sku.line_speed_m_per_min),
+                "depot_ceiling": int(sku.depot_ceiling or 0),
                 "is_active": True,
             }
-            if existing is None:
-                defaults["depot_ceiling"] = int(profile.depot_ceiling or DEFAULT_DEPOT_CEILING.get(size_mm, 0))
             PipeLengthCut.objects.update_or_create(
                 size_profile=profile,
                 length_code=sku.length_code,

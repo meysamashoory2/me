@@ -142,6 +142,7 @@ class FactorySku:
     pipe_cap_per_piece: float
     cut_length_m: float
     line_speed_m_per_min: float
+    depot_ceiling: int = 0
     alt_speed_m_per_min: float = 0.0
 
 
@@ -234,6 +235,18 @@ def parse_factory_csv(path: Path) -> FactoryLineData:
     if sku_header_idx is None:
         return FactoryLineData(sizes=sizes, skus=skus)
 
+    sku_headers = [_norm(c) for c in rows[sku_header_idx]]
+
+    def _sku_col(*needles: str) -> int | None:
+        for idx, label in enumerate(sku_headers):
+            if all(n in label for n in needles):
+                return idx
+        return None
+
+    col_ceiling = _sku_col("سقف دپو")
+    col_speed = _sku_col("سرعت تولید لوله")
+    col_alt = _sku_col("فرق کند")
+
     for row in rows[sku_header_idx + 1 :]:
         code = _norm(row[0] if row else "")
         if not _SKU_RE.match(code):
@@ -244,6 +257,9 @@ def parse_factory_csv(path: Path) -> FactoryLineData:
         pack = _int(row[5] if len(row) > 5 else 0)
         if size_mm == 200 and pack <= 0:
             pack = 2
+        speed_idx = col_speed if col_speed is not None else 10
+        ceiling_idx = col_ceiling if col_ceiling is not None else 11
+        alt_idx = col_alt
         skus.append(
             FactorySku(
                 sku_code=code,
@@ -256,8 +272,9 @@ def parse_factory_csv(path: Path) -> FactoryLineData:
                 socket_ends=sockets,
                 pipe_cap_per_piece=_num(row[8] if len(row) > 8 else 0),
                 cut_length_m=_num(row[9] if len(row) > 9 else 0),
-                line_speed_m_per_min=_num(row[10] if len(row) > 10 else 0),
-                alt_speed_m_per_min=_num(row[11] if len(row) > 11 else 0),
+                line_speed_m_per_min=_num(row[speed_idx] if speed_idx < len(row) else 0),
+                depot_ceiling=_int(row[ceiling_idx] if ceiling_idx < len(row) else 0),
+                alt_speed_m_per_min=_num(row[alt_idx] if alt_idx is not None and alt_idx < len(row) else 0),
             )
         )
     return FactoryLineData(sizes=sizes, skus=skus)

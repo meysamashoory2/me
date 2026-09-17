@@ -195,6 +195,7 @@ class PipeCalcSeedAndServiceTests(TestCase):
         self.assertEqual(cut_110.sku_code, "70211020")
         self.assertEqual(cut_110.cut_length_mm, 2140)
         self.assertEqual(float(cut_110.line_speed_m_per_min), 3.0)
+        self.assertEqual(cut_110.depot_ceiling, 450)
         self.assertEqual(float(profile.billing_cycle_seconds), 30)
         self.assertLess(cut_30.cut_length_mm, cut_50.cut_length_mm)
         self.assertEqual(coupler.label, "رابط")
@@ -208,6 +209,8 @@ class PipeCalcSeedAndServiceTests(TestCase):
         self.assertNotIn(200, sizes)
         profile = PipeSizeProfile.objects.get(line=line, size_mm=110)
         self.assertEqual(profile.layers.count(), 3)
+        two_m = profile.length_cuts.get(length_code="200cm_2s")
+        self.assertEqual(two_m.depot_ceiling, 4000)
 
     def test_tip_is_scaffold(self):
         tip = PipeProductLine.objects.get(code=LINE_TIP)
