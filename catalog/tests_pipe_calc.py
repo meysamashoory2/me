@@ -150,6 +150,34 @@ class PipeCalcFactoryFormulaTests(TestCase):
         self.assertEqual(row.pipe_caps, 0)
         self.assertEqual(row.socket_caps, 1600)
         self.assertEqual(row.orings, 1600)
+        self.assertAlmostEqual(row.oring_bags, 1600 / 867, places=8)
+        self.assertAlmostEqual(row.socket_cap_bags, 1600 / 150, places=8)
+        self.assertAlmostEqual(row.cover_kg, 55.819, places=3)
+        self.assertAlmostEqual(row.cover_rolls, 55.81904 / 25, places=7)
+        self.assertAlmostEqual(row.materials[0]["kg_total"], 286.3577, places=4)
+
+    def test_one_socket_components_and_package_ceiling(self):
+        from catalog.pipe_calc.accessories import calc_accessories
+
+        acc = calc_accessories(
+            qty=7,
+            size_mm=110,
+            socket_ends=1,
+            pack_qty=6,
+            spacers_per_pack=3,
+            pipe_cap_per_piece=1,
+            cover_cm=254,
+            cover_g_per_m=164,
+            socket_cap_bag=150,
+            pipe_cap_bag=120,
+            spacer_bag=30,
+            oring_bag=867,
+        )
+        self.assertEqual(acc["packs"], 2)
+        self.assertEqual(acc["orings"], 7)
+        self.assertEqual(acc["socket_caps"], 7)
+        self.assertEqual(acc["pipe_caps"], 7)
+        self.assertEqual(acc["spacers"], 6)
 
     def test_size_200_skips_spacers(self):
         from catalog.pipe_calc.accessories import calc_accessories
@@ -212,6 +240,23 @@ class PipeCalcSeedAndServiceTests(TestCase):
         two_m = profile.length_cuts.get(length_code="200cm_2s")
         self.assertEqual(two_m.depot_ceiling, 4000)
 
+    def test_factory_sync_preserves_existing_stock_ceilings(self):
+        line = PipeProductLine.objects.get(code=LINE_PROTECT)
+        profile = PipeSizeProfile.objects.get(line=line, size_mm=110)
+        cut = profile.length_cuts.get(length_code="200cm_2s")
+        self.assertEqual(cut.depot_ceiling, 450)
+
+        profile.depot_ceiling = 0
+        profile.save(update_fields=["depot_ceiling"])
+        cut.depot_ceiling = 1234
+        cut.save(update_fields=["depot_ceiling"])
+        seed_pipe_calc_defaults()
+
+        profile.refresh_from_db()
+        cut.refresh_from_db()
+        self.assertEqual(profile.depot_ceiling, 0)
+        self.assertEqual(cut.depot_ceiling, 1234)
+
     def test_tip_is_scaffold(self):
         tip = PipeProductLine.objects.get(code=LINE_TIP)
         self.assertTrue(tip.is_scaffold)
@@ -266,9 +311,9 @@ class PipeCalcViewTests(TestCase):
         resp = self.client.get("/data/pipe-calc/?line=protect")
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "لوله‌های پروتکت")
-        self.assertContains(resp, "سایز لوله")
+        self.assertContains(resp, ">سایز</span>")
         self.assertContains(resp, "سقف دپو")
-        self.assertContains(resp, "Ø110")
+        self.assertContains(resp, '<option value="110">110</option>', html=True)
         self.assertContains(resp, "زمان تولید لوله")
         self.assertContains(resp, "اورینگ مورد نیاز")
         self.assertContains(resp, 'div class="pcx-stack"')
@@ -276,6 +321,37 @@ class PipeCalcViewTests(TestCase):
         self.assertNotContains(resp, "شات بلینگ")
         self.assertNotContains(resp, "اسکلت")
         self.assertNotContains(resp, "بعداً تکمیل می‌شود")
+
+    def test_matrix_workspace_has_three_primary_tabs_and_global_selectors(self):
+        resp = self.client.get("/data/pipe-calc/?line=protect&size=110")
+        html = resp.content.decode()
+        self.assertEqual(html.count("data-pcx-tab="), 3)
+        for label in (
+            "برنامه دپو و نیاز تولید",
+            "جدول محاسباتی",
+            "تعاریف اولیه",
+        ):
+            self.assertContains(resp, label)
+        toolbar = html.index('class="pcx-toolbar"')
+        tabs = html.index('class="tabs pcx-workspace-tabs"')
+        self.assertLess(html.index('id="pcx-size"', toolbar), tabs)
+        self.assertLess(html.index('id="pcx-qty-source"', toolbar), tabs)
+        self.assertNotIn("pcx-defs-dialog", html)
+        self.assertIn('data-pcx-panel="definitions"', html)
+        option_block = html[html.index('id="pcx-size"'):tabs]
+        self.assertNotIn("Ø", option_block)
+        self.assertNotIn('defsSizeLabel.textContent = "Ø"', html)
+        self.assertNotIn("شات بلینگ", html)
+
+    def test_selected_size_context_is_used_across_workspace(self):
+        resp = self.client.get("/data/pipe-calc/?line=protect&size=200")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.context["selected_size_mm"], 200)
+        self.assertEqual(resp.context["matrix"]["size_mm"], 200)
+        self.assertEqual(resp.context["matrix"]["size_defs"]["size_mm"], 200)
+        self.assertTrue(
+            all(row["length_code"] for row in resp.context["matrix"]["depot_rows"])
+        )
 
     def test_matrix_run_endpoint(self):
         resp = self.client.post(
@@ -384,6 +460,7 @@ class PipeCalcDefsApiTests(TestCase):
         self.assertEqual(float(cut.line_speed_m_per_min), 6.25)
         hub = self.client.get("/data/pipe-calc/?line=protect&size=110")
         self.assertContains(hub, "تعاریف اولیه")
-        self.assertContains(hub, "pcx-defs-dialog")
+        self.assertContains(hub, 'data-pcx-panel="definitions"')
+        self.assertNotContains(hub, "pcx-defs-dialog")
         self.assertContains(hub, "کد کالا")
         self.assertNotContains(hub, 'data-field="depot_ceiling"')

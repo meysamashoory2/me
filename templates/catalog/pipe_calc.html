@@ -45,18 +45,28 @@
   <div class="pcx-toolbar">
     <div class="pcx-toolbar-actions">
       <label class="pcx-field">
-        <span>سایز لوله</span>
+        <span>سایز</span>
         <select id="pcx-size">
           {% for s in overview.sizes %}
-          <option value="{{ s.size_mm }}" {% if selected_size_mm == s.size_mm %}selected{% endif %}>Ø{{ s.size_mm }}</option>
+          <option value="{{ s.size_mm }}" {% if selected_size_mm == s.size_mm %}selected{% endif %}>{{ s.size_mm }}</option>
           {% endfor %}
         </select>
       </label>
-      <button type="button" class="btn btn-ghost pcx-defs-btn" id="pcx-open-defs">تعاریف اولیه</button>
+      <label class="pcx-field">
+        <span>مبنای محاسبه</span>
+        <select id="pcx-qty-source"></select>
+      </label>
     </div>
-    <p class="pcx-hint">موجودی و حواله از داده محصولات خوانده می‌شود. سقف دپو از داده کارخانه می‌آید و در «تعاریف اولیه» در صورت نیاز قابل تغییر است.</p>
+    <p class="pcx-hint">انتخاب سایز و مبنای محاسبه برای هر سه بخش زیر مشترک است.</p>
   </div>
 
+  <nav class="tabs pcx-workspace-tabs" aria-label="فضای کاری محاسبات لوله">
+    <button type="button" class="tab active" data-pcx-tab="depot" aria-selected="true">برنامه دپو و نیاز تولید</button>
+    <button type="button" class="tab" data-pcx-tab="calculation" aria-selected="false">جدول محاسباتی</button>
+    <button type="button" class="tab" data-pcx-tab="definitions" aria-selected="false">تعاریف اولیه</button>
+  </nav>
+
+  <section class="pcx-tab-panel" data-pcx-panel="depot">
   <article class="pcx-card">
     <header class="pcx-card-head"><h3>برنامه دپو و نیاز تولید</h3></header>
     <div class="pcx-scroll">
@@ -83,15 +93,10 @@
       <button type="button" class="btn pcx-primary" id="pcx-calc">محاسبه</button>
     </footer>
   </article>
+  </section>
 
-  <div id="pcx-results" class="pcx-results" hidden>
-    <div class="pcx-toolbar">
-      <label class="pcx-field">
-        <span>مبنای مقدار</span>
-        <select id="pcx-qty-source"></select>
-      </label>
-      <p class="pcx-hint">با تغییر گزینه، ستون‌های جدول محاسباتی بر همان مبنا بازمحاسبه می‌شوند.</p>
-    </div>
+  <section class="pcx-tab-panel" data-pcx-panel="calculation" hidden>
+  <div id="pcx-results" class="pcx-results" data-ready="0">
     <article class="pcx-card pcx-card-calc">
       <header class="pcx-card-head"><h3>جدول محاسباتی تولید و مواد</h3></header>
       <div class="pcx-scroll">
@@ -103,14 +108,11 @@
       </div>
     </article>
   </div>
-</section>
+  </section>
 
-<dialog class="dialog dialog-wide" id="pcx-defs-dialog">
-  <div data-dialog-body>
-    <div class="dialog-head">
-      <h3>تعاریف اولیه — سایز <span id="pcx-defs-size-label"></span></h3>
-      <button type="button" class="btn btn-sm btn-ghost" data-dialog-close aria-label="بستن">✕</button>
-    </div>
+  <section class="pcx-tab-panel" data-pcx-panel="definitions" hidden>
+  <article class="pcx-card pcx-definitions-card">
+    <header class="pcx-card-head"><h3>تعاریف اولیه — سایز <span id="pcx-defs-size-label"></span></h3></header>
     <p class="panel-hint" style="margin-top:0">پارامترهای کارخانه برای همین سایز و هر طول اسمی. سقف دپو از فایل کارخانه بارگذاری می‌شود و در همین جدول قابل تغییر است.</p>
     <div class="pcx-size-defs" id="pcx-size-defs"></div>
     <div class="pcx-scroll">
@@ -133,10 +135,10 @@
     </div>
     <div class="pcx-defs-foot">
       <button type="button" class="btn pcx-primary" id="pcx-defs-save"{% if not can_edit %} disabled{% endif %}>ذخیره تعاریف</button>
-      <button type="button" class="btn btn-ghost" data-dialog-close>انصراف</button>
     </div>
-  </div>
-</dialog>
+  </article>
+  </section>
+</section>
 
 {% else %}
 <section class="panel panel-compact pcx-placeholder">
@@ -181,12 +183,29 @@
   var prodHead = document.getElementById("pcx-prod-head");
   var prodBody = document.getElementById("pcx-prod-body");
   var prodFoot = document.getElementById("pcx-prod-foot");
-  var defsDialog = document.getElementById("pcx-defs-dialog");
   var defsBody = document.getElementById("pcx-defs-body");
   var defsSizeBox = document.getElementById("pcx-size-defs");
   var defsSizeLabel = document.getElementById("pcx-defs-size-label");
-  var openDefsBtn = document.getElementById("pcx-open-defs");
   var saveDefsBtn = document.getElementById("pcx-defs-save");
+  var tabButtons = Array.prototype.slice.call(root.querySelectorAll("[data-pcx-tab]"));
+  var tabPanels = Array.prototype.slice.call(root.querySelectorAll("[data-pcx-panel]"));
+
+  function activateTab(name) {
+    tabButtons.forEach(function (button) {
+      var active = button.getAttribute("data-pcx-tab") === name;
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-selected", active ? "true" : "false");
+    });
+    tabPanels.forEach(function (panel) {
+      panel.hidden = panel.getAttribute("data-pcx-panel") !== name;
+    });
+  }
+
+  tabButtons.forEach(function (button) {
+    button.addEventListener("click", function () {
+      activateTab(button.getAttribute("data-pcx-tab"));
+    });
+  });
 
   function csrfToken() {
     var el = document.querySelector("[name=csrfmiddlewaretoken]");
@@ -335,7 +354,8 @@
         }).join("") +
       "</tr>";
     fillQtyChoices(prod.qty_source_choices || matrix.qty_source_choices, prod.qty_source || matrix.default_qty_source);
-    results.hidden = false;
+    results.setAttribute("data-ready", "1");
+    activateTab("calculation");
   }
 
   function runCalc(qtySource) {
@@ -376,24 +396,12 @@
       });
   }
 
-  function openDialog(dialog) {
-    if (!dialog) return;
-    if (typeof dialog.showModal === "function") dialog.showModal();
-    else dialog.setAttribute("open", "open");
-  }
-
-  function closeDialog(dialog) {
-    if (!dialog) return;
-    if (typeof dialog.close === "function") dialog.close();
-    else dialog.removeAttribute("open");
-  }
-
   function sizeDefInput(key, value, step) {
     return '<input class="pcx-input" data-size-def="' + key + '" type="number" min="0" step="' + step + '" value="' + (value || 0) + '"' + (canEdit ? "" : " disabled") + ">";
   }
 
   function renderDefsForm() {
-    defsSizeLabel.textContent = "Ø" + sizeSel.value;
+    defsSizeLabel.textContent = sizeSel.value;
     var size = matrix.size_defs || {};
     defsSizeBox.innerHTML =
       '<label>سیکل بلینگ (ثانیه)' + sizeDefInput("billing_cycle_seconds", size.billing_cycle_seconds, "0.1") + "</label>" +
@@ -453,15 +461,6 @@
     });
   }
 
-  openDefsBtn.addEventListener("click", function () {
-    renderDefsForm();
-    openDialog(defsDialog);
-  });
-
-  defsDialog.querySelectorAll("[data-dialog-close]").forEach(function (btn) {
-    btn.addEventListener("click", function () { closeDialog(defsDialog); });
-  });
-
   saveDefsBtn.addEventListener("click", function () {
     if (!canEdit) return;
     var rows = collectDefsRows();
@@ -498,7 +497,7 @@
           row._requiredTouched = false;
         });
         renderDepot();
-        closeDialog(defsDialog);
+        renderDefsForm();
       })
       .catch(function () {
         saveDefsBtn.disabled = false;
@@ -531,11 +530,13 @@
   });
 
   qtySel.addEventListener("change", function () {
-    if (!results.hidden) runCalc(qtySel.value);
+    if (results.getAttribute("data-ready") === "1") runCalc(qtySel.value);
   });
 
   fillQtyChoices(matrix.qty_source_choices, matrix.default_qty_source);
   renderDepot();
+  renderDefsForm();
+  activateTab("depot");
 })();
 </script>
 {% endblock %}
