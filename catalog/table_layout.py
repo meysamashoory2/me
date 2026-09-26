@@ -15,6 +15,28 @@ SECTION_CHOICES: tuple[tuple[str, str], ...] = LAYOUT_SECTIONS
 SECTION_KEYS: tuple[str, ...] = tuple(key for key, _label in SECTION_CHOICES)
 UNLOCKED_WIDTH_DEFAULTS: frozenset[str] = frozenset({"reports"})
 COLUMN_BORDER_COLOR = "#cbd5e1"
+GLOBAL_LAYOUT_KEY = "all"
+HEADER_LAYOUT_KEYS = (
+    "header_height_px",
+    "header_border",
+    "width_locked",
+    "header_wrap",
+    "header_color",
+    "header_alpha",
+)
+BODY_LAYOUT_KEYS = (
+    "row_height_px",
+    "col_border",
+    "row_border",
+    "body_wrap",
+    "marquee",
+    "row_selected_color",
+    "row_selected_alpha",
+    "cell_outline_color",
+    "cell_outline_alpha",
+    "cell_fill_color",
+    "cell_fill_alpha",
+)
 
 
 def clamp_row_height(value: Any, default: int = DEFAULT_ROW_HEIGHT) -> int:
@@ -158,6 +180,27 @@ def merge_layout_post(current: dict[str, Any], post) -> dict[str, Any]:
     return posted
 
 
+def reset_layout_part(current: dict[str, Any], part: str) -> dict[str, Any]:
+    """Reset one half of the unified settings without disturbing the other."""
+    defaults = default_layout(GLOBAL_LAYOUT_KEY)
+    result = dict(current)
+    keys = HEADER_LAYOUT_KEYS if part == "header" else BODY_LAYOUT_KEYS
+    for key in keys:
+        result[key] = defaults[key]
+    return result
+
+
+def resolve_global_layout(layouts: Any) -> dict[str, Any]:
+    """Read the shared setting, falling back safely to legacy per-menu data."""
+    stored = layouts if isinstance(layouts, dict) else {}
+    raw = stored.get(GLOBAL_LAYOUT_KEY)
+    if not isinstance(raw, dict):
+        raw = stored.get("planning")
+    if not isinstance(raw, dict):
+        raw = next((value for value in stored.values() if isinstance(value, dict)), {})
+    return normalize_section_layout(GLOBAL_LAYOUT_KEY, raw)
+
+
 def layout_storage_key(section: str, surface: str = "") -> str:
     section = str(section or "").strip()
     surface = str(surface or "").strip()
@@ -182,6 +225,14 @@ def normalize_all_layouts(
 ) -> dict[str, dict[str, Any]]:
     stored = stored if isinstance(stored, dict) else {}
     legacy_locks = legacy_locks if isinstance(legacy_locks, dict) else {}
+    if isinstance(stored.get(GLOBAL_LAYOUT_KEY), dict):
+        shared = normalize_section_layout(GLOBAL_LAYOUT_KEY, stored[GLOBAL_LAYOUT_KEY])
+        # Replicas keep older model helpers and templates compatible while the
+        # canonical stored preference remains under ``all``.
+        return {
+            GLOBAL_LAYOUT_KEY: shared,
+            **{key: dict(shared) for key in SECTION_KEYS},
+        }
     fallback_height = (
         clamp_row_height(legacy_height)
         if legacy_height is not None
@@ -209,6 +260,8 @@ def normalize_all_layouts(
 
 
 def locks_from_layouts(layouts: dict[str, dict[str, Any]]) -> dict[str, bool]:
+    if GLOBAL_LAYOUT_KEY in layouts:
+        return {GLOBAL_LAYOUT_KEY: bool(resolve_global_layout(layouts).get("width_locked"))}
     return {key: bool(cfg.get("width_locked")) for key, cfg in layouts.items()}
 
 
@@ -263,6 +316,9 @@ def _section_cells(key: str, tags: tuple[str, ...], suffix: str = "") -> str:
 
 def css_for_layouts(layouts: dict[str, dict[str, Any]]) -> str:
     parts: list[str] = []
+    if GLOBAL_LAYOUT_KEY in layouts:
+        shared = resolve_global_layout(layouts)
+        layouts = {key: dict(shared) for key in SECTION_KEYS}
     ordered = sorted(layouts.items(), key=lambda kv: (0 if "::" in kv[0] else -1, kv[0]))
     # Defaults (no surface) first, then surface overrides.
     ordered.sort(key=lambda kv: 1 if "::" in kv[0] else 0)

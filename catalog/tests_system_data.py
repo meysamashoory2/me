@@ -119,6 +119,8 @@ class SystemDataNoShortcutsTests(TestCase):
         self.assertContains(page, "تنظیمات جداول")
         self.assertContains(page, 'name="system-hub"')
         self.assertContains(page, "system-acc-item-link")
+        self.assertContains(page, "system-acc-item-title")
+        self.assertNotContains(page, "system-acc-row")
         self.assertNotContains(page, "مشاهده / ویرایش")
         self.assertContains(page, "پیکربندی منوها")
         self.assertContains(page, "پشتیبان‌گیری استاندارد")
@@ -134,6 +136,16 @@ class SystemDataNoShortcutsTests(TestCase):
         cfg = self.client.get(reverse("system_menu_config"), {"menu": "planning"})
         self.assertEqual(cfg.status_code, 200)
         self.assertContains(cfg, "برنامه‌ریزی هفتگی")
+
+    def test_ui_assets_and_current_factory_report_pages_render(self):
+        page = self.client.get(reverse("system_data"))
+        html = page.content.decode()
+        self.assertIn("css/app.css", html)
+        self.assertIn("js/table_nav.js", html)
+        self.assertIn("js/table_layout.js", html)
+        self.assertIn("js/naming_preview.js", html)
+        self.assertEqual(self.client.get(reverse("pipe_calc")).status_code, 200)
+        self.assertEqual(self.client.get(reverse("report_list")).status_code, 200)
 
     def test_flexible_dataset_admin_loads(self):
         resp = self.client.get(reverse("admin:catalog_flexibledataset_changelist"))
@@ -153,12 +165,10 @@ class SystemDataNoShortcutsTests(TestCase):
 class TableLayoutSettingsTests(TestCase):
     @classmethod
     def setUpTestData(cls):
-        from django.core.management import call_command
         from django.contrib.auth import get_user_model
 
-        call_command("seed_demo")
         cls.User = get_user_model()
-        cls.admin = cls.User.objects.get(username="admin")
+        cls.admin = cls.User.objects.create_superuser("admin", "admin@example.test", "erp12345")
 
     def test_table_layout_defaults_lock_non_reports(self):
         from catalog.models import TableLayoutSettings
@@ -177,25 +187,21 @@ class TableLayoutSettingsTests(TestCase):
         url = reverse("system_table_layout")
         get = self.client.get(url)
         self.assertEqual(get.status_code, 200)
-        self.assertContains(get, "ارتفاع ردیف")
         self.assertContains(get, "قفل کردن ستون")
-        self.assertContains(get, "برنامه‌ریزی هفتگی")
-        self.assertContains(get, "برنامه‌ریزی هوشمند")
-        self.assertContains(get, "سرستون")
+        self.assertContains(get, "سرستون جداول")
         self.assertContains(get, "بدنه جداول")
-        self.assertContains(get, "پیش نمایش تغییرات")
-        self.assertContains(get, "برنامه‌ریزی هفتگی تولید")
-        self.assertContains(get, "naming_preview=1")
-        programs = self.client.get(url, {"section": "production"})
-        self.assertContains(programs, "ثبت تولید روزانه")
+        self.assertContains(get, "این تنظیم برای تمام جداول داده اعمال می‌شود")
+        body = self.client.get(url, {"tab": "body"})
+        self.assertContains(body, "ارتفاع ردیف")
+        self.assertEqual(body.content.decode().count('name="row_height_px"'), 1)
         resp = self.client.post(
             url,
             {
-                "section": "reports",
+                "tab": "body",
+                "layout_part": "body",
                 "row_height_px": "44",
                 "col_border": "show",
                 "row_border": "show",
-                "width_locked": "1",
             },
         )
         self.assertEqual(resp.status_code, 302)
@@ -213,8 +219,7 @@ class TableLayoutSettingsTests(TestCase):
         resp = self.client.post(
             url,
             {
-                "section": "planning",
-                "surface": "list",
+                "tab": "body",
                 "layout_part": "body",
                 "row_height_px": "52",
                 "col_border": "show",
@@ -226,7 +231,8 @@ class TableLayoutSettingsTests(TestCase):
         payload = resp.json()
         self.assertTrue(payload["ok"])
         self.assertIn("--table-row-height:52px", payload["css"])
-        self.assertIn('data-table-surface="list"', payload["css"])
+        self.assertIn('data-table-section="planning"', payload["css"])
+        self.assertEqual(payload["layout"]["row_height_px"], 52)
         settings = TableLayoutSettings.load()
         self.assertEqual(settings.layouts_map()["planning"]["row_height_px"], 52)
         page = self.client.get(reverse("plan_list"))
@@ -251,31 +257,37 @@ class TableLayoutSettingsTests(TestCase):
                     msg=f"page-level background selector leaked: {part}",
                 )
 
-    def test_table_layout_save_other_section(self):
+    def test_legacy_preferences_are_accepted_and_retained(self):
         from django.urls import reverse
         from catalog.models import TableLayoutSettings
 
         self.client.login(username="admin", password="erp12345")
         url = reverse("system_table_layout")
+        settings = TableLayoutSettings.objects.create(
+            row_height_px=36,
+            section_layouts={"planning": {"row_height_px": 41, "col_border": True}},
+        )
         resp = self.client.post(
             url,
             {
-                "section": "planning",
+                "tab": "body",
+                "layout_part": "body",
                 "row_height_px": "8",
                 "col_border": "hide",
                 "row_border": "show",
             },
         )
         self.assertEqual(resp.status_code, 302)
-        self.assertIn("section=planning", resp["Location"])
-        settings = TableLayoutSettings.load()
+        self.assertIn("tab=body", resp["Location"])
+        settings.refresh_from_db()
+        self.assertIn("planning", settings.section_layouts)
+        self.assertIn("all", settings.section_layouts)
         layout = settings.layouts_map()["planning"]
         self.assertEqual(layout["row_height_px"], 8)
         self.assertFalse(layout["col_border"])
         self.assertTrue(layout["row_border"])
         self.assertTrue(layout["width_locked"])
-        self.assertFalse(settings.is_width_locked("reports"))
-        get = self.client.get(url, {"section": "planning"})
+        get = self.client.get(url, {"tab": "body"})
         self.assertContains(get, 'value="8"')
         self.assertContains(get, 'name="col_border" value="hide"')
 
@@ -294,17 +306,8 @@ class TableLayoutSettingsTests(TestCase):
         self.client.post(
             layout_url,
             {
-                "section": "planning",
-                "row_height_px": "36",
-                "col_border": "show",
-                "row_border": "show",
-                "header_border": "show",
-            },
-        )
-        self.client.post(
-            layout_url,
-            {
-                "section": "history",
+                "tab": "body",
+                "layout_part": "body",
                 "row_height_px": "36",
                 "col_border": "show",
                 "row_border": "show",
@@ -331,7 +334,8 @@ class TableLayoutSettingsTests(TestCase):
         self.client.post(
             layout_url,
             {
-                "section": "planning",
+                "tab": "body",
+                "layout_part": "body",
                 "row_height_px": "36",
                 "col_border": "hide",
                 "row_border": "show",
@@ -348,5 +352,5 @@ class TableLayoutSettingsTests(TestCase):
             '[data-table-section="planning"] table th:not(:last-child)',
             plans_hidden,
         )
-        # History keeps its own painted rules.
-        self.assertIn(history_show, plans_hidden)
+        # Unified settings intentionally apply the same hidden-border rule to history.
+        self.assertNotIn(history_show, plans_hidden)

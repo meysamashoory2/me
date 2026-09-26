@@ -492,10 +492,12 @@
     var host = table.closest("[data-table-surface]");
     if (host) surface = host.getAttribute("data-table-surface") || "";
     var locks = locksFromBody();
-    var locked = false;
+    var locked = Object.prototype.hasOwnProperty.call(locks, "all")
+      ? !!locks.all
+      : false;
     if (section && surface && Object.prototype.hasOwnProperty.call(locks, section + "::" + surface)) {
       locked = !!locks[section + "::" + surface];
-    } else if (section) {
+    } else if (section && !Object.prototype.hasOwnProperty.call(locks, "all")) {
       locked = !!locks[section];
     }
     if (table.getAttribute("data-lock-widths") === "1") locked = true;

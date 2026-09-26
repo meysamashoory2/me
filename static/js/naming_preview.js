@@ -16,6 +16,10 @@
   var frame = null;
   var back = null;
 
+  function goBack() {
+    window.location.href = ret || "/";
+  }
+
   function visibleRect(el) {
     if (!el || !el.getBoundingClientRect) return null;
     var r = el.getBoundingClientRect();
@@ -77,6 +81,10 @@
     back.className = "naming-preview-back";
     back.href = ret || "/";
     back.textContent = "بازگشت";
+    back.addEventListener("click", function (e) {
+      e.preventDefault();
+      goBack();
+    });
     chrome.appendChild(frame);
     chrome.appendChild(back);
     document.body.appendChild(chrome);
@@ -132,6 +140,12 @@
       e.stopPropagation();
     }, true);
     document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        goBack();
+        return;
+      }
       if (e.target.closest && e.target.closest(".naming-preview-back")) return;
       var pass = { ArrowUp: 1, ArrowDown: 1, PageUp: 1, PageDown: 1, Home: 1, End: 1 };
       if (pass[e.key]) return;

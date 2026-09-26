@@ -914,18 +914,17 @@ def system_naming_key_delete(request: HttpRequest) -> JsonResponse:
 
 @login_required
 def system_table_layout(request: HttpRequest) -> HttpResponse:
-    """Per-menu header/body table settings, tabbed by sidebar menus."""
+    """Unified header/body settings shared by every application data table."""
     from .models import TableLayoutSettings
-    from .nav import layout_surfaces, surface_preview_href
     from .table_layout import (
-        SECTION_CHOICES,
-        SECTION_KEYS,
+        GLOBAL_LAYOUT_KEY,
         css_for_layouts,
         default_layout,
-        layout_storage_key,
         locks_from_layouts,
         merge_layout_post,
         normalize_section_layout,
+        reset_layout_part,
+        resolve_global_layout,
     )
 
     if not _can_edit_naming(request.user) and request.method == "POST":
@@ -935,78 +934,54 @@ def system_table_layout(request: HttpRequest) -> HttpResponse:
     if settings.pk is None:
         settings.save()
 
-    active = (request.POST.get("section") or request.GET.get("section") or "planning").strip()
-    if active not in SECTION_KEYS:
-        active = SECTION_KEYS[0]
-    surfaces = layout_surfaces(active)
-    surface = (request.POST.get("surface") or request.GET.get("surface") or "").strip()
-    surface_keys = {s.key for s in surfaces}
-    if surface and surface not in surface_keys:
-        surface = surfaces[0].key if surfaces else ""
-    if not surface and surfaces:
-        surface = surfaces[0].key
-    store_key = layout_storage_key(active, surface)
+    active_tab = (request.POST.get("tab") or request.GET.get("tab") or "header").strip()
+    if active_tab not in {"header", "body"}:
+        active_tab = "header"
 
     if request.method == "POST":
-        layouts = settings.layouts_map()
-        current = dict(layouts.get(store_key) or layouts.get(active) or default_layout(active))
-        posted = merge_layout_post(current, request.POST)
-        layouts[store_key] = normalize_section_layout(active, posted)
-        if not surface or (surfaces and surface == surfaces[0].key):
-            layouts[active] = layouts[store_key]
+        current = resolve_global_layout(settings.layouts_map())
+        reset_part = str(request.POST.get("layout_reset") or "").strip()
+        if reset_part in {"header", "body"}:
+            posted = reset_layout_part(current, reset_part)
+            active_tab = reset_part
+            message = "بازگشت به پیش‌فرض"
+        else:
+            posted = merge_layout_post(current, request.POST)
+            message = "اعمال شد"
+        saved = normalize_section_layout(GLOBAL_LAYOUT_KEY, posted)
+        # Keep legacy per-menu keys in storage for downgrade/backward
+        # compatibility; the unified ``all`` key is authoritative.
+        stored = settings.section_layouts if isinstance(settings.section_layouts, dict) else {}
+        layouts = {**stored, GLOBAL_LAYOUT_KEY: saved}
         settings.section_layouts = layouts
-        settings.section_width_locks = locks_from_layouts(layouts)
-        settings.row_height_px = int(layouts.get("reports", {}).get("row_height_px") or 36)
+        settings.section_width_locks = locks_from_layouts({GLOBAL_LAYOUT_KEY: saved})
+        settings.row_height_px = int(saved.get("row_height_px") or 36)
         settings.save()
         if request.headers.get("X-Requested-With") == "XMLHttpRequest":
             return JsonResponse(
                 {
                     "ok": True,
-                    "message": "اعمال شد",
-                    "css": css_for_layouts(layouts),
-                    "locks": locks_from_layouts(layouts),
+                    "message": message,
+                    "css": css_for_layouts({GLOBAL_LAYOUT_KEY: saved}),
+                    "locks": locks_from_layouts({GLOBAL_LAYOUT_KEY: saved}),
+                    "layout": saved,
                 }
             )
-        messages.success(request, "اعمال شد")
-        q = f"?section={active}"
-        if surface:
-            q += f"&surface={surface}"
-        return redirect(request.path + q)
+        messages.success(request, message)
+        return redirect(request.path + f"?tab={active_tab}")
 
-    layouts = settings.layouts_map()
-    tabs = [
-        {
-            "key": key,
-            "label": label,
-            "active": key == active,
-        }
-        for key, label in SECTION_CHOICES
-    ]
-    current = layouts.get(store_key) or layouts.get(active) or default_layout(active)
+    current = resolve_global_layout(settings.layouts_map())
     body_wrap_locked = (not current.get("col_border", True)) and (not current.get("row_border", True))
     from django.urls import reverse
 
-    preview_href = surface_preview_href(
-        active, surface, reverse("system_table_layout") + f"?section={active}&surface={surface}"
-    )
-    if not preview_href:
-        from urllib.parse import urlencode
-
-        preview_href = reverse("dashboard") + "?" + urlencode(
-            {
-                "naming_preview": "1",
-                "ret": reverse("system_table_layout") + f"?section={active}&surface={surface}",
-            }
-        )
+    preview_href = reverse("plan_list")
     return render(
         request,
         "catalog/system_table_layout.html",
         {
-            "active_section": active,
-            "active_surface": surface,
-            "tabs": tabs,
-            "surfaces": surfaces,
+            "active_tab": active_tab,
             "layout": current,
+            "layout_defaults_json": json.dumps(default_layout(GLOBAL_LAYOUT_KEY), ensure_ascii=False),
             "body_wrap_locked": body_wrap_locked,
             "can_edit": _can_edit_naming(request.user),
             "preview_href": preview_href,

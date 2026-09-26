@@ -686,10 +686,25 @@ _UI_TABLE_PAGES: dict[str, tuple[str, str]] = {
 }
 
 
+def _with_focus_on_return(return_path: str, key: str) -> str:
+    from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
+    parts = urlsplit(return_path or "")
+    query = [
+        (name, value)
+        for name, value in parse_qsl(parts.query, keep_blank_values=True)
+        if name != "focus_key"
+    ]
+    if key:
+        query.append(("focus_key", key))
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
+
+
 def _with_preview_query(path: str, *, key: str, highlight: str, return_path: str) -> str:
     from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
     parts = urlsplit(path)
+    return_path = _with_focus_on_return(return_path, key)
     query = [
         (k, v)
         for k, v in parse_qsl(parts.query, keep_blank_values=True)
