@@ -272,12 +272,27 @@ class ProgramChangeReason(models.Model):
 
 
 class MoldOption(models.Model):
-    """Editable list of mold identifiers («نوع قالب»).
+    """A mold in the mold registry («نوع قالب»).
 
-    Lets the same product run on two machines at once with *different* molds.
+    Identified by an optional catalog ``code``; a product may have more than
+    one eligible mold and a mold may be linked to several products.
     """
 
-    label = models.CharField("عنوان", max_length=120, unique=True)
+    code = models.CharField(
+        "کد قالب", max_length=40, blank=True, default="", db_index=True
+    )
+    label = models.CharField("عنوان", max_length=200)
+    copies = models.PositiveSmallIntegerField(
+        "تعداد نسخهٔ فیزیکی",
+        default=1,
+        help_text="هر نسخه همزمان فقط روی یک دستگاه اجرا می‌شود.",
+    )
+    change_time_hours = models.DecimalField(
+        "زمان تعویض قالب (ساعت)",
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal("2.00"),
+    )
     order = models.PositiveSmallIntegerField("ترتیب", default=0)
     is_active = models.BooleanField("فعال", default=True)
 
@@ -285,9 +300,44 @@ class MoldOption(models.Model):
         ordering = ["order", "label"]
         verbose_name = "نوع قالب"
         verbose_name_plural = "انواع قالب"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["code"],
+                condition=models.Q(code__gt=""),
+                name="uniq_moldoption_code",
+            ),
+        ]
 
     def __str__(self) -> str:
         return self.label
+
+
+class ProductMold(models.Model):
+    """A mold that is eligible to produce a product."""
+
+    product = models.ForeignKey(
+        Product,
+        on_delete=models.CASCADE,
+        related_name="mold_links",
+        verbose_name="محصول",
+    )
+    mold = models.ForeignKey(
+        MoldOption,
+        on_delete=models.CASCADE,
+        related_name="product_links",
+        verbose_name="قالب",
+    )
+    slot = models.PositiveSmallIntegerField("اولویت قالب", default=1)
+    is_active = models.BooleanField("فعال", default=True)
+
+    class Meta:
+        ordering = ["product__code", "slot", "id"]
+        unique_together = ("product", "mold")
+        verbose_name = "قالب مجاز محصول"
+        verbose_name_plural = "قالب‌های مجاز محصول"
+
+    def __str__(self) -> str:
+        return f"{self.product.code} → {self.mold.label} (#{self.slot})"
 
 
 class PlanningInsightField(models.Model):
