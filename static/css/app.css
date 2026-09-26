@@ -3623,7 +3623,14 @@ fieldset.layout-field-choice {
   color: #64748b;
 }
 .layout-alpha input[type="range"] { width: 100%; }
-.table-layout-form { max-width: 540px; box-shadow: 0 10px 28px -18px rgba(15, 23, 42, .35); }
+.table-layout-form { max-width: none; box-shadow: 0 10px 28px -18px rgba(15, 23, 42, .35); }
+.family-layout-panels { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; align-items:start; }
+.family-settings-panel { min-width:0; }
+.family-settings-panel h2 { margin:0 0 8px; font-size:15px; }
+.family-impact { margin-top:14px; padding:12px 14px; border:1px solid #dce6f1; border-radius:10px; background:#f8fafc; }
+.family-impact summary { cursor:pointer; font-weight:700; }
+.family-impact ul { margin:10px 0; }
+@media (max-width: 980px) { .family-layout-panels { grid-template-columns:1fr; } }
 .table-layout-form .panel-hint { margin-bottom: 14px; }
 .table-layout-form .table-layout-tabs { margin-bottom: 14px; gap: 6px; }
 .layout-page-fields {

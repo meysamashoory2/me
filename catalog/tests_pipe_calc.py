@@ -359,41 +359,24 @@ class PipeCalcViewTests(TestCase):
         self.assertNotIn("پارامترهای کارخانه برای همین سایز", html)
         self.assertNotIn("شات بلینگ", html)
 
-    def test_pipe_tables_use_only_the_approved_opt_in_profiles(self):
+    def test_pipe_workspace_uses_one_inherited_business_family(self):
         resp = self.client.get("/data/pipe-calc/?line=protect&size=110")
         html = resp.content.decode()
-        self.assertIn(
-            'class="pcx-table erp-table-profile--compact" id="pcx-depot-table"',
-            html,
-        )
-        self.assertIn(
-            'class="pcx-table pcx-table-calc erp-table-profile--report"',
-            html,
-        )
-        self.assertIn(
-            'class="pcx-defs-table erp-table-profile--data-entry"',
-            html,
-        )
-        # Count opt-in table markup, not the generated profile selectors in
-        # the page-level live settings stylesheet.
-        self.assertEqual(len(re.findall(r'class="[^"]*erp-table-profile--', html)), 3)
+        self.assertIn('data-table-family="production-calculation"', html)
+        self.assertIn('class="pcx-table" id="pcx-depot-table"', html)
+        self.assertIn('class="pcx-table pcx-table-calc"', html)
+        self.assertIn('class="pcx-defs-table"', html)
+        self.assertEqual(len(re.findall(r'class="[^"]*erp-table-profile--', html)), 0)
 
         plan_template = (
             settings.BASE_DIR / "templates" / "planning" / "plan_list.html"
         ).read_text(encoding="utf-8")
         self.assertNotIn("erp-table-profile--", plan_template)
 
-    def test_profile_css_uses_local_density_tokens_and_existing_gray_header(self):
-        css = (settings.BASE_DIR / "static" / "css" / "app.css").read_text(
-            encoding="utf-8"
-        )
-        for profile in ("compact", "report", "data-entry"):
-            marker = f".erp-table-profile--{profile} {{"
-            start = css.index(marker)
-            block = css[start : css.index("}", start)]
-            self.assertIn("--table-row-height:", block)
-            self.assertIn("--table-header-height:", block)
-            self.assertIn("--table-header-bg: #fafaf9;", block)
+    def test_new_pipe_descendants_inherit_without_profile_class(self):
+        template = (settings.BASE_DIR / "templates" / "catalog" / "pipe_calc.html").read_text(encoding="utf-8")
+        self.assertIn("{% block table_family %}production-calculation{% endblock %}", template)
+        self.assertNotIn("erp-table-profile--", template)
 
     def test_duplicate_pipe_card_headings_are_absent(self):
         resp = self.client.get("/data/pipe-calc/?line=protect&size=110")

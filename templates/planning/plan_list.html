@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% block table_family %}list-management{% endblock %}
 {% load static planning_extras system_labels %}
 {% block title %}برنامه‌ریزی هفتگی{% endblock %}
 {% block heading %}برنامه‌ریزی هفتگی تولید{% endblock %}
@@ -106,7 +107,7 @@
   {% endif %}
 </div>
 
-<dialog id="plan-calendar-dialog" class="dialog">
+<dialog id="plan-calendar-dialog" class="dialog" data-table-family="operational">
   <div data-dialog-body>
     <div class="dialog-head">
       <h3>تقویم برنامه — <span id="calendar-dialog-title"></span></h3>

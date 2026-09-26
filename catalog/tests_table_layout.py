@@ -6,20 +6,66 @@ from django.test import SimpleTestCase
 
 from catalog.table_layout import (
     COLUMN_BORDER_COLOR,
+    FAMILY_DEFAULTS,
+    FAMILY_KEYS,
+    FAMILY_LABELS,
+    FamilyValidationError,
     PROFILE_DEFAULTS,
     ProfileValidationError,
     SECTION_CHOICES,
     clamp_row_height,
     css_for_profiles,
     css_for_layouts,
+    css_for_families,
     default_width_locked,
     normalize_all_layouts,
+    normalize_family_layouts,
+    family_layout_from_post,
     normalize_profile_layouts,
     profile_layout_from_post,
 )
 
 
 class TableLayoutHelpersTests(SimpleTestCase):
+    def test_exact_business_family_definitions_and_defaults(self):
+        self.assertEqual(FAMILY_KEYS, ("list_management", "production_calculation", "operational", "report_output"))
+        self.assertEqual(tuple(FAMILY_LABELS.values()), ("فهرست‌ها و مدیریت", "محاسبات تولید", "جداول عملیاتی", "گزارشات"))
+        self.assertEqual(FAMILY_DEFAULTS["list_management"]["body_font_size_px"], 14)
+        self.assertEqual(FAMILY_DEFAULTS["production_calculation"]["cell_padding_vertical_px"], 5)
+        self.assertEqual(FAMILY_DEFAULTS["report_output"]["cell_padding_horizontal_px"], 8)
+
+    def test_missing_family_data_uses_defaults_without_touching_profiles(self):
+        stored = {"all": {"row_height_px": 47}, "profiles": {"compact": {"row_height_px": 26}}, "legacy": {"keep": 1}}
+        families = normalize_family_layouts(stored)
+        self.assertEqual(families["operational"]["row_height_px"], 36)
+        self.assertEqual(stored["profiles"]["compact"]["row_height_px"], 26)
+        self.assertEqual(stored["legacy"], {"keep": 1})
+
+    def test_family_validation_and_header_body_independence(self):
+        valid = {
+            "row_height_px": "34", "header_height_px": "35", "body_font_size_px": "13.4", "header_font_size_px": "11.2",
+            "cell_padding_vertical_px": "5", "cell_padding_horizontal_px": "8", "header_border": "show", "col_border": "show", "row_border": "show",
+            "header_color": "#c7d7ea", "header_alpha": "100", "row_selected_color": "#dbeafe", "row_selected_alpha": "90",
+            "cell_outline_color": "#2563eb", "cell_outline_alpha": "80", "cell_fill_color": "#ffffff", "cell_fill_alpha": "70",
+        }
+        layout = family_layout_from_post("production_calculation", valid)
+        self.assertEqual(layout["header_font_size_px"], 11.2)
+        self.assertEqual(layout["body_font_size_px"], 13.4)
+        for field, bad in (("row_height_px", "NaN"), ("header_font_size_px", "Infinity"), ("body_font_size_px", "0"), ("cell_padding_vertical_px", "-1"), ("cell_padding_horizontal_px", "99"), ("header_color", "red"), ("header_alpha", "101")):
+            with self.subTest(field=field), self.assertRaises(FamilyValidationError):
+                family_layout_from_post("production_calculation", {**valid, field: bad})
+        with self.assertRaises(FamilyValidationError):
+            family_layout_from_post("unknown", valid)
+
+    def test_family_css_is_container_scoped(self):
+        css = css_for_families(normalize_family_layouts({}))
+        self.assertIn('[data-table-family="production-calculation"]', css)
+        self.assertIn("--table-family-header-font-size:12px", css)
+        self.assertIn("--table-family-body-font-size:12.5px", css)
+        self.assertIn('table:not(.excel-preview-table):not(.excel-grid) th', css)
+        self.assertNotIn("table.pcx-table", css)
+        self.assertNotIn("#pcx-depot-table", css)
+
     def test_profile_defaults_are_backward_compatible(self):
         self.assertEqual(normalize_profile_layouts({}), PROFILE_DEFAULTS)
         self.assertEqual(

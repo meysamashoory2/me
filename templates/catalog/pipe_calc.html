@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% block table_family %}production-calculation{% endblock %}
 {% load static %}
 {% block title %}محاسبات تولید{% endblock %}
 {% block heading %}محاسبات تولید{% endblock %}
@@ -67,7 +68,7 @@
       </div>
     </div>
     <div class="pcx-scroll">
-      <table class="pcx-table erp-table-profile--compact" id="pcx-depot-table">
+      <table class="pcx-table" id="pcx-depot-table">
         <thead>
           <tr>
             <th>طول اسمی</th>
@@ -100,7 +101,7 @@
         <p class="pcx-result-empty" id="pcx-result-empty">هنوز محاسبه‌ای انجام نشده است.</p>
       </header>
       <div class="pcx-scroll">
-        <table class="pcx-table pcx-table-calc erp-table-profile--report">
+        <table class="pcx-table pcx-table-calc">
           <thead id="pcx-prod-head"></thead>
           <tbody id="pcx-prod-body"></tbody>
           <tfoot id="pcx-prod-foot"></tfoot>
@@ -124,7 +125,7 @@
     </header>
     <div class="pcx-size-defs" id="pcx-size-defs"></div>
     <div class="pcx-scroll">
-      <table class="pcx-defs-table erp-table-profile--data-entry">
+      <table class="pcx-defs-table">
         <thead>
           <tr>
             <th>طول اسمی</th>

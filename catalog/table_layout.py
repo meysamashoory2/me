@@ -41,6 +41,49 @@ TABLE_PROFILE_REGISTRY: dict[str, tuple[dict[str, str], ...]] = {
     "report": ({"key": "pipe_calculation_results", "label": "جدول محاسباتی لوله و مواد", "module": "محاسبات تولید لوله"},),
     "data_entry": ({"key": "pipe_initial_definitions", "label": "تعاریف اولیه", "module": "محاسبات تولید لوله"},),
 }
+# Stage 4.5 business families.  The older technical profiles above remain
+# readable for rollback compatibility, but are no longer the primary UI.
+FAMILY_LAYOUT_KEY = "families"
+FAMILY_KEYS = ("list_management", "production_calculation", "operational", "report_output")
+FAMILY_LABELS = {
+    "list_management": "فهرست‌ها و مدیریت",
+    "production_calculation": "محاسبات تولید",
+    "operational": "جداول عملیاتی",
+    "report_output": "گزارشات",
+}
+FAMILY_DEFAULTS: dict[str, dict[str, Any]] = {
+    "list_management": {"row_height_px": 36, "header_height_px": 36, "body_font_size_px": 14, "header_font_size_px": 12, "cell_padding_vertical_px": 0, "cell_padding_horizontal_px": 12},
+    "production_calculation": {"row_height_px": 34, "header_height_px": 34, "body_font_size_px": 12.5, "header_font_size_px": 12, "cell_padding_vertical_px": 5, "cell_padding_horizontal_px": 8},
+    "operational": {"row_height_px": 36, "header_height_px": 36, "body_font_size_px": 14, "header_font_size_px": 12, "cell_padding_vertical_px": 0, "cell_padding_horizontal_px": 12},
+    "report_output": {"row_height_px": 36, "header_height_px": 36, "body_font_size_px": 13, "header_font_size_px": 12, "cell_padding_vertical_px": 0, "cell_padding_horizontal_px": 8},
+}
+FAMILY_VALUE_BOUNDS = {
+    "row_height_px": (18, 80), "header_height_px": (18, 80),
+    "body_font_size_px": (9, 24), "header_font_size_px": (9, 24),
+    "cell_padding_vertical_px": (0, 24), "cell_padding_horizontal_px": (0, 32),
+}
+FAMILY_IMPACT_REGISTRY = {
+    "list_management": (
+        {"label": "فهرست‌ها، مدیریت کاربران و پیکربندی", "module": "برنامه‌ریزی، سیستم، گزارشات", "count": 12},
+        {"label": "فایل‌ها و ابزارهای مدیریت Excel", "module": "بارگذاری فایل", "count": 4},
+        {"label": "فهرست‌های مدیریت Django", "module": "مدیریت داده‌ها", "count": 42},
+    ),
+    "production_calculation": (
+        {"label": "برنامه دپو و نیاز تولید", "module": "محاسبات تولید لوله", "count": 1},
+        {"label": "جدول محاسباتی لوله و مواد", "module": "محاسبات تولید لوله", "count": 1},
+        {"label": "تعاریف اولیه", "module": "محاسبات تولید لوله", "count": 1},
+    ),
+    "operational": (
+        {"label": "برنامه‌ریزی و موجودی", "module": "برنامه‌ریزی هفتگی و هوشمند", "count": 9},
+        {"label": "تولید و سوابق", "module": "ثبت و کنترل تولید", "count": 8},
+        {"label": "محصول، BOM و داده‌های منتقل‌شده", "module": "دیتای محصولات", "count": 5},
+    ),
+    "report_output": (
+        {"label": "تحلیل‌های برنامه‌ریزی هوشمند", "module": "برنامه‌ریزی هوشمند", "count": 5},
+        {"label": "خلاصه‌های تحلیلی داشبورد", "module": "داشبورد", "count": 2},
+        {"label": "نتایج گزارش و Drilldown", "module": "گزارشات", "count": 3},
+    ),
+}
 HEADER_LAYOUT_KEYS = (
     "header_height_px",
     "header_border",
@@ -157,6 +200,123 @@ def css_for_profiles(profiles: Any) -> str:
             f"--table-profile-cell-padding-inline:{inline_padding}px;"
             "}"
         )
+    return "".join(parts)
+
+
+class FamilyValidationError(ValueError):
+    """A business-family setting is malformed or unsafe."""
+
+
+def default_family_layout(family_key: str) -> dict[str, Any]:
+    if family_key not in FAMILY_KEYS:
+        raise FamilyValidationError("خانواده جدول نامعتبر است.")
+    return {**default_layout(GLOBAL_LAYOUT_KEY), **FAMILY_DEFAULTS[family_key]}
+
+
+def _strict_number(value: Any, field: str) -> int | float:
+    low, high = FAMILY_VALUE_BOUNDS[field]
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        raise FamilyValidationError(f"مقدار «{field}» باید عددی باشد.") from None
+    if not math.isfinite(number) or number < low or number > high:
+        raise FamilyValidationError(f"مقدار «{field}» باید بین {low} و {high} باشد.")
+    if field not in {"body_font_size_px", "header_font_size_px"}:
+        if not number.is_integer():
+            raise FamilyValidationError(f"مقدار «{field}» باید عدد صحیح باشد.")
+        return int(number)
+    return round(number, 1)
+
+
+def normalize_family_layout(family_key: str, raw: Any) -> dict[str, Any]:
+    defaults = default_family_layout(family_key)
+    source = raw if isinstance(raw, dict) else {}
+    layout = normalize_section_layout(GLOBAL_LAYOUT_KEY, {**defaults, **source})
+    for field, fallback in FAMILY_DEFAULTS[family_key].items():
+        try:
+            layout[field] = _strict_number(source.get(field, fallback), field)
+        except FamilyValidationError:
+            layout[field] = fallback
+    return layout
+
+
+def normalize_family_layouts(stored: Any) -> dict[str, dict[str, Any]]:
+    root = stored if isinstance(stored, dict) else {}
+    raw = root.get(FAMILY_LAYOUT_KEY)
+    raw = raw if isinstance(raw, dict) else {}
+    return {key: normalize_family_layout(key, raw.get(key)) for key in FAMILY_KEYS}
+
+
+def family_layout_from_post(family_key: str, post) -> dict[str, Any]:
+    if family_key not in FAMILY_KEYS:
+        raise FamilyValidationError("خانواده جدول نامعتبر است.")
+    numeric = tuple(FAMILY_DEFAULTS[family_key])
+    if any(field not in post for field in numeric):
+        raise FamilyValidationError("همه مقادیر اندازه و فاصله الزامی هستند.")
+    layout = default_family_layout(family_key)
+    for field in numeric:
+        layout[field] = _strict_number(post.get(field), field)
+    for color_field in ("header_color", "row_selected_color", "cell_outline_color", "cell_fill_color"):
+        value = str(post.get(color_field) or "").strip()
+        if not (len(value) in {4, 7} and value.startswith("#") and all(ch in "0123456789abcdefABCDEF" for ch in value[1:])):
+            raise FamilyValidationError(f"رنگ «{color_field}» نامعتبر است.")
+        layout[color_field] = value
+    for alpha_field in ("header_alpha", "row_selected_alpha", "cell_outline_alpha", "cell_fill_alpha"):
+        raw = post.get(alpha_field)
+        try:
+            alpha = int(raw)
+        except (TypeError, ValueError):
+            raise FamilyValidationError(f"شفافیت «{alpha_field}» نامعتبر است.") from None
+        if str(raw).strip() != str(alpha) or not 0 <= alpha <= 100:
+            raise FamilyValidationError(f"شفافیت «{alpha_field}» باید بین 0 و 100 باشد.")
+        layout[alpha_field] = alpha
+    layout["header_border"] = post.get("header_border") == "show"
+    layout["col_border"] = post.get("col_border") == "show"
+    layout["row_border"] = post.get("row_border") == "show"
+    layout["width_locked"] = post.get("width_locked") == "1"
+    layout["header_wrap"] = post.get("header_wrap") == "1"
+    layout["body_wrap"] = post.get("body_wrap") == "1"
+    layout["marquee"] = post.get("marquee") == "1"
+    if not layout["col_border"] and not layout["row_border"]:
+        layout["body_wrap"] = True
+    if layout["body_wrap"]:
+        layout["marquee"] = False
+    return layout
+
+
+def css_for_families(families: Any) -> str:
+    normalized = families if isinstance(families, dict) and all(k in families for k in FAMILY_KEYS) else normalize_family_layouts({FAMILY_LAYOUT_KEY: families})
+    parts: list[str] = []
+    for key in FAMILY_KEYS:
+        cfg = normalize_family_layout(key, normalized.get(key))
+        slug = key.replace("_", "-")
+        host = f'[data-table-family="{slug}"]'
+        body_font_size = f"{cfg['body_font_size_px']:g}"
+        header_font_size = f"{cfg['header_font_size_px']:g}"
+        parts.append(
+            f"{host}{{--table-row-height:{cfg['row_height_px']}px;--table-header-height:{cfg['header_height_px']}px;"
+            f"--table-family-body-font-size:{body_font_size}px;--table-family-header-font-size:{header_font_size}px;"
+            f"--table-family-pad-v:{cfg['cell_padding_vertical_px']}px;--table-family-pad-h:{cfg['cell_padding_horizontal_px']}px;"
+            f"--table-header-bg:{_rgba(cfg['header_color'], cfg['header_alpha'])};--table-row-selected:{_rgba(cfg['row_selected_color'], cfg['row_selected_alpha'])};"
+            f"--table-cell-outline:{_rgba(cfg['cell_outline_color'], cfg['cell_outline_alpha'])};--table-cell-fill:{_rgba(cfg['cell_fill_color'], cfg['cell_fill_alpha'])};"
+            f"--table-marquee:{1 if cfg['marquee'] else 0};}}"
+        )
+        # Family membership belongs to the persistent container, so current and
+        # future descendant tables inherit without a per-table profile class.
+        # Spreadsheet-style Excel surfaces deliberately keep independent sizing.
+        family_tables = f"{host} table:not(.excel-preview-table):not(.excel-grid)"
+        headers = f"{family_tables} th"
+        bodies = f"{family_tables} td"
+        cells = f"{headers},{bodies}"
+        parts.append(f"{headers}{{font-size:var(--table-family-header-font-size) !important;height:var(--table-header-height) !important;min-height:var(--table-header-height) !important;max-height:var(--table-header-height) !important;padding:var(--table-family-pad-v) var(--table-family-pad-h) !important;background:var(--table-header-bg) !important;}}")
+        parts.append(f"{bodies}{{font-size:var(--table-family-body-font-size) !important;height:var(--table-row-height) !important;min-height:var(--table-row-height) !important;max-height:var(--table-row-height) !important;padding:var(--table-family-pad-v) var(--table-family-pad-h) !important;}}")
+        if not cfg["col_border"]:
+            parts.append(f"{cells}{{border-left:none !important;border-right:none !important;background-image:none !important;}}")
+        if not cfg["row_border"]:
+            parts.append(f"{bodies}{{border-top-color:transparent !important;border-bottom-color:transparent !important;}}")
+        if not cfg["header_border"]:
+            parts.append(f"{headers}{{border-top-color:transparent !important;border-bottom-color:transparent !important;box-shadow:none !important;}}")
+        parts.append(f"{headers}{{white-space:{'normal' if cfg['header_wrap'] else 'nowrap'} !important;}}{bodies}{{white-space:{'normal' if cfg['body_wrap'] else 'nowrap'} !important;}}")
     return "".join(parts)
 
 
@@ -422,6 +582,7 @@ def _section_cells(key: str, tags: tuple[str, ...], suffix: str = "") -> str:
 def css_for_layouts(
     layouts: dict[str, dict[str, Any]],
     profiles: dict[str, dict[str, int | float]] | None = None,
+    families: dict[str, dict[str, Any]] | None = None,
 ) -> str:
     parts: list[str] = []
     if GLOBAL_LAYOUT_KEY in layouts:
@@ -559,4 +720,6 @@ def css_for_layouts(
             parts.append(f"{host}{{--table-marquee:{1 if cfg.get('marquee') else 0};}}")
     if profiles is not None:
         parts.append(css_for_profiles(profiles))
+    if families is not None:
+        parts.append(css_for_families(families))
     return "".join(parts)

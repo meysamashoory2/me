@@ -914,23 +914,23 @@ def system_naming_key_delete(request: HttpRequest) -> JsonResponse:
 
 @login_required
 def system_table_layout(request: HttpRequest) -> HttpResponse:
-    """Unified header/body settings shared by every application data table."""
+    """Manage the four business-oriented table families."""
     from .models import TableLayoutSettings
     from .table_layout import (
+        FAMILY_IMPACT_REGISTRY,
+        FAMILY_KEYS,
+        FAMILY_LABELS,
+        FAMILY_LAYOUT_KEY,
+        FamilyValidationError,
         GLOBAL_LAYOUT_KEY,
-        PROFILE_KEYS,
-        PROFILE_LABELS,
-        PROFILE_LAYOUT_KEY,
-        TABLE_PROFILE_REGISTRY,
-        ProfileValidationError,
         css_for_layouts,
-        default_layout,
-        default_profile_layout,
+        default_family_layout,
+        family_layout_from_post,
+        normalize_family_layouts,
+        normalize_profile_layouts,
         locks_from_layouts,
         merge_layout_post,
-        normalize_profile_layouts,
         normalize_section_layout,
-        profile_layout_from_post,
         reset_layout_part,
         resolve_global_layout,
     )
@@ -942,102 +942,74 @@ def system_table_layout(request: HttpRequest) -> HttpResponse:
     if settings.pk is None:
         settings.save()
 
-    active_context = (request.POST.get("context") or request.GET.get("context") or "general").strip()
-    if active_context not in {"general", *PROFILE_KEYS}:
-        active_context = "general"
-    active_tab = (request.POST.get("tab") or request.GET.get("tab") or "header").strip()
-    if active_tab not in {"header", "body"}:
-        active_tab = "header"
+    active_family = (request.POST.get("family") or request.GET.get("family") or FAMILY_KEYS[0]).strip()
+    if active_family not in FAMILY_KEYS:
+        if request.method == "POST":
+            return JsonResponse({"ok": False, "error": "خانواده جدول نامعتبر است."}, status=400)
+        active_family = FAMILY_KEYS[0]
 
     if request.method == "POST":
-        if active_context in PROFILE_KEYS:
-            stored = dict(settings.section_layouts) if isinstance(settings.section_layouts, dict) else {}
-            profiles = normalize_profile_layouts(stored)
-            try:
-                if request.POST.get("profile_reset") == active_context:
-                    saved_profile = default_profile_layout(active_context)
-                    message = "بازگشت به پیش‌فرض"
-                else:
-                    saved_profile = profile_layout_from_post(active_context, request.POST)
-                    message = "اعمال شد"
-            except ProfileValidationError as exc:
-                if request.headers.get("X-Requested-With") == "XMLHttpRequest":
-                    return JsonResponse({"ok": False, "error": str(exc)}, status=400)
-                messages.error(request, str(exc))
-                return redirect(request.path + f"?context={active_context}")
-            profiles[active_context] = saved_profile
-            raw_profiles = dict(stored.get(PROFILE_LAYOUT_KEY) or {}) if isinstance(stored.get(PROFILE_LAYOUT_KEY), dict) else {}
-            raw_profiles[active_context] = saved_profile
-            stored[PROFILE_LAYOUT_KEY] = raw_profiles
-            settings.section_layouts = stored
-            settings.save(update_fields=["section_layouts"])
+        # Compatibility endpoint for the pre-family form/API.  It is no longer
+        # rendered, but older clients can still update the authoritative `all` key.
+        if "family" not in request.POST and request.POST.get("layout_part") in {"header", "body"}:
+            current = resolve_global_layout(settings.layouts_map())
+            part = request.POST.get("layout_part")
+            posted = reset_layout_part(current, part) if request.POST.get("layout_reset") else merge_layout_post(current, request.POST)
+            saved_legacy = normalize_section_layout(GLOBAL_LAYOUT_KEY, posted)
+            stored_legacy = dict(settings.section_layouts) if isinstance(settings.section_layouts, dict) else {}
+            stored_legacy[GLOBAL_LAYOUT_KEY] = saved_legacy
+            settings.section_layouts = stored_legacy
+            settings.section_width_locks = locks_from_layouts({GLOBAL_LAYOUT_KEY: saved_legacy})
+            settings.row_height_px = int(saved_legacy["row_height_px"])
+            settings.save()
             if request.headers.get("X-Requested-With") == "XMLHttpRequest":
-                return JsonResponse({
-                    "ok": True,
-                    "message": message,
-                    "css": css_for_layouts(settings.layouts_map(), profiles),
-                    "layout": saved_profile,
-                })
-            messages.success(request, message)
-            return redirect(request.path + f"?context={active_context}")
-
-        current = resolve_global_layout(settings.layouts_map())
-        reset_part = str(request.POST.get("layout_reset") or "").strip()
-        if reset_part in {"header", "body"}:
-            posted = reset_layout_part(current, reset_part)
-            active_tab = reset_part
-            message = "بازگشت به پیش‌فرض"
-        else:
-            posted = merge_layout_post(current, request.POST)
-            message = "اعمال شد"
-        saved = normalize_section_layout(GLOBAL_LAYOUT_KEY, posted)
-        # Keep legacy per-menu keys in storage for downgrade/backward
-        # compatibility; the unified ``all`` key is authoritative.
-        stored = settings.section_layouts if isinstance(settings.section_layouts, dict) else {}
-        layouts = {**stored, GLOBAL_LAYOUT_KEY: saved}
-        settings.section_layouts = layouts
-        settings.section_width_locks = locks_from_layouts({GLOBAL_LAYOUT_KEY: saved})
-        settings.row_height_px = int(saved.get("row_height_px") or 36)
-        settings.save()
+                return JsonResponse({"ok": True, "message": "اعمال شد", "css": css_for_layouts(settings.layouts_map(), normalize_profile_layouts(stored_legacy), normalize_family_layouts(stored_legacy)), "locks": settings.section_width_locks, "layout": saved_legacy})
+            return redirect(request.path + f"?tab={part}")
+        stored = dict(settings.section_layouts) if isinstance(settings.section_layouts, dict) else {}
+        families = normalize_family_layouts(stored)
+        try:
+            if request.POST.get("family_reset") == active_family:
+                saved = default_family_layout(active_family)
+                message = "بازگشت به پیش‌فرض"
+            else:
+                saved = family_layout_from_post(active_family, request.POST)
+                message = "اعمال شد"
+        except FamilyValidationError as exc:
+            if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+                return JsonResponse({"ok": False, "error": str(exc)}, status=400)
+            messages.error(request, str(exc))
+            return redirect(request.path + f"?family={active_family}")
+        families[active_family] = saved
+        raw_families = dict(stored.get(FAMILY_LAYOUT_KEY) or {}) if isinstance(stored.get(FAMILY_LAYOUT_KEY), dict) else {}
+        raw_families[active_family] = saved
+        stored[FAMILY_LAYOUT_KEY] = raw_families
+        settings.section_layouts = stored
+        settings.save(update_fields=["section_layouts"])
         if request.headers.get("X-Requested-With") == "XMLHttpRequest":
-            return JsonResponse(
-                {
-                    "ok": True,
-                    "message": message,
-                    "css": css_for_layouts(
-                        {GLOBAL_LAYOUT_KEY: saved},
-                        normalize_profile_layouts(settings.section_layouts),
-                    ),
-                    "locks": locks_from_layouts({GLOBAL_LAYOUT_KEY: saved}),
-                    "layout": saved,
-                }
-            )
+            return JsonResponse({
+                "ok": True, "message": message,
+                "css": css_for_layouts(settings.layouts_map(), normalize_profile_layouts(stored), families),
+                "layout": saved,
+            })
         messages.success(request, message)
-        return redirect(request.path + f"?context=general&tab={active_tab}")
+        return redirect(request.path + f"?family={active_family}")
 
-    current = resolve_global_layout(settings.layouts_map())
-    profiles = normalize_profile_layouts(settings.section_layouts)
-    body_wrap_locked = (not current.get("col_border", True)) and (not current.get("row_border", True))
+    families = normalize_family_layouts(settings.section_layouts)
+    impact_items = FAMILY_IMPACT_REGISTRY[active_family]
     from django.urls import reverse
 
-    preview_href = reverse("plan_list")
     return render(
         request,
         "catalog/system_table_layout.html",
         {
-            "active_tab": active_tab,
-            "active_context": active_context,
-            "context_choices": (("general", "عمومی"),) + tuple((key, PROFILE_LABELS[key]) for key in PROFILE_KEYS),
-            "layout": current if active_context == "general" else profiles[active_context],
-            "layout_defaults_json": json.dumps(
-                default_layout(GLOBAL_LAYOUT_KEY) if active_context == "general" else default_profile_layout(active_context),
-                ensure_ascii=False,
-            ),
-            "body_wrap_locked": body_wrap_locked,
+            "active_family": active_family,
+            "family_choices": tuple((key, FAMILY_LABELS[key]) for key in FAMILY_KEYS),
+            "layout": families[active_family],
+            "layout_defaults_json": json.dumps(default_family_layout(active_family), ensure_ascii=False),
             "can_edit": _can_edit_naming(request.user),
-            "preview_href": preview_href,
-            "impact_items": TABLE_PROFILE_REGISTRY.get(active_context, ()),
-            "impact_count": len(TABLE_PROFILE_REGISTRY.get(active_context, ())),
+            "preview_href": reverse("plan_list"),
+            "impact_items": impact_items,
+            "impact_count": sum(int(item.get("count", 1)) for item in impact_items),
         },
     )
 

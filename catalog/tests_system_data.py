@@ -132,7 +132,7 @@ class SystemDataNoShortcutsTests(TestCase):
         self.assertIn("naming_preview=1", naming.content.decode())
         self.assertNotIn('<span class="naming-address">', naming.content.decode())
         layout = self.client.get(reverse("system_table_layout"))
-        self.assertContains(layout, "بدنه جداول")
+        self.assertContains(layout, "بدنه جدول")
         cfg = self.client.get(reverse("system_menu_config"), {"menu": "planning"})
         self.assertEqual(cfg.status_code, 200)
         self.assertContains(cfg, "برنامه‌ریزی هفتگی")
@@ -179,127 +179,86 @@ class TableLayoutSettingsTests(TestCase):
         self.assertTrue(settings.is_width_locked("planning"))
         self.assertTrue(settings.is_width_locked("systemic"))
 
-    def test_profile_context_renders_only_density_controls_and_impact(self):
+    def _family_payload(self, family="production_calculation", **overrides):
+        data = {
+            "family": family, "row_height_px": "34", "header_height_px": "34",
+            "body_font_size_px": "12.5", "header_font_size_px": "12",
+            "cell_padding_vertical_px": "5", "cell_padding_horizontal_px": "8",
+            "header_border": "show", "col_border": "show", "row_border": "show",
+            "header_color": "#c7d7ea", "header_alpha": "100",
+            "row_selected_color": "#dbeafe", "row_selected_alpha": "100",
+            "cell_outline_color": "#2563eb", "cell_outline_alpha": "100",
+            "cell_fill_color": "#ffffff", "cell_fill_alpha": "100", "marquee": "1",
+        }
+        data.update(overrides)
+        return data
+
+    def test_business_family_tabs_panels_and_readonly_impact(self):
         self.client.login(username="admin", password="erp12345")
         url = reverse("system_table_layout")
-        response = self.client.get(url, {"context": "compact"})
+        response = self.client.get(url, {"family": "production_calculation"})
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "عمومی")
-        self.assertContains(response, "فشرده")
-        self.assertContains(response, "گزارش / محاسبات")
-        self.assertContains(response, "ورود اطلاعات")
+        for label in ("فهرست‌ها و مدیریت", "محاسبات تولید", "جداول عملیاتی", "گزارشات"):
+            self.assertContains(response, label)
+        for old in ("عمومی", "فشرده", "گزارش / محاسبات", "ورود اطلاعات"):
+            self.assertNotContains(response, old)
+        self.assertContains(response, "سرستون")
+        self.assertContains(response, "بدنه جدول")
+        self.assertContains(response, 'name="header_font_size_px"')
+        self.assertContains(response, 'name="body_font_size_px"')
         self.assertContains(response, "برنامه دپو و نیاز تولید")
-        self.assertContains(response, "محاسبات تولید لوله")
         html = response.content.decode()
-        for field in ("row_height_px", "header_height_px", "font_size_px", "cell_padding_px"):
-            self.assertEqual(html.count(f'name="{field}"'), 1)
-        self.assertNotIn('name="header_border"', html)
         self.assertNotIn("profile_assignment", html)
-        self.assertIn('class="tab active" href="?context=compact"', html)
+        self.assertIn("<details", html)
 
-        report = self.client.get(url, {"context": "report"})
-        self.assertContains(report, "جدول محاسباتی لوله و مواد")
-        self.assertNotContains(report, "برنامه دپو و نیاز تولید")
-        data_entry = self.client.get(url, {"context": "data_entry"})
-        self.assertContains(data_entry, "تعاریف اولیه")
-        self.assertNotContains(data_entry, "جدول محاسباتی لوله و مواد")
-        general = self.client.get(url, {"context": "general"})
-        self.assertContains(general, "رفتار و ظاهر پایه جداول ERP")
-        self.assertNotContains(general, "برنامه دپو و نیاز تولید")
-
-    def test_profile_save_is_isolated_and_persistent(self):
+    def test_family_save_is_isolated_and_preserves_compatibility_data(self):
         from catalog.models import TableLayoutSettings
-
         self.client.login(username="admin", password="erp12345")
         settings = TableLayoutSettings.objects.create(section_layouts={
-            "all": {"row_height_px": 47},
-            "planning": {"row_height_px": 41},
-            "profiles": {"report": {"row_height_px": 39, "header_height_px": 40, "font_size_px": 13.4, "cell_padding_px": 6}},
+            "all": {"row_height_px": 47}, "planning": {"row_height_px": 41},
+            "profiles": {"compact": {"row_height_px": 26}}, "unknown": {"keep": True},
+            "families": {"report_output": {"row_height_px": 45}},
         })
-        response = self.client.post(reverse("system_table_layout"), {
-            "context": "compact", "row_height_px": "30", "header_height_px": "31",
-            "font_size_px": "11.8", "cell_padding_px": "4",
-        }, HTTP_X_REQUESTED_WITH="XMLHttpRequest")
+        response = self.client.post(reverse("system_table_layout"), self._family_payload(body_font_size_px="13.7", header_font_size_px="11.4"), HTTP_X_REQUESTED_WITH="XMLHttpRequest")
         self.assertEqual(response.status_code, 200)
-        self.assertIn(".erp-table-profile--compact", response.json()["css"])
+        self.assertIn('data-table-family="production-calculation"', response.json()["css"])
         settings.refresh_from_db()
         self.assertEqual(settings.section_layouts["all"], {"row_height_px": 47})
         self.assertEqual(settings.section_layouts["planning"], {"row_height_px": 41})
-        self.assertEqual(settings.section_layouts["profiles"]["report"]["row_height_px"], 39)
-        self.assertEqual(settings.section_layouts["profiles"]["compact"]["font_size_px"], 11.8)
-        reload_page = self.client.get(reverse("system_table_layout"), {"context": "compact"})
-        self.assertContains(reload_page, 'name="row_height_px" min="18" max="80" value="30"')
+        self.assertEqual(settings.section_layouts["profiles"], {"compact": {"row_height_px": 26}})
+        self.assertEqual(settings.section_layouts["unknown"], {"keep": True})
+        self.assertEqual(settings.section_layouts["families"]["report_output"], {"row_height_px": 45})
+        saved = settings.section_layouts["families"]["production_calculation"]
+        self.assertEqual(saved["body_font_size_px"], 13.7)
+        self.assertEqual(saved["header_font_size_px"], 11.4)
 
-    def test_invalid_profile_save_is_rejected_without_persistence(self):
+    def test_invalid_family_value_is_rejected_without_persistence(self):
         from catalog.models import TableLayoutSettings
-
         self.client.login(username="admin", password="erp12345")
         settings = TableLayoutSettings.objects.create(section_layouts={"sentinel": {"kept": True}})
         before = settings.section_layouts
-        response = self.client.post(reverse("system_table_layout"), {
-            "context": "report", "row_height_px": "0", "header_height_px": "34",
-            "font_size_px": "12.5", "cell_padding_px": "5",
-        }, HTTP_X_REQUESTED_WITH="XMLHttpRequest")
+        response = self.client.post(reverse("system_table_layout"), self._family_payload(row_height_px="NaN"), HTTP_X_REQUESTED_WITH="XMLHttpRequest")
         self.assertEqual(response.status_code, 400)
         self.assertFalse(response.json()["ok"])
-        self.assertIn("بین", response.json()["error"])
         settings.refresh_from_db()
         self.assertEqual(settings.section_layouts, before)
 
-    def test_profile_reset_restores_only_selected_profile(self):
+    def test_family_reset_is_isolated(self):
         from catalog.models import TableLayoutSettings
-        from catalog.table_layout import PROFILE_DEFAULTS
-
+        from catalog.table_layout import FAMILY_DEFAULTS
         self.client.login(username="admin", password="erp12345")
-        report = {"row_height_px": 45, "header_height_px": 46, "font_size_px": 14, "cell_padding_px": 7}
-        compact = {"row_height_px": 35, "header_height_px": 36, "font_size_px": 13, "cell_padding_px": 6}
-        settings = TableLayoutSettings.objects.create(section_layouts={"all": {"row_height_px": 48}, "profiles": {"compact": compact, "report": report}})
-        response = self.client.post(reverse("system_table_layout"), {
-            "context": "compact", "profile_reset": "compact",
-        }, HTTP_X_REQUESTED_WITH="XMLHttpRequest")
+        original = {"all": {"row_height_px": 48}, "profiles": {"compact": {"row_height_px": 26}}, "legacy": {"x": 1}, "families": {"report_output": {"row_height_px": 44}}}
+        settings = TableLayoutSettings.objects.create(section_layouts=original)
+        response = self.client.post(reverse("system_table_layout"), {"family": "production_calculation", "family_reset": "production_calculation"}, HTTP_X_REQUESTED_WITH="XMLHttpRequest")
         self.assertEqual(response.status_code, 200)
         settings.refresh_from_db()
-        self.assertEqual(settings.section_layouts["profiles"]["compact"], PROFILE_DEFAULTS["compact"])
-        self.assertEqual(settings.section_layouts["profiles"]["report"], report)
+        saved = settings.section_layouts["families"]["production_calculation"]
+        for key, value in FAMILY_DEFAULTS["production_calculation"].items():
+            self.assertEqual(saved[key], value)
         self.assertEqual(settings.section_layouts["all"], {"row_height_px": 48})
-
-        for context in ("report", "data_entry"):
-            with self.subTest(context=context):
-                other = "compact" if context == "report" else "report"
-                before_other = dict(settings.section_layouts["profiles"].get(other, {}))
-                response = self.client.post(reverse("system_table_layout"), {
-                    "context": context, "profile_reset": context,
-                }, HTTP_X_REQUESTED_WITH="XMLHttpRequest")
-                self.assertEqual(response.status_code, 200)
-                settings.refresh_from_db()
-                self.assertEqual(settings.section_layouts["profiles"][context], PROFILE_DEFAULTS[context])
-                self.assertEqual(settings.section_layouts["profiles"].get(other, {}), before_other)
-                self.assertEqual(settings.section_layouts["all"], {"row_height_px": 48})
-
-    def test_report_and_data_entry_saves_are_isolated(self):
-        from catalog.models import TableLayoutSettings
-
-        self.client.login(username="admin", password="erp12345")
-        initial = {
-            "all": {"row_height_px": 48},
-            "profiles": {
-                "compact": {"row_height_px": 26, "header_height_px": 28, "font_size_px": 12, "cell_padding_px": 2},
-                "report": {"row_height_px": 34, "header_height_px": 34, "font_size_px": 12.5, "cell_padding_px": 5},
-                "data_entry": {"row_height_px": 34, "header_height_px": 34, "font_size_px": 13, "cell_padding_px": 5},
-            },
-        }
-        settings = TableLayoutSettings.objects.create(section_layouts=initial)
-        for context, row_height in (("report", "38"), ("data_entry", "42")):
-            before = {key: dict(value) for key, value in settings.section_layouts["profiles"].items()}
-            response = self.client.post(reverse("system_table_layout"), {
-                "context": context, "row_height_px": row_height, "header_height_px": "37",
-                "font_size_px": "13.2", "cell_padding_px": "6",
-            }, HTTP_X_REQUESTED_WITH="XMLHttpRequest")
-            self.assertEqual(response.status_code, 200)
-            settings.refresh_from_db()
-            self.assertEqual(settings.section_layouts["all"], {"row_height_px": 48})
-            for other in {"compact", "report", "data_entry"} - {context}:
-                self.assertEqual(settings.section_layouts["profiles"][other], before[other])
+        self.assertEqual(settings.section_layouts["profiles"], original["profiles"])
+        self.assertEqual(settings.section_layouts["legacy"], {"x": 1})
+        self.assertEqual(settings.section_layouts["families"]["report_output"], {"row_height_px": 44})
 
     def test_table_layout_page_save(self):
         from django.urls import reverse
@@ -309,11 +268,11 @@ class TableLayoutSettingsTests(TestCase):
         url = reverse("system_table_layout")
         get = self.client.get(url)
         self.assertEqual(get.status_code, 200)
-        self.assertContains(get, "قفل کردن ستون")
-        self.assertContains(get, "سرستون جداول")
-        self.assertContains(get, "بدنه جداول")
-        self.assertContains(get, "این تنظیم برای تمام جداول داده اعمال می‌شود")
-        body = self.client.get(url, {"tab": "body"})
+        self.assertContains(get, "قفل عرض ستون")
+        self.assertContains(get, "سرستون")
+        self.assertContains(get, "بدنه جدول")
+        self.assertContains(get, "جداول تحت تأثیر")
+        body = self.client.get(url, {"family": "list_management"})
         self.assertContains(body, "ارتفاع ردیف")
         self.assertEqual(body.content.decode().count('name="row_height_px"'), 1)
         resp = self.client.post(
@@ -409,9 +368,8 @@ class TableLayoutSettingsTests(TestCase):
         self.assertFalse(layout["col_border"])
         self.assertTrue(layout["row_border"])
         self.assertTrue(layout["width_locked"])
-        get = self.client.get(url, {"tab": "body"})
-        self.assertContains(get, 'value="8"')
-        self.assertContains(get, 'name="col_border" value="hide"')
+        self.assertEqual(settings.section_layouts["all"]["row_height_px"], 8)
+        self.assertFalse(settings.section_layouts["all"]["col_border"])
 
     def test_column_border_toggle_reaches_planning_and_history_pages(self):
         from django.urls import reverse

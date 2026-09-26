@@ -46,12 +46,14 @@ def table_layout(request):
         from catalog.table_layout import (
             css_for_layouts,
             locks_from_layouts,
+            normalize_family_layouts,
             normalize_profile_layouts,
         )
 
         settings = TableLayoutSettings.load()
         layouts = settings.layouts_map()
         profiles = normalize_profile_layouts(settings.section_layouts)
+        families = normalize_family_layouts(settings.section_layouts)
         locks = locks_from_layouts(layouts)
         return {
             "table_row_height_px": settings.clamped_row_height(),
@@ -60,7 +62,8 @@ def table_layout(request):
             "table_section_layouts": layouts,
             "table_section_layouts_json": json.dumps(layouts, ensure_ascii=False),
             "table_profile_layouts": profiles,
-            "table_layout_css": css_for_layouts(layouts, profiles) + _hidden_column_css(),
+            "table_family_layouts": families,
+            "table_layout_css": css_for_layouts(layouts, profiles, families) + _hidden_column_css(),
         }
     except Exception:  # noqa: BLE001 — migrations / early boot
         return {
@@ -70,5 +73,6 @@ def table_layout(request):
             "table_section_layouts": {},
             "table_section_layouts_json": "{}",
             "table_profile_layouts": {},
+            "table_family_layouts": {},
             "table_layout_css": "",
         }
