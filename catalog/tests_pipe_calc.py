@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from django.conf import settings
 from django.contrib.auth.models import User
 from django.test import Client, TestCase
@@ -372,7 +374,9 @@ class PipeCalcViewTests(TestCase):
             'class="pcx-defs-table erp-table-profile--data-entry"',
             html,
         )
-        self.assertEqual(html.count("erp-table-profile--"), 3)
+        # Count opt-in table markup, not the generated profile selectors in
+        # the page-level live settings stylesheet.
+        self.assertEqual(len(re.findall(r'class="[^"]*erp-table-profile--', html)), 3)
 
         plan_template = (
             settings.BASE_DIR / "templates" / "planning" / "plan_list.html"

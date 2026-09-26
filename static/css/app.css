@@ -3279,40 +3279,55 @@ input[type=number].spin {
    inherited global tokens while retaining generated borders, selection,
    focus, navigation, and saved-width behavior. */
 .erp-table-profile--compact {
-  --table-row-height: 26px;
-  --table-header-height: 28px;
+  --table-profile-row-height: 26px;
+  --table-profile-header-height: 28px;
+  --table-profile-font-size: 12px;
+  --table-profile-cell-padding-block: 2px;
+  --table-profile-cell-padding-inline: 6px;
+  --table-row-height: var(--table-profile-row-height);
+  --table-header-height: var(--table-profile-header-height);
   --table-header-bg: #fafaf9;
-  font-size: 12px;
+  font-size: var(--table-profile-font-size);
 }
 .erp-table-profile--compact th,
 .erp-table-profile--compact td {
-  padding: 2px 6px;
+  padding: var(--table-profile-cell-padding-block) var(--table-profile-cell-padding-inline);
 }
 .erp-table-profile--compact tbody tr:hover td {
   background: rgba(14, 116, 144, 0.04);
 }
 .erp-table-profile--report {
-  --table-row-height: 34px;
-  --table-header-height: 34px;
+  --table-profile-row-height: 34px;
+  --table-profile-header-height: 34px;
+  --table-profile-font-size: 12.5px;
+  --table-profile-cell-padding-block: 5px;
+  --table-profile-cell-padding-inline: 8px;
+  --table-row-height: var(--table-profile-row-height);
+  --table-header-height: var(--table-profile-header-height);
   --table-header-bg: #fafaf9;
-  font-size: 12.5px;
+  font-size: var(--table-profile-font-size);
 }
 .erp-table-profile--report th,
 .erp-table-profile--report td {
-  padding: 5px 8px;
+  padding: var(--table-profile-cell-padding-block) var(--table-profile-cell-padding-inline);
 }
 .erp-table-profile--report tbody tr:hover td {
   background: rgba(21, 128, 61, 0.05);
 }
 .erp-table-profile--data-entry {
-  --table-row-height: 34px;
-  --table-header-height: 34px;
+  --table-profile-row-height: 34px;
+  --table-profile-header-height: 34px;
+  --table-profile-font-size: 13px;
+  --table-profile-cell-padding-block: 5px;
+  --table-profile-cell-padding-inline: 8px;
+  --table-row-height: var(--table-profile-row-height);
+  --table-header-height: var(--table-profile-header-height);
   --table-header-bg: #fafaf9;
-  font-size: 13px;
+  font-size: var(--table-profile-font-size);
 }
 .erp-table-profile--data-entry th,
 .erp-table-profile--data-entry td {
-  padding: 5px 8px;
+  padding: var(--table-profile-cell-padding-block) var(--table-profile-cell-padding-inline);
 }
 .pcx-stack {
   display: flex;
@@ -3397,13 +3412,13 @@ input[type=number].spin {
   .pcx-input { width: 76px; }
   .pcx-size-defs { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
   .erp-table-profile--compact {
-    --table-row-height: 30px;
-    --table-header-height: 32px;
+    --table-row-height: max(var(--table-profile-row-height), 30px);
+    --table-header-height: max(var(--table-profile-header-height), 32px);
   }
   .erp-table-profile--report,
   .erp-table-profile--data-entry {
-    --table-row-height: 36px;
-    --table-header-height: 36px;
+    --table-row-height: max(var(--table-profile-row-height), 36px);
+    --table-header-height: max(var(--table-profile-header-height), 36px);
   }
 }
 

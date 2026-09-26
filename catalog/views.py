@@ -918,11 +918,19 @@ def system_table_layout(request: HttpRequest) -> HttpResponse:
     from .models import TableLayoutSettings
     from .table_layout import (
         GLOBAL_LAYOUT_KEY,
+        PROFILE_KEYS,
+        PROFILE_LABELS,
+        PROFILE_LAYOUT_KEY,
+        TABLE_PROFILE_REGISTRY,
+        ProfileValidationError,
         css_for_layouts,
         default_layout,
+        default_profile_layout,
         locks_from_layouts,
         merge_layout_post,
+        normalize_profile_layouts,
         normalize_section_layout,
+        profile_layout_from_post,
         reset_layout_part,
         resolve_global_layout,
     )
@@ -934,11 +942,45 @@ def system_table_layout(request: HttpRequest) -> HttpResponse:
     if settings.pk is None:
         settings.save()
 
+    active_context = (request.POST.get("context") or request.GET.get("context") or "general").strip()
+    if active_context not in {"general", *PROFILE_KEYS}:
+        active_context = "general"
     active_tab = (request.POST.get("tab") or request.GET.get("tab") or "header").strip()
     if active_tab not in {"header", "body"}:
         active_tab = "header"
 
     if request.method == "POST":
+        if active_context in PROFILE_KEYS:
+            stored = dict(settings.section_layouts) if isinstance(settings.section_layouts, dict) else {}
+            profiles = normalize_profile_layouts(stored)
+            try:
+                if request.POST.get("profile_reset") == active_context:
+                    saved_profile = default_profile_layout(active_context)
+                    message = "بازگشت به پیش‌فرض"
+                else:
+                    saved_profile = profile_layout_from_post(active_context, request.POST)
+                    message = "اعمال شد"
+            except ProfileValidationError as exc:
+                if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+                    return JsonResponse({"ok": False, "error": str(exc)}, status=400)
+                messages.error(request, str(exc))
+                return redirect(request.path + f"?context={active_context}")
+            profiles[active_context] = saved_profile
+            raw_profiles = dict(stored.get(PROFILE_LAYOUT_KEY) or {}) if isinstance(stored.get(PROFILE_LAYOUT_KEY), dict) else {}
+            raw_profiles[active_context] = saved_profile
+            stored[PROFILE_LAYOUT_KEY] = raw_profiles
+            settings.section_layouts = stored
+            settings.save(update_fields=["section_layouts"])
+            if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+                return JsonResponse({
+                    "ok": True,
+                    "message": message,
+                    "css": css_for_layouts(settings.layouts_map(), profiles),
+                    "layout": saved_profile,
+                })
+            messages.success(request, message)
+            return redirect(request.path + f"?context={active_context}")
+
         current = resolve_global_layout(settings.layouts_map())
         reset_part = str(request.POST.get("layout_reset") or "").strip()
         if reset_part in {"header", "body"}:
@@ -962,15 +1004,19 @@ def system_table_layout(request: HttpRequest) -> HttpResponse:
                 {
                     "ok": True,
                     "message": message,
-                    "css": css_for_layouts({GLOBAL_LAYOUT_KEY: saved}),
+                    "css": css_for_layouts(
+                        {GLOBAL_LAYOUT_KEY: saved},
+                        normalize_profile_layouts(settings.section_layouts),
+                    ),
                     "locks": locks_from_layouts({GLOBAL_LAYOUT_KEY: saved}),
                     "layout": saved,
                 }
             )
         messages.success(request, message)
-        return redirect(request.path + f"?tab={active_tab}")
+        return redirect(request.path + f"?context=general&tab={active_tab}")
 
     current = resolve_global_layout(settings.layouts_map())
+    profiles = normalize_profile_layouts(settings.section_layouts)
     body_wrap_locked = (not current.get("col_border", True)) and (not current.get("row_border", True))
     from django.urls import reverse
 
@@ -980,11 +1026,18 @@ def system_table_layout(request: HttpRequest) -> HttpResponse:
         "catalog/system_table_layout.html",
         {
             "active_tab": active_tab,
-            "layout": current,
-            "layout_defaults_json": json.dumps(default_layout(GLOBAL_LAYOUT_KEY), ensure_ascii=False),
+            "active_context": active_context,
+            "context_choices": (("general", "عمومی"),) + tuple((key, PROFILE_LABELS[key]) for key in PROFILE_KEYS),
+            "layout": current if active_context == "general" else profiles[active_context],
+            "layout_defaults_json": json.dumps(
+                default_layout(GLOBAL_LAYOUT_KEY) if active_context == "general" else default_profile_layout(active_context),
+                ensure_ascii=False,
+            ),
             "body_wrap_locked": body_wrap_locked,
             "can_edit": _can_edit_naming(request.user),
             "preview_href": preview_href,
+            "impact_items": TABLE_PROFILE_REGISTRY.get(active_context, ()),
+            "impact_count": len(TABLE_PROFILE_REGISTRY.get(active_context, ())),
         },
     )
 

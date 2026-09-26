@@ -43,10 +43,15 @@ def table_layout(request):
 
     try:
         from catalog.models import TableLayoutSettings
-        from catalog.table_layout import css_for_layouts, locks_from_layouts
+        from catalog.table_layout import (
+            css_for_layouts,
+            locks_from_layouts,
+            normalize_profile_layouts,
+        )
 
         settings = TableLayoutSettings.load()
         layouts = settings.layouts_map()
+        profiles = normalize_profile_layouts(settings.section_layouts)
         locks = locks_from_layouts(layouts)
         return {
             "table_row_height_px": settings.clamped_row_height(),
@@ -54,7 +59,8 @@ def table_layout(request):
             "table_width_locks_json": json.dumps(locks, ensure_ascii=False),
             "table_section_layouts": layouts,
             "table_section_layouts_json": json.dumps(layouts, ensure_ascii=False),
-            "table_layout_css": css_for_layouts(layouts) + _hidden_column_css(),
+            "table_profile_layouts": profiles,
+            "table_layout_css": css_for_layouts(layouts, profiles) + _hidden_column_css(),
         }
     except Exception:  # noqa: BLE001 — migrations / early boot
         return {
@@ -63,5 +69,6 @@ def table_layout(request):
             "table_width_locks_json": "{}",
             "table_section_layouts": {},
             "table_section_layouts_json": "{}",
+            "table_profile_layouts": {},
             "table_layout_css": "",
         }

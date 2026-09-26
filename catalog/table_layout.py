@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 from catalog.nav import LAYOUT_SECTIONS
@@ -16,6 +17,30 @@ SECTION_KEYS: tuple[str, ...] = tuple(key for key, _label in SECTION_CHOICES)
 UNLOCKED_WIDTH_DEFAULTS: frozenset[str] = frozenset({"reports"})
 COLUMN_BORDER_COLOR = "#cbd5e1"
 GLOBAL_LAYOUT_KEY = "all"
+PROFILE_LAYOUT_KEY = "profiles"
+PROFILE_KEYS = ("compact", "report", "data_entry")
+PROFILE_LABELS = {
+    "compact": "فشرده",
+    "report": "گزارش / محاسبات",
+    "data_entry": "ورود اطلاعات",
+}
+PROFILE_DEFAULTS: dict[str, dict[str, int | float]] = {
+    "compact": {"row_height_px": 26, "header_height_px": 28, "font_size_px": 12, "cell_padding_px": 2},
+    "report": {"row_height_px": 34, "header_height_px": 34, "font_size_px": 12.5, "cell_padding_px": 5},
+    "data_entry": {"row_height_px": 34, "header_height_px": 34, "font_size_px": 13, "cell_padding_px": 5},
+}
+PROFILE_INLINE_PADDING_OFFSET = {"compact": 4, "report": 3, "data_entry": 3}
+PROFILE_VALUE_BOUNDS = {
+    "row_height_px": (18, 80),
+    "header_height_px": (18, 80),
+    "font_size_px": (9, 24),
+    "cell_padding_px": (1, 24),
+}
+TABLE_PROFILE_REGISTRY: dict[str, tuple[dict[str, str], ...]] = {
+    "compact": ({"key": "pipe_depot", "label": "برنامه دپو و نیاز تولید", "module": "محاسبات تولید لوله"},),
+    "report": ({"key": "pipe_calculation_results", "label": "جدول محاسباتی لوله و مواد", "module": "محاسبات تولید لوله"},),
+    "data_entry": ({"key": "pipe_initial_definitions", "label": "تعاریف اولیه", "module": "محاسبات تولید لوله"},),
+}
 HEADER_LAYOUT_KEYS = (
     "header_height_px",
     "header_border",
@@ -53,6 +78,86 @@ def clamp_alpha(value: Any, default: int = 100) -> int:
     except (TypeError, ValueError):
         n = default
     return max(0, min(100, n))
+
+
+class ProfileValidationError(ValueError):
+    """A profile density value is malformed or outside its safe range."""
+
+
+def default_profile_layout(profile_key: str) -> dict[str, int | float]:
+    if profile_key not in PROFILE_DEFAULTS:
+        raise KeyError(profile_key)
+    return dict(PROFILE_DEFAULTS[profile_key])
+
+
+def _profile_number(value: Any, field: str, *, strict: bool, fallback: int | float) -> int | float:
+    low, high = PROFILE_VALUE_BOUNDS[field]
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        if strict:
+            raise ProfileValidationError(f"مقدار «{field}» باید عددی باشد.") from None
+        return fallback
+    if not math.isfinite(number) or number < low or number > high:
+        if strict:
+            raise ProfileValidationError(f"مقدار «{field}» باید بین {low} و {high} باشد.")
+        return fallback
+    if field != "font_size_px":
+        if not number.is_integer():
+            if strict:
+                raise ProfileValidationError(f"مقدار «{field}» باید عدد صحیح باشد.")
+            return fallback
+        return int(number)
+    return round(number, 1)
+
+
+def normalize_profile_layout(profile_key: str, raw: Any) -> dict[str, int | float]:
+    defaults = default_profile_layout(profile_key)
+    source = raw if isinstance(raw, dict) else {}
+    return {
+        field: _profile_number(source.get(field, fallback), field, strict=False, fallback=fallback)
+        for field, fallback in defaults.items()
+    }
+
+
+def normalize_profile_layouts(stored: Any) -> dict[str, dict[str, int | float]]:
+    root = stored if isinstance(stored, dict) else {}
+    raw_profiles = root.get(PROFILE_LAYOUT_KEY)
+    raw_profiles = raw_profiles if isinstance(raw_profiles, dict) else {}
+    return {key: normalize_profile_layout(key, raw_profiles.get(key)) for key in PROFILE_KEYS}
+
+
+def profile_layout_from_post(profile_key: str, post) -> dict[str, int | float]:
+    defaults = default_profile_layout(profile_key)
+    if any(field not in post for field in defaults):
+        raise ProfileValidationError("همه مقادیر تراکم پروفایل الزامی هستند.")
+    return {
+        field: _profile_number(post.get(field), field, strict=True, fallback=fallback)
+        for field, fallback in defaults.items()
+    }
+
+
+def css_for_profiles(profiles: Any) -> str:
+    normalized = (
+        profiles
+        if isinstance(profiles, dict) and all(key in profiles for key in PROFILE_KEYS)
+        else normalize_profile_layouts({PROFILE_LAYOUT_KEY: profiles})
+    )
+    parts: list[str] = []
+    for key in PROFILE_KEYS:
+        cfg = normalize_profile_layout(key, normalized.get(key))
+        selector = f".erp-table-profile--{key.replace('_', '-')}"
+        inline_padding = int(cfg["cell_padding_px"]) + PROFILE_INLINE_PADDING_OFFSET[key]
+        parts.append(
+            f"{selector}{{"
+            f"--table-profile-row-height:{cfg['row_height_px']}px;"
+            f"--table-profile-header-height:{cfg['header_height_px']}px;"
+            f"--table-profile-font-size:{cfg['font_size_px']}px;"
+            f"--table-profile-cell-padding-block:{cfg['cell_padding_px']}px;"
+            f"--table-profile-cell-padding-inline:{inline_padding}px;"
+            "}"
+        )
+    return "".join(parts)
 
 
 def default_width_locked(section_key: str) -> bool:
@@ -314,7 +419,10 @@ def _section_cells(key: str, tags: tuple[str, ...], suffix: str = "") -> str:
     return ",".join(parts)
 
 
-def css_for_layouts(layouts: dict[str, dict[str, Any]]) -> str:
+def css_for_layouts(
+    layouts: dict[str, dict[str, Any]],
+    profiles: dict[str, dict[str, int | float]] | None = None,
+) -> str:
     parts: list[str] = []
     if GLOBAL_LAYOUT_KEY in layouts:
         shared = resolve_global_layout(layouts)
@@ -449,4 +557,6 @@ def css_for_layouts(layouts: dict[str, dict[str, Any]]) -> str:
             )
         if host:
             parts.append(f"{host}{{--table-marquee:{1 if cfg.get('marquee') else 0};}}")
+    if profiles is not None:
+        parts.append(css_for_profiles(profiles))
     return "".join(parts)

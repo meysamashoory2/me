@@ -6,15 +6,59 @@ from django.test import SimpleTestCase
 
 from catalog.table_layout import (
     COLUMN_BORDER_COLOR,
+    PROFILE_DEFAULTS,
+    ProfileValidationError,
     SECTION_CHOICES,
     clamp_row_height,
+    css_for_profiles,
     css_for_layouts,
     default_width_locked,
     normalize_all_layouts,
+    normalize_profile_layouts,
+    profile_layout_from_post,
 )
 
 
 class TableLayoutHelpersTests(SimpleTestCase):
+    def test_profile_defaults_are_backward_compatible(self):
+        self.assertEqual(normalize_profile_layouts({}), PROFILE_DEFAULTS)
+        self.assertEqual(
+            normalize_profile_layouts({"all": {"row_height_px": 49}}),
+            PROFILE_DEFAULTS,
+        )
+
+    def test_profile_normalization_preserves_each_valid_profile(self):
+        stored = {"profiles": {"compact": {"row_height_px": 31, "header_height_px": 32, "font_size_px": 11.4, "cell_padding_px": 4}}}
+        profiles = normalize_profile_layouts(stored)
+        self.assertEqual(profiles["compact"]["row_height_px"], 31)
+        self.assertEqual(profiles["compact"]["font_size_px"], 11.4)
+        self.assertEqual(profiles["report"], PROFILE_DEFAULTS["report"])
+
+    def test_profile_post_strictly_validates_every_density_field(self):
+        valid = {"row_height_px": "31", "header_height_px": "32", "font_size_px": "12.7", "cell_padding_px": "4"}
+        self.assertEqual(profile_layout_from_post("compact", valid)["font_size_px"], 12.7)
+        for field, bad_values in {
+            "row_height_px": ("bad", "0", "81", "20.5"),
+            "header_height_px": ("bad", "-1", "81", "20.5"),
+            "font_size_px": ("bad", "0", "25"),
+            "cell_padding_px": ("bad", "0", "25", "2.5"),
+        }.items():
+            for value in bad_values:
+                posted = {**valid, field: value}
+                with self.subTest(field=field, value=value), self.assertRaises(ProfileValidationError):
+                    profile_layout_from_post("compact", posted)
+
+    def test_profile_css_is_scoped_and_reproduces_existing_defaults(self):
+        css = css_for_profiles(PROFILE_DEFAULTS)
+        self.assertIn(".erp-table-profile--compact{--table-profile-row-height:26px", css)
+        self.assertIn("--table-profile-cell-padding-inline:6px", css)
+        self.assertIn(".erp-table-profile--report{--table-profile-row-height:34px", css)
+        self.assertIn("--table-profile-font-size:12.5px", css)
+        self.assertIn(".erp-table-profile--data-entry{", css)
+        compact = css.split(".erp-table-profile--report", 1)[0]
+        self.assertNotIn("data-entry", compact)
+        self.assertNotIn("table{", css)
+
     def test_clamp_row_height_range(self):
         self.assertEqual(clamp_row_height(5), 5)
         self.assertEqual(clamp_row_height(120), 120)
