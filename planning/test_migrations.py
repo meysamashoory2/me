@@ -4,6 +4,8 @@ from unittest.mock import patch
 
 from django.db import IntegrityError, connection, transaction
 from django.db.migrations.executor import MigrationExecutor
+from django.db.migrations.loader import MigrationLoader
+from django.db.migrations.recorder import MigrationRecorder
 from django.test import TransactionTestCase
 
 
@@ -15,6 +17,30 @@ PLANNING_UID_FIX = (
     "planning",
     "0004_replace_0003_weeklyplanitem_uid",
 )
+PLANNING_ORIGINAL_0003 = (
+    "planning",
+    "0003_weeklyplanitem_sequence_weeklyplanitem_uid",
+)
+PLANNING_0006 = (
+    "planning",
+    "0006_weeklyplanline_uid",
+)
+PLANNING_0007 = (
+    "planning",
+    "0007_plan_date_unique_and_excel_upload",
+)
+PLANNING_0011 = (
+    "planning",
+    "0011_planning_process_stages",
+)
+PLANNING_0012 = (
+    "planning",
+    "0012_seed_planning_process_stages",
+)
+PLANNING_0013 = (
+    "planning",
+    "0013_alter_weeklyplanitem_uid_alter_weeklyplanline_uid",
+)
 PRODUCTION_0005 = (
     "production",
     "0005_productionprogram_productiondayentry",
@@ -22,13 +48,22 @@ PRODUCTION_0005 = (
 uid_migration = import_module(
     "planning.migrations.0004_replace_0003_weeklyplanitem_uid"
 )
+process_seed_migration = import_module(
+    "planning.migrations.0012_seed_planning_process_stages"
+)
 
 
 class MigrationTestCase(TransactionTestCase):
     reset_sequences = True
 
-    def migrate_to(self, targets):
+    def migrate_to(self, targets, *, replace_migrations=True):
         executor = MigrationExecutor(connection)
+        if not replace_migrations:
+            executor.loader = MigrationLoader(
+                connection,
+                ignore_no_migrations=True,
+                replace_migrations=False,
+            )
         executor.migrate(targets)
         if any(name is None for _, name in targets):
             return None
@@ -90,7 +125,7 @@ class WeeklyPlanItemUidMigrationTests(MigrationTestCase):
         old_apps = self.migrate_to([PLANNING_0002])
         plan_id, item_ids, line_ids = self.create_legacy_rows(old_apps)
 
-        new_apps = self.migrate_to([PLANNING_UID_FIX])
+        new_apps = self.migrate_to([PLANNING_0013])
         WeeklyPlan = new_apps.get_model("planning", "WeeklyPlan")
         WeeklyPlanItem = new_apps.get_model("planning", "WeeklyPlanItem")
         WeeklyPlanLine = new_apps.get_model("planning", "WeeklyPlanLine")
@@ -170,13 +205,120 @@ class WeeklyPlanItemUidMigrationTests(MigrationTestCase):
 
     def test_fresh_migration_path(self):
         self.migrate_to([("planning", None)])
-        apps = self.migrate_to([PLANNING_UID_FIX])
+        apps = self.migrate_to([PLANNING_0013])
         WeeklyPlanItem = apps.get_model("planning", "WeeklyPlanItem")
 
         field = WeeklyPlanItem._meta.get_field("uid")
         self.assertFalse(field.null)
         self.assertTrue(field.unique)
-        self.assertEqual(field.max_length, 16)
+        self.assertEqual(field.max_length, 32)
+
+    def test_graph_uses_replacement_as_historical_chain_parent(self):
+        loader = MigrationLoader(connection, ignore_no_migrations=True)
+
+        self.assertEqual(loader.detect_conflicts(), {})
+        self.assertEqual(
+            loader.graph.leaf_nodes("planning"),
+            [PLANNING_0013],
+        )
+        replacement_node = loader.graph.node_map[PLANNING_UID_FIX]
+        historical_0004 = loader.graph.node_map[
+            ("planning", "0004_weeklyplanline_mold")
+        ]
+        self.assertIn(replacement_node, historical_0004.parents)
+        self.assertNotIn(PLANNING_ORIGINAL_0003, loader.graph.nodes)
+
+    def test_original_0003_history_is_recognized_by_replacement(self):
+        old_apps = self.migrate_to([PLANNING_0002])
+        _, item_ids, _ = self.create_legacy_rows(old_apps)
+        WeeklyPlanItem = old_apps.get_model("planning", "WeeklyPlanItem")
+        WeeklyPlanItem.objects.filter(pk__in=item_ids[1:]).delete()
+        self.migrate_to([PLANNING_ORIGINAL_0003], replace_migrations=False)
+
+        loader = MigrationLoader(connection, ignore_no_migrations=True)
+        self.assertIn(PLANNING_UID_FIX, loader.applied_migrations)
+        apps = self.migrate_to([PLANNING_0013])
+        WeeklyPlanItem = apps.get_model("planning", "WeeklyPlanItem")
+        item = WeeklyPlanItem.objects.get(pk=item_ids[0])
+        self.assertTrue(item.uid)
+        self.assertEqual(item.uid, WeeklyPlanItem.objects.get(pk=item.pk).uid)
+
+    def test_historical_0013_history_is_recognized_by_replacement(self):
+        self.migrate_to([("planning", None)])
+        self.migrate_to([PLANNING_0013], replace_migrations=False)
+
+        recorded = set(
+            MigrationRecorder(connection)
+            .migration_qs.filter(app="planning")
+            .values_list("app", "name")
+        )
+        self.assertIn(PLANNING_ORIGINAL_0003, recorded)
+        self.assertIn(PLANNING_0013, recorded)
+
+        loader = MigrationLoader(connection, ignore_no_migrations=True)
+        self.assertIn(PLANNING_UID_FIX, loader.applied_migrations)
+        self.assertEqual(loader.detect_conflicts(), {})
+
+    def test_recorded_replacement_continues_to_historical_0013(self):
+        old_apps = self.migrate_to([PLANNING_0002])
+        _, item_ids, line_ids = self.create_legacy_rows(old_apps)
+        self.migrate_to([PLANNING_UID_FIX])
+
+        loader = MigrationLoader(connection, ignore_no_migrations=True)
+        self.assertIn(PLANNING_UID_FIX, loader.applied_migrations)
+        apps = self.migrate_to([PLANNING_0013])
+        WeeklyPlanItem = apps.get_model("planning", "WeeklyPlanItem")
+        WeeklyPlanLine = apps.get_model("planning", "WeeklyPlanLine")
+        self.assertEqual(
+            list(WeeklyPlanItem.objects.order_by("pk").values_list("pk", flat=True)),
+            item_ids,
+        )
+        self.assertEqual(
+            list(WeeklyPlanLine.objects.order_by("pk").values_list("pk", flat=True)),
+            line_ids,
+        )
+        self.assertTrue(
+            all(
+                uid
+                for uid in WeeklyPlanItem.objects.order_by("pk").values_list(
+                    "uid", flat=True
+                )
+            )
+        )
+
+    def test_duplicate_plan_dates_are_shifted_deterministically(self):
+        apps = self.migrate_to([PLANNING_0006])
+        WeeklyPlan = apps.get_model("planning", "WeeklyPlan")
+        date = jdatetime.date(1405, 2, 10)
+        first = WeeklyPlan.objects.create(program_number="DATE-1", date=date)
+        second = WeeklyPlan.objects.create(program_number="DATE-2", date=date)
+
+        apps = self.migrate_to([PLANNING_0007])
+        WeeklyPlan = apps.get_model("planning", "WeeklyPlan")
+        self.assertEqual(WeeklyPlan.objects.get(pk=first.pk).date, date)
+        self.assertEqual(
+            WeeklyPlan.objects.get(pk=second.pk).date,
+            date - jdatetime.timedelta(days=1),
+        )
+
+    def test_process_seed_uses_frozen_data_and_reverses(self):
+        self.migrate_to([PLANNING_0011])
+        apps = self.migrate_to([PLANNING_0012])
+        Process = apps.get_model("planning", "PlanningProcessDefinition")
+        Step = apps.get_model("planning", "PlanningProcessStep")
+        self.assertEqual(
+            set(Process.objects.values_list("code", flat=True)), {"mto", "mts"}
+        )
+        self.assertEqual(Step.objects.count(), 50)
+
+        with connection.schema_editor() as schema_editor:
+            process_seed_migration.seed_processes(apps, schema_editor)
+        self.assertEqual(Process.objects.count(), 2)
+        self.assertEqual(Step.objects.count(), 50)
+
+        apps = self.migrate_to([PLANNING_0011])
+        Process = apps.get_model("planning", "PlanningProcessDefinition")
+        self.assertFalse(Process.objects.filter(code__in=["mto", "mts"]).exists())
 
     def test_downstream_production_dependency_migrates(self):
         old_apps = self.migrate_to([PLANNING_0002])

@@ -4,36 +4,41 @@ import django_jalali.db.models
 from django.db import migrations
 
 
+MAX_DATE_DEDUPLICATION_DAYS = 399
+
+
 def dedupe_plan_dates(apps, schema_editor):
     WeeklyPlan = apps.get_model("planning", "WeeklyPlan")
+    database = schema_editor.connection.alias
     seen = {}
-    for plan in WeeklyPlan.objects.order_by("id"):
+    plans = WeeklyPlan.objects.using(database).order_by("id").iterator()
+    for plan in plans:
         key = str(plan.date)
         if key not in seen:
             seen[key] = plan.pk
             continue
+
         # Shift older duplicates backward until free.
-        try:
-            import jdatetime
-            cur = plan.date
-            if not hasattr(cur, "togregorian"):
-                # Stored as date-like
-                pass
-            new = plan.date
-            for step in range(1, 400):
-                try:
-                    new = plan.date - jdatetime.timedelta(days=step)
-                except Exception:
-                    break
-                clash = WeeklyPlan.objects.filter(date=new).exclude(pk=plan.pk).exists()
-                if not clash and str(new) not in seen:
-                    plan.date = new
-                    plan.save(update_fields=["date"])
-                    seen[str(new)] = plan.pk
-                    break
-        except Exception:
-            # Last resort: skip; AlterField may still fail and need manual fix.
-            pass
+        import jdatetime
+
+        for step in range(1, MAX_DATE_DEDUPLICATION_DAYS + 1):
+            new_date = plan.date - jdatetime.timedelta(days=step)
+            clash = (
+                WeeklyPlan.objects.using(database)
+                .filter(date=new_date)
+                .exclude(pk=plan.pk)
+                .exists()
+            )
+            if not clash and str(new_date) not in seen:
+                plan.date = new_date
+                plan.save(using=database, update_fields=["date"])
+                seen[str(new_date)] = plan.pk
+                break
+        else:
+            raise RuntimeError(
+                "Unable to assign a unique date to WeeklyPlan "
+                f"{plan.pk} within {MAX_DATE_DEDUPLICATION_DAYS} days."
+            )
 
 
 class Migration(migrations.Migration):

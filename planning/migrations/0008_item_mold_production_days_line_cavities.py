@@ -1,5 +1,3 @@
-import json
-
 from django.db import migrations, models
 import django.db.models.deletion
 
@@ -7,17 +5,23 @@ import django.db.models.deletion
 def forwards_copy(apps, schema_editor):
     WeeklyPlanItem = apps.get_model("planning", "WeeklyPlanItem")
     WeeklyPlanLine = apps.get_model("planning", "WeeklyPlanLine")
-    for item in WeeklyPlanItem.objects.all():
-        lines = list(WeeklyPlanLine.objects.filter(item_id=item.pk).order_by("id"))
+    database = schema_editor.connection.alias
+    items = WeeklyPlanItem.objects.using(database).order_by("pk").iterator()
+    for item in items:
+        lines = list(
+            WeeklyPlanLine.objects.using(database)
+            .filter(item_id=item.pk)
+            .order_by("id")
+        )
         if not lines:
             continue
         first = lines[0]
         if first.mold_id and not item.mold_id:
             item.mold_id = first.mold_id
-            item.save(update_fields=["mold_id"])
+            item.save(using=database, update_fields=["mold_id"])
         cav = item.active_cavities or 1
         for line in lines:
-            WeeklyPlanLine.objects.filter(pk=line.pk).update(
+            WeeklyPlanLine.objects.using(database).filter(pk=line.pk).update(
                 active_cavities=cav,
                 mold_id=item.mold_id or line.mold_id,
             )
