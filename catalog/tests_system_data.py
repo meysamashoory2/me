@@ -276,20 +276,28 @@ class TableLayoutSettingsTests(TestCase):
 
         saved = self.client.post(
             url,
-            self._family_payload(body_font_size_px="20", header_font_size_px="15"),
+            self._family_payload(body_font_size_px="20", header_font_size_px="15", row_height_px="60", header_height_px="55"),
             HTTP_X_REQUESTED_WITH="XMLHttpRequest",
         )
         self.assertEqual(saved.status_code, 200)
         payload = saved.json()
         self.assertEqual(payload["layout"]["body_font_size_px"], 20)
         self.assertEqual(payload["layout"]["header_font_size_px"], 15)
+        self.assertEqual(payload["layout"]["row_height_px"], 60)
+        self.assertEqual(payload["layout"]["header_height_px"], 55)
         production_css = payload["css"].split('[data-table-family="production-calculation"]', 1)[1].split('[data-table-family="operational"]', 1)[0]
         self.assertIn("--table-family-body-font-size:20px", production_css)
         self.assertIn("--table-family-header-font-size:15px", production_css)
+        self.assertIn("--table-row-height:60px", production_css)
+        self.assertIn("--table-header-height:55px", production_css)
+        self.assertIn("tbody tr{height:var(--table-row-height) !important", production_css)
+        self.assertIn("thead tr{height:var(--table-header-height) !important", production_css)
 
         settings.refresh_from_db()
         effective = normalize_family_layouts(settings.section_layouts)
         self.assertEqual(effective["production_calculation"]["body_font_size_px"], 20)
+        self.assertEqual(effective["production_calculation"]["row_height_px"], 60)
+        self.assertEqual(effective["production_calculation"]["header_height_px"], 55)
         reloaded = self.client.get(url, {"family": "production_calculation"})
         self.assertContains(reloaded, 'name="body_font_size_px" min="9" max="24" step="0.1" value="20.0"')
 
@@ -301,8 +309,12 @@ class TableLayoutSettingsTests(TestCase):
         self.assertEqual(reset.status_code, 200)
         reset_payload = reset.json()
         self.assertEqual(reset_payload["layout"]["body_font_size_px"], 12.5)
+        self.assertEqual(reset_payload["layout"]["row_height_px"], 34)
+        self.assertEqual(reset_payload["layout"]["header_height_px"], 34)
         reset_css = reset_payload["css"].split('[data-table-family="production-calculation"]', 1)[1].split('[data-table-family="operational"]', 1)[0]
         self.assertIn("--table-family-body-font-size:12.5px", reset_css)
+        self.assertIn("--table-row-height:34px", reset_css)
+        self.assertIn("--table-header-height:34px", reset_css)
         self.assertNotIn("--table-family-body-font-size:20px", reset_css)
 
         settings.refresh_from_db()
@@ -335,6 +347,15 @@ class TableLayoutSettingsTests(TestCase):
         self.assertIn("function applyFamilyValuesToForm(v)", html)
         self.assertIn("applyFamilyValuesToForm(x.j.layout)", html)
         self.assertIn("e.submitter||lastSubmitter", html)
+
+    def test_family_settings_desktop_grid_and_collapsed_impact_structure(self):
+        self.client.login(username="admin", password="erp12345")
+        response = self.client.get(reverse("system_table_layout"))
+        html = response.content.decode()
+        self.assertIn('class="family-layout-panels"', html)
+        self.assertEqual(html.count('class="layout-page-fields"'), 2)
+        self.assertIn('<details class="family-impact">', html)
+        self.assertNotIn('<details class="family-impact" open', html)
 
     def test_table_layout_page_save(self):
         from django.urls import reverse

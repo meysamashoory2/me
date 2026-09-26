@@ -65,8 +65,18 @@ class TableLayoutHelpersTests(SimpleTestCase):
         self.assertIn('table:not(.excel-preview-table):not(.excel-grid) th', css)
         self.assertIn("font-size:var(--table-family-body-font-size) !important", css)
         self.assertIn("padding:var(--table-family-pad-v) var(--table-family-pad-h) !important", css)
+        self.assertIn("tbody tr{height:var(--table-row-height) !important", css)
+        self.assertIn("thead tr{height:var(--table-header-height) !important", css)
+        self.assertIn("line-height:normal !important;box-sizing:border-box", css)
         self.assertNotIn("table.pcx-table", css)
         self.assertNotIn("#pcx-depot-table", css)
+
+    def test_height_mechanism_is_shared_by_all_business_families(self):
+        css = css_for_families(normalize_family_layouts({}))
+        for key in FAMILY_KEYS:
+            host = f'[data-table-family="{key.replace("_", "-")}"]'
+            self.assertIn(f"{host} table:not(.excel-preview-table):not(.excel-grid) tbody tr", css)
+            self.assertIn(f"{host} table:not(.excel-preview-table):not(.excel-grid) thead tr", css)
 
     def test_profile_defaults_are_backward_compatible(self):
         self.assertEqual(normalize_profile_layouts({}), PROFILE_DEFAULTS)

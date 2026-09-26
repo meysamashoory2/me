@@ -305,11 +305,14 @@ def css_for_families(families: Any) -> str:
         # future descendant tables inherit without a per-table profile class.
         # Spreadsheet-style Excel surfaces deliberately keep independent sizing.
         family_tables = f"{host} table:not(.excel-preview-table):not(.excel-grid)"
+        header_rows = f"{family_tables} thead tr"
+        body_rows = f"{family_tables} tbody tr"
         headers = f"{family_tables} th"
         bodies = f"{family_tables} td"
         cells = f"{headers},{bodies}"
-        parts.append(f"{headers}{{font-size:var(--table-family-header-font-size) !important;height:var(--table-header-height) !important;min-height:var(--table-header-height) !important;max-height:var(--table-header-height) !important;padding:var(--table-family-pad-v) var(--table-family-pad-h) !important;background:var(--table-header-bg) !important;}}")
-        parts.append(f"{bodies}{{font-size:var(--table-family-body-font-size) !important;height:var(--table-row-height) !important;min-height:var(--table-row-height) !important;max-height:var(--table-row-height) !important;padding:var(--table-family-pad-v) var(--table-family-pad-h) !important;}}")
+        parts.append(f"{header_rows}{{height:var(--table-header-height) !important;}}{body_rows}{{height:var(--table-row-height) !important;}}")
+        parts.append(f"{headers}{{font-size:var(--table-family-header-font-size) !important;height:var(--table-header-height) !important;min-height:var(--table-header-height) !important;max-height:var(--table-header-height) !important;line-height:normal !important;box-sizing:border-box;padding:var(--table-family-pad-v) var(--table-family-pad-h) !important;background:var(--table-header-bg) !important;}}")
+        parts.append(f"{bodies}{{font-size:var(--table-family-body-font-size) !important;height:var(--table-row-height) !important;min-height:var(--table-row-height) !important;max-height:var(--table-row-height) !important;line-height:normal !important;box-sizing:border-box;padding:var(--table-family-pad-v) var(--table-family-pad-h) !important;}}")
         if not cfg["col_border"]:
             parts.append(f"{cells}{{border-left:none !important;border-right:none !important;background-image:none !important;}}")
         if not cfg["row_border"]:
