@@ -6,6 +6,11 @@ REM ============================================================
 setlocal
 cd /d "%~dp0.."
 
+REM PostgreSQL is the primary database. Before running this, make sure the
+REM database exists and set these environment variables (never hard-code the
+REM password here) — see .env.example:
+REM   DB_ENGINE DB_NAME DB_USER DB_PASSWORD DB_HOST DB_PORT
+
 echo [1/5] Creating virtual environment (.venv) ...
 py -3 -m venv .venv
 if errorlevel 1 (

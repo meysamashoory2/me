@@ -2,6 +2,8 @@
 {% block title %}ثبت تولید روزانه{% endblock %}
 {% block heading %}ثبت تولید روزانه{% endblock %}
 {% block nav_production %}active{% endblock %}
+{% block table_section %}production{% endblock %}
+{% block table_surface %}entry{% endblock %}
 
 {% block content %}
 <div class="panel">
@@ -15,7 +17,7 @@
     <tbody>
       {% for row in programs %}
       <tr>
-        <td>{{ row.program.item.uid }}</td>
+        <td>{{ row.program.resolved_uid }}</td>
         <td>{{ row.program.machine_label }}</td>
         <td>{{ row.program.item.product.code }}</td>
         <td>{{ row.program.item.product.name }}</td>

@@ -1,0 +1,106 @@
+{% load i18n static %}
+<!DOCTYPE html>
+{% get_current_language as LANGUAGE_CODE %}{% get_current_language_bidi as LANGUAGE_BIDI %}
+<html lang="fa" dir="rtl">
+<head>
+<title>{% block title %}{% endblock %}</title>
+<link rel="stylesheet" href="{% static 'css/app.css' %}?v=76">
+<link rel="stylesheet" href="{% block stylesheet %}{% static "admin/css/base.css" %}{% endblock %}">
+{% block dark-mode-vars %}{% endblock %}
+{% block extrastyle %}{% endblock %}
+{% if LANGUAGE_BIDI %}<link rel="stylesheet" href="{% block stylesheet_rtl %}{% static "admin/css/rtl.css" %}{% endblock %}">{% endif %}
+{% block extrahead %}{% endblock %}
+{% block responsive %}
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="{% static "admin/css/responsive.css" %}">
+{% if LANGUAGE_BIDI %}<link rel="stylesheet" href="{% static "admin/css/responsive_rtl.css" %}">{% endif %}
+{% endblock %}
+<link rel="stylesheet" href="{% static 'css/admin_embed.css' %}?v=6">
+<style id="erp-table-layout-css">
+  {{ table_layout_css|default:''|safe }}
+</style>
+{% block blockbots %}<meta name="robots" content="NONE,NOARCHIVE">{% endblock %}
+</head>
+<body class="{% if is_popup %}popup {% endif %}admin-embed {% block bodyclass %}{% endblock %}"
+  data-admin-utc-offset="{% now "Z" %}"
+  data-table-section="system">
+
+{% if not is_popup %}
+<div class="layout">
+  <aside class="sidebar">
+    <div class="brand">
+      <span class="brand-mark">◈</span>
+      <span class="brand-name">سامانه برنامه ریزی<br>و کنترل تولید</span>
+    </div>
+    {% if user.is_authenticated %}
+    <div class="sidebar-user">({{ user.username }})</div>
+    {% include "includes/sidebar_nav.html" %}
+    {% endif %}
+  </aside>
+
+  <div class="main">
+    <header class="topbar">
+      <div class="topbar-title">
+        <span class="topbar-title-text">{% if title %}{{ title }}{% else %}مدیریت داده‌ها{% endif %}</span>
+        <span class="heading-hint">(مدیریت داده — امکانات کامل · کشیدن لبه سرستون = عرض · دوبار کلیک = اصلاح عنوان)</span>
+      </div>
+      <div class="topbar-user">
+        <div class="topbar-actions">
+          <a class="btn btn-sm btn-ghost" href="{% url 'system_data' %}">بازگشت به مدیریت داده‌ها</a>
+        </div>
+      </div>
+    </header>
+
+    <main class="content admin-embed-content" data-table-section="system" data-table-surface="hub">
+      {% block nav-breadcrumbs %}
+      <nav class="admin-embed-crumbs" aria-label="{% translate 'Breadcrumbs' %}">
+        {% block breadcrumbs %}
+          <div class="breadcrumbs">
+            <a href="{% url 'system_data' %}">مدیریت داده‌ها</a>
+            {% if title %} &rsaquo; {{ title }}{% endif %}
+          </div>
+        {% endblock %}
+      </nav>
+      {% endblock %}
+{% else %}
+<div id="container">
+  <main id="content-start" class="content" tabindex="-1">
+{% endif %}
+
+      {% block messages %}
+        {% if messages %}
+          <ul class="messagelist">{% for message in messages %}
+            <li{% if message.tags %} class="{{ message.tags }}"{% endif %}>{{ message|capfirst }}</li>
+          {% endfor %}</ul>
+        {% endif %}
+      {% endblock messages %}
+
+      <div id="content" class="{% block coltype %}colM{% endblock %}">
+        {% block pretitle %}{% endblock %}
+        {% block content_title %}{% if is_popup and title %}<h1>{{ title }}</h1>{% endif %}{% endblock %}
+        {% block content_subtitle %}{% if subtitle %}<h2>{{ subtitle }}</h2>{% endif %}{% endblock %}
+        {% block content %}
+          {% block object-tools %}{% endblock %}
+          {{ content }}
+        {% endblock %}
+        {% block sidebar %}{% endblock %}
+      </div>
+
+{% if is_popup %}
+  </main>
+</div>
+{% else %}
+    </main>
+  </div>
+</div>
+{% endif %}
+
+{% block footer %}{% endblock %}
+{% if not is_popup %}
+<script src="{% static 'js/table_nav.js' %}?v=12"></script>
+<script src="{% static 'js/admin_table_layout.js' %}?v=3"></script>
+<script src="{% static 'js/dialog_drag.js' %}?v=3"></script>
+<script src="{% static 'js/naming_preview.js' %}?v=2"></script>
+{% endif %}
+</body>
+</html>

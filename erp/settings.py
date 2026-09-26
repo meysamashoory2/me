@@ -11,6 +11,16 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+# Load a project-root .env file (if present) so the documented .env.example
+# actually takes effect. Real OS environment variables always win over .env,
+# and the sqlite throwaway path stays usable even without python-dotenv.
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    pass
+else:
+    load_dotenv(BASE_DIR / ".env")
+
 
 def env_bool(name: str, default: bool) -> bool:
     value = os.environ.get(name)
@@ -33,9 +43,16 @@ SECRET_KEY = os.environ.get(
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = env_bool("DJANGO_DEBUG", True)
 
-ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1,0.0.0.0")
+# Intranet hostname for Poliran LAN access (override with DJANGO_ALLOWED_HOSTS).
+ALLOWED_HOSTS = env_list(
+    "DJANGO_ALLOWED_HOSTS",
+    "localhost,127.0.0.1,0.0.0.0,planning.poliran",
+)
 
-CSRF_TRUSTED_ORIGINS = env_list("DJANGO_CSRF_TRUSTED_ORIGINS", "")
+CSRF_TRUSTED_ORIGINS = env_list(
+    "DJANGO_CSRF_TRUSTED_ORIGINS",
+    "http://planning.poliran:8000,http://planning.poliran,https://planning.poliran",
+)
 
 
 # Application definition
@@ -54,6 +71,7 @@ INSTALLED_APPS = [
     "catalog",
     "production",
     "planning",
+    "reports",
     "core",
 ]
 
@@ -81,6 +99,8 @@ TEMPLATES = [
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
                 "core.context_processors.user_profile",
+                "core.context_processors.table_layout",
+                "core.context_processors.chrome_nav",
             ],
         },
     },
@@ -90,13 +110,35 @@ WSGI_APPLICATION = "erp.wsgi.application"
 
 
 # Database
-# Defaults to SQLite so the project runs with zero external dependencies.
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",
+# PostgreSQL is the primary database for both development and production.
+# All connection settings are read from environment variables so credentials
+# are never hard-coded (set them via the OS environment; see .env.example).
+# Set DB_ENGINE=sqlite only for a throwaway, dependency-free local run.
+DB_ENGINE = os.environ.get("DB_ENGINE", "postgresql").strip().lower()
+
+if DB_ENGINE in {"sqlite", "sqlite3"}:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": BASE_DIR / "db.sqlite3",
+        }
     }
-}
+else:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": os.environ.get("DB_NAME", "erp_db"),
+            "USER": os.environ.get("DB_USER", "erp_user"),
+            "PASSWORD": os.environ.get("DB_PASSWORD", ""),
+            "HOST": os.environ.get("DB_HOST", "127.0.0.1"),
+            "PORT": os.environ.get("DB_PORT", "5432"),
+            "OPTIONS": {
+                # Fail fast with a clear error instead of hanging forever when
+                # the database host is unreachable or misconfigured.
+                "connect_timeout": int(os.environ.get("DB_CONNECT_TIMEOUT", "5")),
+            },
+        }
+    }
 
 
 # Password validation
@@ -151,3 +193,9 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 LOGIN_URL = "login"
 LOGIN_REDIRECT_URL = "dashboard"
 LOGOUT_REDIRECT_URL = "login"
+
+
+# Uploaded files (Excel archives in مدیریت داده‌ها, etc.)
+MEDIA_URL = "/media/"
+MEDIA_ROOT = BASE_DIR / "media"
+BACKUP_DEFAULT_DIR = BASE_DIR / "backups"

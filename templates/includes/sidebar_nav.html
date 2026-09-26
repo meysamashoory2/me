@@ -1,0 +1,24 @@
+{% if user.is_authenticated %}
+<nav class="nav">
+  {% for section in nav_sections %}
+  <div class="nav-section {% if section.solo %}nav-section-solo{% endif %} {% if section.active %}is-current{% endif %}">
+    {% if not section.solo %}
+    <div class="nav-section-title" data-nav-heading="{{ section.key }}">{{ section.title }}</div>
+    {% endif %}
+    {% for item in section.items %}
+      {% if item.kind == "logout" %}
+      <form method="post" action="{% url 'logout' %}" class="nav-logout" id="logout-form">{% csrf_token %}
+        <button class="nav-logout-btn" type="submit" data-nav-key="{{ item.key }}">{{ item.title }}</button>
+      </form>
+      {% else %}
+      <a href="{{ item.href }}" class="{% if item.active %}active{% endif %}" data-nav-key="{{ item.key }}">{{ item.title }}</a>
+      {% endif %}
+    {% endfor %}
+  </div>
+  {% empty %}
+  <div class="nav-section nav-section-solo">
+    <a href="{% url 'dashboard' %}">داشبورد</a>
+  </div>
+  {% endfor %}
+</nav>
+{% endif %}
