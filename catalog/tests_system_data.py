@@ -260,6 +260,82 @@ class TableLayoutSettingsTests(TestCase):
         self.assertEqual(settings.section_layouts["legacy"], {"x": 1})
         self.assertEqual(settings.section_layouts["families"]["report_output"], {"row_height_px": 44})
 
+    def test_family_save_css_reload_and_reset_return_effective_values(self):
+        from catalog.models import TableLayoutSettings
+        from catalog.table_layout import FAMILY_DEFAULTS, normalize_family_layouts
+
+        self.client.login(username="admin", password="erp12345")
+        original = {
+            "all": {"row_height_px": 48},
+            "profiles": {"compact": {"row_height_px": 26}},
+            "legacy": {"keep": True},
+            "families": {"operational": {"row_height_px": 41}},
+        }
+        settings = TableLayoutSettings.objects.create(section_layouts=original)
+        url = reverse("system_table_layout")
+
+        saved = self.client.post(
+            url,
+            self._family_payload(body_font_size_px="20", header_font_size_px="15"),
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(saved.status_code, 200)
+        payload = saved.json()
+        self.assertEqual(payload["layout"]["body_font_size_px"], 20)
+        self.assertEqual(payload["layout"]["header_font_size_px"], 15)
+        production_css = payload["css"].split('[data-table-family="production-calculation"]', 1)[1].split('[data-table-family="operational"]', 1)[0]
+        self.assertIn("--table-family-body-font-size:20px", production_css)
+        self.assertIn("--table-family-header-font-size:15px", production_css)
+
+        settings.refresh_from_db()
+        effective = normalize_family_layouts(settings.section_layouts)
+        self.assertEqual(effective["production_calculation"]["body_font_size_px"], 20)
+        reloaded = self.client.get(url, {"family": "production_calculation"})
+        self.assertContains(reloaded, 'name="body_font_size_px" min="9" max="24" step="0.1" value="20.0"')
+
+        reset = self.client.post(
+            url,
+            {"family": "production_calculation", "family_reset": "production_calculation"},
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(reset.status_code, 200)
+        reset_payload = reset.json()
+        self.assertEqual(reset_payload["layout"]["body_font_size_px"], 12.5)
+        reset_css = reset_payload["css"].split('[data-table-family="production-calculation"]', 1)[1].split('[data-table-family="operational"]', 1)[0]
+        self.assertIn("--table-family-body-font-size:12.5px", reset_css)
+        self.assertNotIn("--table-family-body-font-size:20px", reset_css)
+
+        settings.refresh_from_db()
+        self.assertEqual(settings.section_layouts["all"], original["all"])
+        self.assertEqual(settings.section_layouts["profiles"], original["profiles"])
+        self.assertEqual(settings.section_layouts["legacy"], original["legacy"])
+        self.assertEqual(settings.section_layouts["families"]["operational"], original["families"]["operational"])
+        for key, value in FAMILY_DEFAULTS["production_calculation"].items():
+            self.assertEqual(settings.section_layouts["families"]["production_calculation"][key], value)
+
+    def test_family_font_edits_preserve_the_other_font_value(self):
+        from catalog.models import TableLayoutSettings
+
+        self.client.login(username="admin", password="erp12345")
+        settings = TableLayoutSettings.objects.create()
+        url = reverse("system_table_layout")
+        first = self.client.post(url, self._family_payload(header_font_size_px="18", body_font_size_px="12.5"), HTTP_X_REQUESTED_WITH="XMLHttpRequest")
+        self.assertEqual(first.status_code, 200)
+        second = self.client.post(url, self._family_payload(header_font_size_px="18", body_font_size_px="20"), HTTP_X_REQUESTED_WITH="XMLHttpRequest")
+        self.assertEqual(second.status_code, 200)
+        settings.refresh_from_db()
+        saved = settings.section_layouts["families"]["production_calculation"]
+        self.assertEqual(saved["header_font_size_px"], 18)
+        self.assertEqual(saved["body_font_size_px"], 20)
+
+    def test_ajax_ui_applies_normalized_save_and_reset_values(self):
+        self.client.login(username="admin", password="erp12345")
+        response = self.client.get(reverse("system_table_layout"))
+        html = response.content.decode()
+        self.assertIn("function applyFamilyValuesToForm(v)", html)
+        self.assertIn("applyFamilyValuesToForm(x.j.layout)", html)
+        self.assertIn("e.submitter||lastSubmitter", html)
+
     def test_table_layout_page_save(self):
         from django.urls import reverse
         from catalog.models import TableLayoutSettings

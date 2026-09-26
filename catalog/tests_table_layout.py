@@ -63,6 +63,8 @@ class TableLayoutHelpersTests(SimpleTestCase):
         self.assertIn("--table-family-header-font-size:12px", css)
         self.assertIn("--table-family-body-font-size:12.5px", css)
         self.assertIn('table:not(.excel-preview-table):not(.excel-grid) th', css)
+        self.assertIn("font-size:var(--table-family-body-font-size) !important", css)
+        self.assertIn("padding:var(--table-family-pad-v) var(--table-family-pad-h) !important", css)
         self.assertNotIn("table.pcx-table", css)
         self.assertNotIn("#pcx-depot-table", css)
 
