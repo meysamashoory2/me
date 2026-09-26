@@ -3082,6 +3082,8 @@ input[type=number].spin {
   flex-wrap: wrap;
   align-items: end;
   gap: 14px 20px;
+  padding: 14px 18px;
+  border-bottom: 1px solid #f0eeec;
 }
 .pcx-toolbar-actions {
   display: flex;
@@ -3126,9 +3128,9 @@ input[type=number].spin {
 }
 .pcx-size-defs {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(8, minmax(110px, 1fr));
   gap: 10px 12px;
-  margin: 0 0 14px;
+  margin: 14px 18px;
 }
 .pcx-size-defs label {
   display: grid;
@@ -3148,15 +3150,32 @@ input[type=number].spin {
   padding-top: 12px;
   border-top: 1px solid #f0eeec;
 }
-.pcx-field select {
+.pcx-field select,
+.pcx-select {
   appearance: none;
-  padding: 10px 12px;
+  padding: 10px 12px 10px 38px;
   border: 1px solid #d6d3d1;
   border-radius: 10px;
   background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2357534e' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m7 10 5 5 5-5'/%3E%3C/svg%3E") no-repeat left 12px center / 16px 16px,
     linear-gradient(180deg, #fff, #fafaf9);
   font: inherit;
   color: #1c1917;
+}
+.pcx-field select:focus,
+.pcx-select:focus {
+  outline: none;
+  border-color: #0e7490;
+  box-shadow: 0 0 0 3px rgba(14, 116, 144, 0.15);
+}
+.pcx-card-head .pcx-defs-size-field {
+  margin-top: 12px;
+  max-width: 220px;
+}
+.pcx-result-empty {
+  margin: 6px 0 0;
+  color: #78716c;
+  font-size: 12.5px;
 }
 .pcx-hint {
   margin: 0;
@@ -3330,6 +3349,7 @@ input[type=number].spin {
   .pcx-toolbar { align-items: stretch; }
   .pcx-field { min-width: 0; width: 100%; }
   .pcx-input { width: 76px; }
+  .pcx-size-defs { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
 }
 
 .panel-title {

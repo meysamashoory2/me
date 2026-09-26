@@ -322,7 +322,7 @@ class PipeCalcViewTests(TestCase):
         self.assertNotContains(resp, "اسکلت")
         self.assertNotContains(resp, "بعداً تکمیل می‌شود")
 
-    def test_matrix_workspace_has_three_primary_tabs_and_global_selectors(self):
+    def test_matrix_workspace_has_three_tabs_and_scoped_selectors(self):
         resp = self.client.get("/data/pipe-calc/?line=protect&size=110")
         html = resp.content.decode()
         self.assertEqual(html.count("data-pcx-tab="), 3)
@@ -332,16 +332,62 @@ class PipeCalcViewTests(TestCase):
             "تعاریف اولیه",
         ):
             self.assertContains(resp, label)
-        toolbar = html.index('class="pcx-toolbar"')
         tabs = html.index('class="tabs pcx-workspace-tabs"')
-        self.assertLess(html.index('id="pcx-size"', toolbar), tabs)
-        self.assertLess(html.index('id="pcx-qty-source"', toolbar), tabs)
+        depot_start = html.index('data-pcx-panel="depot"')
+        calculation_start = html.index('data-pcx-panel="calculation"')
+        definitions_start = html.index('data-pcx-panel="definitions"')
+        depot_panel = html[depot_start:calculation_start]
+        calculation_panel = html[calculation_start:definitions_start]
+        definitions_panel = html[definitions_start:]
+        self.assertGreater(depot_start, tabs)
+        self.assertIn('id="pcx-size"', depot_panel)
+        self.assertIn('id="pcx-qty-source"', depot_panel)
+        self.assertNotIn('id="pcx-size"', html[tabs:depot_start])
+        self.assertNotIn('id="pcx-qty-source"', html[tabs:depot_start])
+        self.assertNotIn('id="pcx-size"', calculation_panel)
+        self.assertNotIn('id="pcx-qty-source"', calculation_panel)
+        self.assertIn('id="pcx-defs-size"', definitions_panel)
+        self.assertNotIn('id="pcx-qty-source"', definitions_panel)
+        self.assertEqual(html.count('class="pcx-select"'), 3)
         self.assertNotIn("pcx-defs-dialog", html)
         self.assertIn('data-pcx-panel="definitions"', html)
-        option_block = html[html.index('id="pcx-size"'):tabs]
+        option_block = depot_panel[depot_panel.index('id="pcx-size"'):]
         self.assertNotIn("Ø", option_block)
-        self.assertNotIn('defsSizeLabel.textContent = "Ø"', html)
+        self.assertNotIn("پارامترهای کارخانه برای همین سایز", html)
         self.assertNotIn("شات بلینگ", html)
+
+    def test_results_show_calculated_size_without_cross_tab_selectors(self):
+        resp = self.client.get("/data/pipe-calc/?line=protect&size=110")
+        html = resp.content.decode()
+        calculation_start = html.index('data-pcx-panel="calculation"')
+        definitions_start = html.index('data-pcx-panel="definitions"')
+        calculation_panel = html[calculation_start:definitions_start]
+        self.assertIn('id="pcx-result-title"', calculation_panel)
+        self.assertIn("هنوز محاسبه‌ای انجام نشده است", calculation_panel)
+        self.assertNotIn('id="pcx-size"', calculation_panel)
+        self.assertNotIn('id="pcx-qty-source"', calculation_panel)
+        self.assertIn('resultTitle.textContent = "نتایج محاسبات سایز " + String(matrix.size_mm)', html)
+        self.assertNotIn('resultTitle.textContent = "نتایج محاسبات سایز Ø', html)
+
+    def test_definitions_size_state_is_independent_and_all_fields_remain(self):
+        resp = self.client.get("/data/pipe-calc/?line=protect&size=110")
+        html = resp.content.decode()
+        self.assertIn("var defsMatrix = matrix;", html)
+        self.assertIn('defsSizeSel.addEventListener("change"', html)
+        self.assertIn("defsMatrix = data.matrix || defsMatrix;", html)
+        self.assertNotIn("matrix = data.matrix || defsMatrix;", html)
+        self.assertIn('size_mm: parseInt(defsSizeSel.value, 10)', html)
+        for field in (
+            "billing_cycle_seconds",
+            "billing_cavities",
+            "kg_per_meter",
+            "cover_g_per_m",
+            "socket_cap_bag_qty",
+            "pipe_cap_bag_qty",
+            "spacer_bag_qty",
+            "oring_bag_qty",
+        ):
+            self.assertIn('sizeDefInput("' + field + '"', html)
 
     def test_selected_size_context_is_used_across_workspace(self):
         resp = self.client.get("/data/pipe-calc/?line=protect&size=200")

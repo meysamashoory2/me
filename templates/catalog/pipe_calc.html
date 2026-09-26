@@ -42,24 +42,6 @@
          data-can-edit="{% if can_edit %}1{% else %}0{% endif %}">
   <script type="application/json" id="pcx-matrix-json">{{ matrix_json|safe }}</script>
 
-  <div class="pcx-toolbar">
-    <div class="pcx-toolbar-actions">
-      <label class="pcx-field">
-        <span>سایز</span>
-        <select id="pcx-size">
-          {% for s in overview.sizes %}
-          <option value="{{ s.size_mm }}" {% if selected_size_mm == s.size_mm %}selected{% endif %}>{{ s.size_mm }}</option>
-          {% endfor %}
-        </select>
-      </label>
-      <label class="pcx-field">
-        <span>مبنای محاسبه</span>
-        <select id="pcx-qty-source"></select>
-      </label>
-    </div>
-    <p class="pcx-hint">انتخاب سایز و مبنای محاسبه برای هر سه بخش زیر مشترک است.</p>
-  </div>
-
   <nav class="tabs pcx-workspace-tabs" aria-label="فضای کاری محاسبات لوله">
     <button type="button" class="tab active" data-pcx-tab="depot" aria-selected="true">برنامه دپو و نیاز تولید</button>
     <button type="button" class="tab" data-pcx-tab="calculation" aria-selected="false">جدول محاسباتی</button>
@@ -69,6 +51,22 @@
   <section class="pcx-tab-panel" data-pcx-panel="depot">
   <article class="pcx-card">
     <header class="pcx-card-head"><h3>برنامه دپو و نیاز تولید</h3></header>
+    <div class="pcx-toolbar" data-pcx-controls="depot">
+      <div class="pcx-toolbar-actions">
+        <label class="pcx-field">
+          <span>سایز</span>
+          <select class="pcx-select" id="pcx-size">
+            {% for s in overview.sizes %}
+            <option value="{{ s.size_mm }}" {% if selected_size_mm == s.size_mm %}selected{% endif %}>{{ s.size_mm }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label class="pcx-field">
+          <span>مبنای محاسبه</span>
+          <select class="pcx-select" id="pcx-qty-source"></select>
+        </label>
+      </div>
+    </div>
     <div class="pcx-scroll">
       <table class="pcx-table" id="pcx-depot-table">
         <thead>
@@ -98,7 +96,10 @@
   <section class="pcx-tab-panel" data-pcx-panel="calculation" hidden>
   <div id="pcx-results" class="pcx-results" data-ready="0">
     <article class="pcx-card pcx-card-calc">
-      <header class="pcx-card-head"><h3>جدول محاسباتی تولید و مواد</h3></header>
+      <header class="pcx-card-head">
+        <h3 id="pcx-result-title">جدول محاسباتی تولید و مواد</h3>
+        <p class="pcx-result-empty" id="pcx-result-empty">هنوز محاسبه‌ای انجام نشده است.</p>
+      </header>
       <div class="pcx-scroll">
         <table class="pcx-table pcx-table-calc">
           <thead id="pcx-prod-head"></thead>
@@ -112,8 +113,17 @@
 
   <section class="pcx-tab-panel" data-pcx-panel="definitions" hidden>
   <article class="pcx-card pcx-definitions-card">
-    <header class="pcx-card-head"><h3>تعاریف اولیه — سایز <span id="pcx-defs-size-label"></span></h3></header>
-    <p class="panel-hint" style="margin-top:0">پارامترهای کارخانه برای همین سایز و هر طول اسمی. سقف دپو از فایل کارخانه بارگذاری می‌شود و در همین جدول قابل تغییر است.</p>
+    <header class="pcx-card-head">
+      <h3>تعاریف اولیه</h3>
+      <label class="pcx-field pcx-defs-size-field">
+        <span>سایز</span>
+        <select class="pcx-select" id="pcx-defs-size">
+          {% for s in overview.sizes %}
+          <option value="{{ s.size_mm }}" {% if selected_size_mm == s.size_mm %}selected{% endif %}>{{ s.size_mm }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    </header>
     <div class="pcx-size-defs" id="pcx-size-defs"></div>
     <div class="pcx-scroll">
       <table class="pcx-defs-table">
@@ -183,10 +193,13 @@
   var prodHead = document.getElementById("pcx-prod-head");
   var prodBody = document.getElementById("pcx-prod-body");
   var prodFoot = document.getElementById("pcx-prod-foot");
+  var resultTitle = document.getElementById("pcx-result-title");
+  var resultEmpty = document.getElementById("pcx-result-empty");
   var defsBody = document.getElementById("pcx-defs-body");
   var defsSizeBox = document.getElementById("pcx-size-defs");
-  var defsSizeLabel = document.getElementById("pcx-defs-size-label");
+  var defsSizeSel = document.getElementById("pcx-defs-size");
   var saveDefsBtn = document.getElementById("pcx-defs-save");
+  var defsMatrix = matrix;
   var tabButtons = Array.prototype.slice.call(root.querySelectorAll("[data-pcx-tab]"));
   var tabPanels = Array.prototype.slice.call(root.querySelectorAll("[data-pcx-panel]"));
 
@@ -354,6 +367,8 @@
         }).join("") +
       "</tr>";
     fillQtyChoices(prod.qty_source_choices || matrix.qty_source_choices, prod.qty_source || matrix.default_qty_source);
+    resultTitle.textContent = "نتایج محاسبات سایز " + String(matrix.size_mm);
+    resultEmpty.hidden = true;
     results.setAttribute("data-ready", "1");
     activateTab("calculation");
   }
@@ -401,8 +416,7 @@
   }
 
   function renderDefsForm() {
-    defsSizeLabel.textContent = sizeSel.value;
-    var size = matrix.size_defs || {};
+    var size = defsMatrix.size_defs || {};
     defsSizeBox.innerHTML =
       '<label>سیکل بلینگ (ثانیه)' + sizeDefInput("billing_cycle_seconds", size.billing_cycle_seconds, "0.1") + "</label>" +
       "<label>حفره بلینگ" + sizeDefInput("billing_cavities", size.billing_cavities, "0.1") + "</label>" +
@@ -412,7 +426,7 @@
       "<label>درپوش لوله در کیسه" + sizeDefInput("pipe_cap_bag_qty", size.pipe_cap_bag_qty, "1") + "</label>" +
       "<label>اسپیسر در کیسه" + sizeDefInput("spacer_bag_qty", size.spacer_bag_qty, "1") + "</label>" +
       "<label>اورینگ در کیسه" + sizeDefInput("oring_bag_qty", size.oring_bag_qty, "1") + "</label>";
-    defsBody.innerHTML = (matrix.depot_rows || []).map(function (row, idx) {
+    defsBody.innerHTML = (defsMatrix.depot_rows || []).map(function (row, idx) {
       return (
         '<tr data-idx="' + idx + '" data-id="' + (row.id || "") + '">' +
           "<td>" + (row.label || row.length_code || "") + "</td>" +
@@ -430,7 +444,7 @@
   }
 
   function collectSizeDefs() {
-    var size = Object.assign({}, matrix.size_defs || {});
+    var size = Object.assign({}, defsMatrix.size_defs || {});
     Array.prototype.forEach.call(defsSizeBox.querySelectorAll("[data-size-def]"), function (input) {
       var key = input.getAttribute("data-size-def");
       var raw = input.value;
@@ -442,7 +456,7 @@
   function collectDefsRows() {
     return Array.prototype.map.call(defsBody.querySelectorAll("tr"), function (tr) {
       var idx = parseInt(tr.getAttribute("data-idx"), 10);
-      var row = matrix.depot_rows[idx] || {};
+      var row = defsMatrix.depot_rows[idx] || {};
       function val(name, asInt) {
         var el = tr.querySelector('[data-def="' + name + '"]');
         if (!el) return 0;
@@ -483,8 +497,8 @@
         }
         var byId = {};
         (data.rows || []).forEach(function (r) { byId[r.id] = r; });
-        if (data.size) matrix.size_defs = Object.assign(matrix.size_defs || {}, data.size);
-        (matrix.depot_rows || []).forEach(function (row) {
+        if (data.size) defsMatrix.size_defs = Object.assign(defsMatrix.size_defs || {}, data.size);
+        (defsMatrix.depot_rows || []).forEach(function (row) {
           var saved = byId[row.id];
           if (!saved) return;
           row.depot_ceiling = saved.depot_ceiling;
@@ -496,7 +510,11 @@
           if (saved.cover_cm !== undefined) row.cover_cm = saved.cover_cm;
           row._requiredTouched = false;
         });
-        renderDepot();
+        if (String(defsMatrix.size_mm) === String(matrix.size_mm)) {
+          matrix.size_defs = defsMatrix.size_defs;
+          matrix.depot_rows = defsMatrix.depot_rows;
+          renderDepot();
+        }
         renderDefsForm();
       })
       .catch(function () {
@@ -531,6 +549,38 @@
 
   qtySel.addEventListener("change", function () {
     if (results.getAttribute("data-ready") === "1") runCalc(qtySel.value);
+  });
+
+  defsSizeSel.addEventListener("change", function () {
+    defsSizeSel.disabled = true;
+    fetch(runUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-CSRFToken": csrfToken(),
+        "X-Requested-With": "XMLHttpRequest"
+      },
+      body: JSON.stringify({
+        line: lineCode,
+        size_mm: parseInt(defsSizeSel.value, 10),
+        mode: "matrix",
+        qty_source: matrix.default_qty_source || "deduct_stock"
+      })
+    })
+      .then(function (res) { return res.json(); })
+      .then(function (data) {
+        defsSizeSel.disabled = false;
+        if (!data.ok) {
+          alert(data.error || "بارگذاری تعاریف ناموفق بود");
+          return;
+        }
+        defsMatrix = data.matrix || defsMatrix;
+        renderDefsForm();
+      })
+      .catch(function () {
+        defsSizeSel.disabled = false;
+        alert("خطا در ارتباط با سرور");
+      });
   });
 
   fillQtyChoices(matrix.qty_source_choices, matrix.default_qty_source);
