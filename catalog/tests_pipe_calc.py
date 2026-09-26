@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from django.conf import settings
 from django.contrib.auth.models import User
 from django.test import Client, TestCase
 
@@ -328,7 +329,7 @@ class PipeCalcViewTests(TestCase):
         self.assertEqual(html.count("data-pcx-tab="), 3)
         for label in (
             "برنامه دپو و نیاز تولید",
-            "جدول محاسباتی",
+            "جدول محاسباتی لوله و مواد",
             "تعاریف اولیه",
         ):
             self.assertContains(resp, label)
@@ -355,6 +356,52 @@ class PipeCalcViewTests(TestCase):
         self.assertNotIn("Ø", option_block)
         self.assertNotIn("پارامترهای کارخانه برای همین سایز", html)
         self.assertNotIn("شات بلینگ", html)
+
+    def test_pipe_tables_use_only_the_approved_opt_in_profiles(self):
+        resp = self.client.get("/data/pipe-calc/?line=protect&size=110")
+        html = resp.content.decode()
+        self.assertIn(
+            'class="pcx-table erp-table-profile--compact" id="pcx-depot-table"',
+            html,
+        )
+        self.assertIn(
+            'class="pcx-table pcx-table-calc erp-table-profile--report"',
+            html,
+        )
+        self.assertIn(
+            'class="pcx-defs-table erp-table-profile--data-entry"',
+            html,
+        )
+        self.assertEqual(html.count("erp-table-profile--"), 3)
+
+        plan_template = (
+            settings.BASE_DIR / "templates" / "planning" / "plan_list.html"
+        ).read_text(encoding="utf-8")
+        self.assertNotIn("erp-table-profile--", plan_template)
+
+    def test_profile_css_uses_local_density_tokens_and_existing_gray_header(self):
+        css = (settings.BASE_DIR / "static" / "css" / "app.css").read_text(
+            encoding="utf-8"
+        )
+        for profile in ("compact", "report", "data-entry"):
+            marker = f".erp-table-profile--{profile} {{"
+            start = css.index(marker)
+            block = css[start : css.index("}", start)]
+            self.assertIn("--table-row-height:", block)
+            self.assertIn("--table-header-height:", block)
+            self.assertIn("--table-header-bg: #fafaf9;", block)
+
+    def test_duplicate_pipe_card_headings_are_absent(self):
+        resp = self.client.get("/data/pipe-calc/?line=protect&size=110")
+        html = resp.content.decode()
+        self.assertEqual(html.count("برنامه دپو و نیاز تولید"), 1)
+        self.assertEqual(html.count("تعاریف اولیه"), 1)
+        self.assertEqual(html.count("جدول محاسباتی لوله و مواد"), 1)
+        self.assertIn('id="pcx-result-title"', html)
+        self.assertIn(
+            'resultTitle.textContent = "نتایج محاسبات سایز " + String(matrix.size_mm)',
+            html,
+        )
 
     def test_results_show_calculated_size_without_cross_tab_selectors(self):
         resp = self.client.get("/data/pipe-calc/?line=protect&size=110")

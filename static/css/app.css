@@ -3177,6 +3177,12 @@ input[type=number].spin {
   color: #78716c;
   font-size: 12.5px;
 }
+.pcx-card-head-controls {
+  display: flex;
+  align-items: end;
+  gap: 12px;
+}
+.pcx-card-head-controls .pcx-defs-size-field { margin-top: 0; }
 .pcx-hint {
   margin: 0;
   color: #78716c;
@@ -3268,6 +3274,46 @@ input[type=number].spin {
 .pcx-table-calc .pcx-num {
   direction: rtl;
 }
+
+/* Opt-in semantic table profiles. Local tokens deliberately override the
+   inherited global tokens while retaining generated borders, selection,
+   focus, navigation, and saved-width behavior. */
+.erp-table-profile--compact {
+  --table-row-height: 26px;
+  --table-header-height: 28px;
+  --table-header-bg: #fafaf9;
+  font-size: 12px;
+}
+.erp-table-profile--compact th,
+.erp-table-profile--compact td {
+  padding: 2px 6px;
+}
+.erp-table-profile--compact tbody tr:hover td {
+  background: rgba(14, 116, 144, 0.04);
+}
+.erp-table-profile--report {
+  --table-row-height: 34px;
+  --table-header-height: 34px;
+  --table-header-bg: #fafaf9;
+  font-size: 12.5px;
+}
+.erp-table-profile--report th,
+.erp-table-profile--report td {
+  padding: 5px 8px;
+}
+.erp-table-profile--report tbody tr:hover td {
+  background: rgba(21, 128, 61, 0.05);
+}
+.erp-table-profile--data-entry {
+  --table-row-height: 34px;
+  --table-header-height: 34px;
+  --table-header-bg: #fafaf9;
+  font-size: 13px;
+}
+.erp-table-profile--data-entry th,
+.erp-table-profile--data-entry td {
+  padding: 5px 8px;
+}
 .pcx-stack {
   display: flex;
   flex-direction: column;
@@ -3350,6 +3396,15 @@ input[type=number].spin {
   .pcx-field { min-width: 0; width: 100%; }
   .pcx-input { width: 76px; }
   .pcx-size-defs { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+  .erp-table-profile--compact {
+    --table-row-height: 30px;
+    --table-header-height: 32px;
+  }
+  .erp-table-profile--report,
+  .erp-table-profile--data-entry {
+    --table-row-height: 36px;
+    --table-header-height: 36px;
+  }
 }
 
 .panel-title {

@@ -44,13 +44,12 @@
 
   <nav class="tabs pcx-workspace-tabs" aria-label="فضای کاری محاسبات لوله">
     <button type="button" class="tab active" data-pcx-tab="depot" aria-selected="true">برنامه دپو و نیاز تولید</button>
-    <button type="button" class="tab" data-pcx-tab="calculation" aria-selected="false">جدول محاسباتی</button>
+    <button type="button" class="tab" data-pcx-tab="calculation" aria-selected="false">جدول محاسباتی لوله و مواد</button>
     <button type="button" class="tab" data-pcx-tab="definitions" aria-selected="false">تعاریف اولیه</button>
   </nav>
 
   <section class="pcx-tab-panel" data-pcx-panel="depot">
   <article class="pcx-card">
-    <header class="pcx-card-head"><h3>برنامه دپو و نیاز تولید</h3></header>
     <div class="pcx-toolbar" data-pcx-controls="depot">
       <div class="pcx-toolbar-actions">
         <label class="pcx-field">
@@ -68,7 +67,7 @@
       </div>
     </div>
     <div class="pcx-scroll">
-      <table class="pcx-table" id="pcx-depot-table">
+      <table class="pcx-table erp-table-profile--compact" id="pcx-depot-table">
         <thead>
           <tr>
             <th>طول اسمی</th>
@@ -101,7 +100,7 @@
         <p class="pcx-result-empty" id="pcx-result-empty">هنوز محاسبه‌ای انجام نشده است.</p>
       </header>
       <div class="pcx-scroll">
-        <table class="pcx-table pcx-table-calc">
+        <table class="pcx-table pcx-table-calc erp-table-profile--report">
           <thead id="pcx-prod-head"></thead>
           <tbody id="pcx-prod-body"></tbody>
           <tfoot id="pcx-prod-foot"></tfoot>
@@ -113,8 +112,7 @@
 
   <section class="pcx-tab-panel" data-pcx-panel="definitions" hidden>
   <article class="pcx-card pcx-definitions-card">
-    <header class="pcx-card-head">
-      <h3>تعاریف اولیه</h3>
+    <header class="pcx-card-head pcx-card-head-controls">
       <label class="pcx-field pcx-defs-size-field">
         <span>سایز</span>
         <select class="pcx-select" id="pcx-defs-size">
@@ -126,7 +124,7 @@
     </header>
     <div class="pcx-size-defs" id="pcx-size-defs"></div>
     <div class="pcx-scroll">
-      <table class="pcx-defs-table">
+      <table class="pcx-defs-table erp-table-profile--data-entry">
         <thead>
           <tr>
             <th>طول اسمی</th>
