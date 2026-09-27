@@ -2709,12 +2709,6 @@ fieldset.layout-card > .layout-card-title {
   gap: 10px;
   font-weight: 700;
 }
-[data-table-section] .pcx-table th,
-[data-table-section] .pcx-table td {
-  height: var(--table-row-height, 26px);
-  min-height: var(--table-row-height, 26px);
-  max-height: var(--table-row-height, 26px);
-}
 @media (max-width: 1100px) {
   .table-layout-fields { grid-template-columns: 1fr 1fr; }
 }
@@ -3106,20 +3100,14 @@ input[type=number].spin {
 .pcx-defs-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
 }
 .pcx-defs-table th,
 .pcx-defs-table td {
-  padding: 4px 8px;
   border-bottom: 1px solid #f0eeec;
   text-align: center;
-  height: 30px;
-  line-height: 1.2;
 }
 .pcx-defs-table th {
-  background: #fafaf9;
   color: #57534e;
-  font-size: 12px;
   font-weight: 650;
 }
 .pcx-defs-table td:first-child,
@@ -3230,32 +3218,22 @@ input[type=number].spin {
   width: 100%;
   border-collapse: separate;
   border-spacing: 0;
-  font-size: 12px;
   color: #292524;
 }
 .pcx-table th,
 .pcx-table td {
-  padding: 2px 6px;
   border-bottom: 1px solid #f0eeec;
-  white-space: nowrap;
   text-align: center;
   vertical-align: middle;
-  height: 26px;
-  max-height: 26px;
-  line-height: 1.15;
   box-sizing: border-box;
 }
 .pcx-table th {
   position: sticky;
   top: 0;
   z-index: 2;
-  background: rgba(250, 250, 249, 0.96);
   backdrop-filter: blur(6px);
   color: #57534e;
   font-weight: 650;
-  font-size: 11px;
-  height: 28px;
-  max-height: 28px;
 }
 .pcx-table tbody tr:hover td {
   background: rgba(14, 116, 144, 0.04);

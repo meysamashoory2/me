@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import re
+
+from django.conf import settings
 from django.test import SimpleTestCase
 
 from catalog.table_layout import (
@@ -77,6 +80,22 @@ class TableLayoutHelpersTests(SimpleTestCase):
             host = f'[data-table-family="{key.replace("_", "-")}"]'
             self.assertIn(f"{host} table:not(.excel-preview-table):not(.excel-grid) tbody tr", css)
             self.assertIn(f"{host} table:not(.excel-preview-table):not(.excel-grid) thead tr", css)
+
+    def test_pipe_component_css_does_not_shadow_family_owned_appearance(self):
+        css = (settings.BASE_DIR / "static" / "css" / "app.css").read_text(encoding="utf-8")
+        for selector in (r"\.pcx-table", r"\.pcx-defs-table"):
+            table_rule = re.search(selector + r"\s*\{([^}]*)\}", css)
+            self.assertIsNotNone(table_rule)
+            self.assertNotRegex(table_rule.group(1), r"(?:font-size|--table-row-height|--table-header-height|--table-header-bg)\s*:")
+        for selector in (r"\.pcx-table th", r"\.pcx-defs-table th"):
+            header_rule = re.search(selector + r"\s*\{([^}]*)\}", css)
+            self.assertIsNotNone(header_rule)
+            self.assertNotRegex(header_rule.group(1), r"(?:background(?:-color)?|font-size|height|max-height|line-height|padding)\s*:")
+        cells = re.search(r"\.pcx-table th,\s*\.pcx-table td\s*\{([^}]*)\}", css)
+        self.assertIsNotNone(cells)
+        self.assertNotRegex(cells.group(1), r"(?:height|max-height|line-height|padding)\s*:")
+        self.assertIn("height: 22px !important", css)
+        self.assertIn(".erp-table-profile--compact", css)
 
     def test_profile_defaults_are_backward_compatible(self):
         self.assertEqual(normalize_profile_layouts({}), PROFILE_DEFAULTS)

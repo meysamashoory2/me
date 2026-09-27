@@ -276,28 +276,31 @@ class TableLayoutSettingsTests(TestCase):
 
         saved = self.client.post(
             url,
-            self._family_payload(body_font_size_px="20", header_font_size_px="15", row_height_px="60", header_height_px="55"),
+            self._family_payload(body_font_size_px="20", header_font_size_px="18", row_height_px="70", header_height_px="70", header_color="#ff00aa"),
             HTTP_X_REQUESTED_WITH="XMLHttpRequest",
         )
         self.assertEqual(saved.status_code, 200)
         payload = saved.json()
         self.assertEqual(payload["layout"]["body_font_size_px"], 20)
-        self.assertEqual(payload["layout"]["header_font_size_px"], 15)
-        self.assertEqual(payload["layout"]["row_height_px"], 60)
-        self.assertEqual(payload["layout"]["header_height_px"], 55)
+        self.assertEqual(payload["layout"]["header_font_size_px"], 18)
+        self.assertEqual(payload["layout"]["row_height_px"], 70)
+        self.assertEqual(payload["layout"]["header_height_px"], 70)
+        self.assertEqual(payload["layout"]["header_color"], "#ff00aa")
         production_css = payload["css"].split('[data-table-family="production-calculation"]', 1)[1].split('[data-table-family="operational"]', 1)[0]
         self.assertIn("--table-family-body-font-size:20px", production_css)
-        self.assertIn("--table-family-header-font-size:15px", production_css)
-        self.assertIn("--table-row-height:60px", production_css)
-        self.assertIn("--table-header-height:55px", production_css)
+        self.assertIn("--table-family-header-font-size:18px", production_css)
+        self.assertIn("--table-row-height:70px", production_css)
+        self.assertIn("--table-header-height:70px", production_css)
+        self.assertIn("--table-header-bg:rgba(255,0,170,1.00)", production_css)
         self.assertIn("tbody tr{height:var(--table-row-height) !important", production_css)
         self.assertIn("thead tr{height:var(--table-header-height) !important", production_css)
 
         settings.refresh_from_db()
         effective = normalize_family_layouts(settings.section_layouts)
         self.assertEqual(effective["production_calculation"]["body_font_size_px"], 20)
-        self.assertEqual(effective["production_calculation"]["row_height_px"], 60)
-        self.assertEqual(effective["production_calculation"]["header_height_px"], 55)
+        self.assertEqual(effective["production_calculation"]["row_height_px"], 70)
+        self.assertEqual(effective["production_calculation"]["header_height_px"], 70)
+        self.assertEqual(effective["production_calculation"]["header_color"], "#ff00aa")
         reloaded = self.client.get(url, {"family": "production_calculation"})
         self.assertContains(reloaded, 'name="body_font_size_px" min="9" max="24" step="0.1" value="20.0"')
 
@@ -315,6 +318,7 @@ class TableLayoutSettingsTests(TestCase):
         self.assertIn("--table-family-body-font-size:12.5px", reset_css)
         self.assertIn("--table-row-height:34px", reset_css)
         self.assertIn("--table-header-height:34px", reset_css)
+        self.assertIn("--table-header-bg:rgba(199,215,234,1.00)", reset_css)
         self.assertNotIn("--table-family-body-font-size:20px", reset_css)
 
         settings.refresh_from_db()
