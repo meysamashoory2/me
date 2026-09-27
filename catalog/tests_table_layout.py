@@ -60,6 +60,24 @@ class TableLayoutHelpersTests(SimpleTestCase):
         with self.assertRaises(FamilyValidationError):
             family_layout_from_post("unknown", valid)
 
+    def test_removed_padding_fields_are_optional_and_historical_values_survive(self):
+        current = {
+            "cell_padding_vertical_px": 7,
+            "cell_padding_horizontal_px": 19,
+        }
+        posted = {
+            "row_height_px": "70", "header_height_px": "70",
+            "body_font_size_px": "16", "header_font_size_px": "15",
+            "header_border": "show", "col_border": "show", "row_border": "show",
+            "header_color": "#ff00aa", "header_alpha": "100",
+            "row_selected_color": "#123456", "row_selected_alpha": "100",
+            "cell_outline_color": "#654321", "cell_outline_alpha": "100",
+            "cell_fill_color": "#abcdef", "cell_fill_alpha": "100",
+        }
+        layout = family_layout_from_post("list_management", posted, current)
+        self.assertEqual(layout["cell_padding_vertical_px"], 7)
+        self.assertEqual(layout["cell_padding_horizontal_px"], 19)
+
     def test_family_css_is_container_scoped(self):
         css = css_for_families(normalize_family_layouts({}))
         self.assertIn('[data-table-family="production-calculation"]', css)
@@ -80,6 +98,53 @@ class TableLayoutHelpersTests(SimpleTestCase):
             host = f'[data-table-family="{key.replace("_", "-")}"]'
             self.assertIn(f"{host} table:not(.excel-preview-table):not(.excel-grid) tbody tr", css)
             self.assertIn(f"{host} table:not(.excel-preview-table):not(.excel-grid) thead tr", css)
+
+    def test_list_family_css_owns_complete_acceptance_contract(self):
+        families = normalize_family_layouts({})
+        families["list_management"].update({
+            "row_height_px": 70, "header_height_px": 70,
+            "header_border": True, "col_border": True, "row_border": True,
+            "width_locked": True, "header_wrap": True, "body_wrap": True,
+            "header_color": "#ff00aa", "row_selected_color": "#123456",
+            "cell_fill_color": "#abcdef", "cell_outline_color": "#654321",
+        })
+        css = css_for_families(families)
+        block = css.split('[data-table-family="list-management"]', 1)[1].split('[data-table-family="production-calculation"]', 1)[0]
+        self.assertIn("--table-row-height:70px", block)
+        self.assertIn("--table-header-height:70px", block)
+        self.assertIn("--table-header-bg:rgba(255,0,170,1.00)", block)
+        self.assertIn("--table-family-width-locked:1", block)
+        self.assertIn('[data-table-family="list-management"] .table:not(.excel-preview-table):not(.excel-grid) th', block)
+        self.assertIn('[data-table-family="list-management"] .results table:not(.excel-preview-table):not(.excel-grid) th', block)
+        self.assertIn(f"background-image:linear-gradient({COLUMN_BORDER_COLOR},{COLUMN_BORDER_COLOR}) !important", block)
+        self.assertIn("border-bottom:1px solid #9eb6d4 !important", block)
+        self.assertIn("border-bottom-color:var(--line) !important", block)
+        self.assertIn("white-space:normal !important;overflow-wrap:anywhere !important", block)
+        self.assertIn("tr.is-row-selected > td", block)
+        self.assertIn("td.is-cell-focus", block)
+        self.assertIn("background:var(--table-row-selected) !important", block)
+        self.assertIn("background:var(--table-cell-fill) !important", block)
+        self.assertIn("outline:2px solid var(--table-cell-outline) !important", block)
+
+    def test_family_contract_follows_and_matches_legacy_section_specificity(self):
+        css = css_for_layouts(
+            normalize_all_layouts({}),
+            normalize_profile_layouts({}),
+            normalize_family_layouts({}),
+        )
+        legacy = '[data-table-section="planning"] .table th'
+        family = '[data-table-family="list-management"] .table:not(.excel-preview-table):not(.excel-grid) th'
+        self.assertIn(legacy, css)
+        self.assertIn(family, css)
+        self.assertGreater(css.rfind(family), css.rfind(legacy))
+
+    def test_width_lock_uses_family_value_without_changing_storage_contract(self):
+        js = (settings.BASE_DIR / "static" / "js" / "table_layout.js").read_text(encoding="utf-8")
+        self.assertIn('getPropertyValue("--table-family-width-locked")', js)
+        self.assertIn("if (familyLocked !== null) locked = familyLocked", js)
+        self.assertIn('var STORAGE_PREFIX = "erp.table.colwidths."', js)
+        self.assertIn("var stored = loadWidths(table)", js)
+        self.assertIn("applyFixedWidths(table, stored)", js)
 
     def test_pipe_component_css_does_not_shadow_family_owned_appearance(self):
         css = (settings.BASE_DIR / "static" / "css" / "app.css").read_text(encoding="utf-8")

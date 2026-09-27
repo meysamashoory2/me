@@ -62,6 +62,12 @@ FAMILY_VALUE_BOUNDS = {
     "body_font_size_px": (9, 24), "header_font_size_px": (9, 24),
     "cell_padding_vertical_px": (0, 24), "cell_padding_horizontal_px": (0, 32),
 }
+FAMILY_EDITABLE_SIZE_FIELDS = (
+    "row_height_px",
+    "header_height_px",
+    "body_font_size_px",
+    "header_font_size_px",
+)
 FAMILY_IMPACT_REGISTRY = {
     "list_management": (
         {"label": "فهرست‌ها، مدیریت کاربران و پیکربندی", "module": "برنامه‌ریزی، سیستم، گزارشات", "count": 12},
@@ -247,15 +253,21 @@ def normalize_family_layouts(stored: Any) -> dict[str, dict[str, Any]]:
     return {key: normalize_family_layout(key, raw.get(key)) for key in FAMILY_KEYS}
 
 
-def family_layout_from_post(family_key: str, post) -> dict[str, Any]:
+def family_layout_from_post(family_key: str, post, current: Any = None) -> dict[str, Any]:
     if family_key not in FAMILY_KEYS:
         raise FamilyValidationError("خانواده جدول نامعتبر است.")
-    numeric = tuple(FAMILY_DEFAULTS[family_key])
+    numeric = FAMILY_EDITABLE_SIZE_FIELDS
     if any(field not in post for field in numeric):
-        raise FamilyValidationError("همه مقادیر اندازه و فاصله الزامی هستند.")
-    layout = default_family_layout(family_key)
+        raise FamilyValidationError("همه مقادیر اندازه الزامی هستند.")
+    layout = normalize_family_layout(family_key, current)
     for field in numeric:
         layout[field] = _strict_number(post.get(field), field)
+    # Padding is no longer user-configurable, but older callers and persisted
+    # JSON remain valid.  Preserve the effective historical values rather than
+    # deleting or silently resetting them.
+    for field in ("cell_padding_vertical_px", "cell_padding_horizontal_px"):
+        if field in post:
+            layout[field] = _strict_number(post.get(field), field)
     for color_field in ("header_color", "row_selected_color", "cell_outline_color", "cell_fill_color"):
         value = str(post.get(color_field) or "").strip()
         if not (len(value) in {4, 7} and value.startswith("#") and all(ch in "0123456789abcdefABCDEF" for ch in value[1:])):
@@ -299,27 +311,61 @@ def css_for_families(families: Any) -> str:
             f"--table-family-pad-v:{cfg['cell_padding_vertical_px']}px;--table-family-pad-h:{cfg['cell_padding_horizontal_px']}px;"
             f"--table-header-bg:{_rgba(cfg['header_color'], cfg['header_alpha'])};--table-row-selected:{_rgba(cfg['row_selected_color'], cfg['row_selected_alpha'])};"
             f"--table-cell-outline:{_rgba(cfg['cell_outline_color'], cfg['cell_outline_alpha'])};--table-cell-fill:{_rgba(cfg['cell_fill_color'], cfg['cell_fill_alpha'])};"
-            f"--table-marquee:{1 if cfg['marquee'] else 0};}}"
+            f"--table-marquee:{1 if cfg['marquee'] else 0};--table-family-width-locked:{1 if cfg['width_locked'] else 0};}}"
         )
         # Family membership belongs to the persistent container, so current and
         # future descendant tables inherit without a per-table profile class.
         # Spreadsheet-style Excel surfaces deliberately keep independent sizing.
-        family_tables = f"{host} table:not(.excel-preview-table):not(.excel-grid)"
-        header_rows = f"{family_tables} thead tr"
-        body_rows = f"{family_tables} tbody tr"
-        headers = f"{family_tables} th"
-        bodies = f"{family_tables} td"
+        family_tables = (
+            f"{host} table:not(.excel-preview-table):not(.excel-grid)",
+            f"{host} .table:not(.excel-preview-table):not(.excel-grid)",
+            f"{host} .pcx-table:not(.excel-preview-table):not(.excel-grid)",
+            f"{host} .results table:not(.excel-preview-table):not(.excel-grid)",
+        )
+
+        def family_selector(suffix: str) -> str:
+            return ",".join(f"{table}{suffix}" for table in family_tables)
+
+        header_rows = family_selector(" thead tr")
+        body_rows = family_selector(" tbody tr")
+        headers = family_selector(" th")
+        bodies = family_selector(" td")
         cells = f"{headers},{bodies}"
         parts.append(f"{header_rows}{{height:var(--table-header-height) !important;}}{body_rows}{{height:var(--table-row-height) !important;}}")
         parts.append(f"{headers}{{font-size:var(--table-family-header-font-size) !important;height:var(--table-header-height) !important;min-height:var(--table-header-height) !important;max-height:var(--table-header-height) !important;line-height:normal !important;box-sizing:border-box;padding:var(--table-family-pad-v) var(--table-family-pad-h) !important;background:var(--table-header-bg) !important;}}")
         parts.append(f"{bodies}{{font-size:var(--table-family-body-font-size) !important;height:var(--table-row-height) !important;min-height:var(--table-row-height) !important;max-height:var(--table-row-height) !important;line-height:normal !important;box-sizing:border-box;padding:var(--table-family-pad-v) var(--table-family-pad-h) !important;}}")
-        if not cfg["col_border"]:
+        if cfg["col_border"]:
+            between = f"{family_selector(' th:not(:last-child)')},{family_selector(' td:not(:last-child)')}"
+            parts.append(
+                f"{between}{{background-image:linear-gradient({COLUMN_BORDER_COLOR},{COLUMN_BORDER_COLOR}) !important;"
+                "background-repeat:no-repeat !important;background-size:1px 100% !important;"
+                "background-position:left center !important;}}"
+            )
+        else:
             parts.append(f"{cells}{{border-left:none !important;border-right:none !important;background-image:none !important;}}")
-        if not cfg["row_border"]:
+        if cfg["row_border"]:
+            parts.append(f"{bodies}{{border-bottom-color:var(--line) !important;}}")
+        else:
             parts.append(f"{bodies}{{border-top-color:transparent !important;border-bottom-color:transparent !important;}}")
-        if not cfg["header_border"]:
+        if cfg["header_border"]:
+            parts.append(f"{headers}{{border-bottom:1px solid #9eb6d4 !important;}}")
+        else:
             parts.append(f"{headers}{{border-top-color:transparent !important;border-bottom-color:transparent !important;box-shadow:none !important;}}")
-        parts.append(f"{headers}{{white-space:{'normal' if cfg['header_wrap'] else 'nowrap'} !important;}}{bodies}{{white-space:{'normal' if cfg['body_wrap'] else 'nowrap'} !important;}}")
+        parts.append(
+            f"{headers}{{white-space:{'normal' if cfg['header_wrap'] else 'nowrap'} !important;"
+            f"overflow-wrap:{'anywhere' if cfg['header_wrap'] else 'normal'} !important;"
+            f"word-break:{'break-word' if cfg['header_wrap'] else 'normal'} !important;}}"
+            f"{bodies}{{white-space:{'normal' if cfg['body_wrap'] else 'nowrap'} !important;"
+            f"overflow-wrap:{'anywhere' if cfg['body_wrap'] else 'normal'} !important;"
+            f"word-break:{'break-word' if cfg['body_wrap'] else 'normal'} !important;}}"
+        )
+        selected = f"{family_selector(' tbody tr.is-row-selected > td')},{family_selector(' tbody tr.is-row-selected > th')}"
+        focused = f"{family_selector(' tbody tr.is-row-selected > td.is-cell-focus')},{family_selector(' tbody tr.is-row-selected > th.is-cell-focus')}"
+        parts.append(f"{selected}{{background:var(--table-row-selected) !important;}}")
+        parts.append(
+            f"{focused}{{background:var(--table-cell-fill) !important;"
+            "outline:2px solid var(--table-cell-outline) !important;outline-offset:-2px !important;}}"
+        )
     return "".join(parts)
 
 

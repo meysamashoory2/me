@@ -972,7 +972,7 @@ def system_table_layout(request: HttpRequest) -> HttpResponse:
                 saved = default_family_layout(active_family)
                 message = "بازگشت به پیش‌فرض"
             else:
-                saved = family_layout_from_post(active_family, request.POST)
+                saved = family_layout_from_post(active_family, request.POST, families[active_family])
                 message = "اعمال شد"
         except FamilyValidationError as exc:
             if request.headers.get("X-Requested-With") == "XMLHttpRequest":
@@ -1003,6 +1003,7 @@ def system_table_layout(request: HttpRequest) -> HttpResponse:
         "catalog/system_table_layout.html",
         {
             "active_family": active_family,
+            "active_family_slug": active_family.replace("_", "-"),
             "family_choices": tuple((key, FAMILY_LABELS[key]) for key in FAMILY_KEYS),
             "layout": families[active_family],
             "layout_defaults_json": json.dumps(default_family_layout(active_family), ensure_ascii=False),

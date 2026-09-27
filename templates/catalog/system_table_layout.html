@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}تنظیمات جداول{% endblock %}{% block heading %}تنظیمات جداول{% endblock %}
 {% block table_section %}system{% endblock %}{% block table_surface %}layout{% endblock %}
-{% block table_family %}list-management{% endblock %}
+{% block table_family %}{{ active_family_slug }}{% endblock %}
 {% block topbar_actions %}<div class="topbar-actions"><a class="btn btn-sm btn-ghost" href="{% url 'system_data' %}">بازگشت به مدیریت داده‌ها</a><a class="btn btn-sm btn-ghost" href="{{ preview_href }}">پیش‌نمایش</a></div>{% endblock %}
 {% block content %}
 <div class="panel table-layout-form"><div class="panel-body">
@@ -13,23 +13,33 @@
         <label class="layout-field"><span>اندازه فونت سرستون</span><input class="input" type="number" name="header_font_size_px" min="9" max="24" step="0.1" value="{{ layout.header_font_size_px }}" required></label>
         <fieldset class="layout-field layout-field-choice"><span>مرزبندی</span><div class="layout-choice-row"><label><input type="radio" name="header_border" value="show" {% if layout.header_border %}checked{% endif %}> نمایش</label><label><input type="radio" name="header_border" value="hide" {% if not layout.header_border %}checked{% endif %}> مخفی</label></div></fieldset>
         <label class="layout-field layout-field-check"><span>قفل عرض ستون</span><input type="checkbox" name="width_locked" value="1" {% if layout.width_locked %}checked{% endif %}></label>
-        <label class="layout-field layout-field-check"><span>شکستن متن</span><input type="checkbox" name="header_wrap" value="1" {% if layout.header_wrap %}checked{% endif %}></label>
+        <label class="layout-field layout-field-check"><span>Wrap Text</span><input type="checkbox" name="header_wrap" value="1" {% if layout.header_wrap %}checked{% endif %}></label>
         <div class="layout-field layout-field-color"><span>رنگ سرستون</span><div class="layout-tint" data-tint><span class="layout-tint-well"><span class="layout-tint-chip"></span><input type="color" name="header_color" value="{{ layout.header_color }}"></span><input type="range" name="header_alpha" min="0" max="100" value="{{ layout.header_alpha }}"><output>{{ layout.header_alpha }}٪</output></div></div>
       </div></section>
       <section class="family-settings-panel"><h2>بدنه جدول</h2><div class="layout-page-fields">
         <label class="layout-field"><span>ارتفاع ردیف</span><input class="input" type="number" name="row_height_px" min="18" max="80" value="{{ layout.row_height_px }}" required></label>
         <label class="layout-field"><span>اندازه فونت بدنه</span><input class="input" type="number" name="body_font_size_px" min="9" max="24" step="0.1" value="{{ layout.body_font_size_px }}" required></label>
-        <label class="layout-field"><span>فاصله عمودی سلول</span><input class="input" type="number" name="cell_padding_vertical_px" min="0" max="24" value="{{ layout.cell_padding_vertical_px }}" required></label>
-        <label class="layout-field"><span>فاصله افقی سلول</span><input class="input" type="number" name="cell_padding_horizontal_px" min="0" max="32" value="{{ layout.cell_padding_horizontal_px }}" required></label>
         <fieldset class="layout-field layout-field-choice"><span>مرز ستون‌ها</span><div class="layout-choice-row"><label><input type="radio" name="col_border" value="show" {% if layout.col_border %}checked{% endif %}> نمایش</label><label><input type="radio" name="col_border" value="hide" {% if not layout.col_border %}checked{% endif %}> مخفی</label></div></fieldset>
         <fieldset class="layout-field layout-field-choice"><span>مرز ردیف‌ها</span><div class="layout-choice-row"><label><input type="radio" name="row_border" value="show" {% if layout.row_border %}checked{% endif %}> نمایش</label><label><input type="radio" name="row_border" value="hide" {% if not layout.row_border %}checked{% endif %}> مخفی</label></div></fieldset>
-        <label class="layout-field layout-field-check"><span>شکستن متن</span><input type="checkbox" name="body_wrap" value="1" id="body-wrap" {% if layout.body_wrap %}checked{% endif %}></label>
+        <label class="layout-field layout-field-check"><span>Wrap Text</span><input type="checkbox" name="body_wrap" value="1" id="body-wrap" {% if layout.body_wrap %}checked{% endif %}></label>
         <label class="layout-field layout-field-check"><span>متن متحرک</span><input type="checkbox" name="marquee" value="1" id="body-marquee" {% if layout.marquee %}checked{% endif %}></label>
         <div class="layout-field layout-field-color"><span>رنگ ردیف منتخب</span><div class="layout-tint" data-tint><span class="layout-tint-well"><span class="layout-tint-chip"></span><input type="color" name="row_selected_color" value="{{ layout.row_selected_color }}"></span><input type="range" name="row_selected_alpha" min="0" max="100" value="{{ layout.row_selected_alpha }}"><output>{{ layout.row_selected_alpha }}٪</output></div></div>
         <div class="layout-field layout-field-color"><span>رنگ کادر سلول</span><div class="layout-tint" data-tint><span class="layout-tint-well"><span class="layout-tint-chip"></span><input type="color" name="cell_outline_color" value="{{ layout.cell_outline_color }}"></span><input type="range" name="cell_outline_alpha" min="0" max="100" value="{{ layout.cell_outline_alpha }}"><output>{{ layout.cell_outline_alpha }}٪</output></div></div>
         <div class="layout-field layout-field-color"><span>رنگ سلول منتخب</span><div class="layout-tint" data-tint><span class="layout-tint-well"><span class="layout-tint-chip"></span><input type="color" name="cell_fill_color" value="{{ layout.cell_fill_color }}"></span><input type="range" name="cell_fill_alpha" min="0" max="100" value="{{ layout.cell_fill_alpha }}"><output>{{ layout.cell_fill_alpha }}٪</output></div></div>
       </div></section>
     </div>
+    <section class="table-family-preview" aria-labelledby="table-family-preview-title">
+      <div class="table-family-preview-head"><h2 id="table-family-preview-title">پیش‌نمایش مؤثر</h2><span class="panel-hint">پس از اعمال یا بازگشت به پیش‌فرض، همین تنظیمات مؤثر نمایش داده می‌شوند.</span></div>
+      <div class="table-scroll">
+        <table class="table table-compact" id="table-family-preview-table" data-table-section="system" data-erp-nav="off" data-lock-widths="1">
+          <thead><tr><th>عنوان طولانی سرستون برای نمایش Wrap Text</th><th>وضعیت</th><th>عملیات</th></tr></thead>
+          <tbody>
+            <tr><td>نمونه متن کوتاه</td><td>فعال</td><td>مشاهده</td></tr>
+            <tr class="is-row-selected"><td>متن طولانی بدنه برای بررسی Wrap Text و متن متحرک در فضای محدود جدول</td><td class="is-cell-focus">سلول منتخب</td><td>ویرایش</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
     <div class="layout-page-actions"><button class="btn btn-ghost" name="family_reset" value="{{ active_family }}" {% if not can_edit %}disabled{% endif %}>پیش‌فرض</button><button class="btn btn-primary-soft" {% if not can_edit %}disabled{% endif %}>اعمال</button></div>
   </form>
   <details class="family-impact"><summary>جداول تحت تأثیر: {{ impact_count }} جدول</summary><ul>{% for item in impact_items %}<li>{{ item.label }} — {{ item.module }} ({{ item.count }})</li>{% endfor %}</ul><p class="panel-hint">عضویت خانواده‌ها توسط توسعه‌دهنده کنترل می‌شود و در این صفحه قابل ویرایش نیست.</p></details>

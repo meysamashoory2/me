@@ -210,6 +210,28 @@ class TableLayoutSettingsTests(TestCase):
         html = response.content.decode()
         self.assertNotIn("profile_assignment", html)
         self.assertIn("<details", html)
+        self.assertGreaterEqual(html.count("Wrap Text"), 2)
+        self.assertNotIn("شکستن متن", html)
+        self.assertNotIn('name="cell_padding_vertical_px"', html)
+        self.assertNotIn('name="cell_padding_horizontal_px"', html)
+        self.assertIn('id="table-family-preview-table"', html)
+        self.assertIn('class="is-row-selected"', html)
+        self.assertIn('class="is-cell-focus"', html)
+        self.assertIn('data-table-family="production-calculation"', html)
+
+    def test_list_family_real_surfaces_and_preview_share_family_container(self):
+        self.client.login(username="admin", password="erp12345")
+        settings_page = self.client.get(reverse("system_table_layout"), {"family": "list_management"})
+        plan_list = self.client.get(reverse("plan_list"))
+        columns = self.client.get(reverse("system_table_columns"))
+        for response in (settings_page, plan_list, columns):
+            self.assertEqual(response.status_code, 200)
+            self.assertContains(response, 'data-table-family="list-management"')
+        from django.conf import settings as django_settings
+        plan_template = (django_settings.BASE_DIR / "templates" / "planning" / "plan_list.html").read_text(encoding="utf-8")
+        self.assertIn('id="plan-list-table"', plan_template)
+        self.assertIn('{% block table_family %}list-management{% endblock %}', plan_template)
+        self.assertContains(columns, 'class="table')
 
     def test_family_save_is_isolated_and_preserves_compatibility_data(self):
         from catalog.models import TableLayoutSettings
@@ -231,6 +253,29 @@ class TableLayoutSettingsTests(TestCase):
         saved = settings.section_layouts["families"]["production_calculation"]
         self.assertEqual(saved["body_font_size_px"], 13.7)
         self.assertEqual(saved["header_font_size_px"], 11.4)
+
+    def test_list_family_save_without_padding_controls_preserves_old_padding_json(self):
+        from catalog.models import TableLayoutSettings
+
+        self.client.login(username="admin", password="erp12345")
+        settings = TableLayoutSettings.objects.create(section_layouts={
+            "families": {"list_management": {
+                "cell_padding_vertical_px": 6,
+                "cell_padding_horizontal_px": 17,
+            }}
+        })
+        data = self._family_payload(family="list_management", row_height_px="70", header_height_px="70")
+        data.pop("cell_padding_vertical_px")
+        data.pop("cell_padding_horizontal_px")
+        response = self.client.post(
+            reverse("system_table_layout"), data,
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(response.status_code, 200)
+        settings.refresh_from_db()
+        saved = settings.section_layouts["families"]["list_management"]
+        self.assertEqual(saved["cell_padding_vertical_px"], 6)
+        self.assertEqual(saved["cell_padding_horizontal_px"], 17)
 
     def test_invalid_family_value_is_rejected_without_persistence(self):
         from catalog.models import TableLayoutSettings

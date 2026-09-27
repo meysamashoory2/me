@@ -30,6 +30,17 @@
     );
   }
 
+  function familyWidthLocked(table) {
+    var host = table && table.closest ? table.closest("[data-table-family]") : null;
+    if (!host || !host.getAttribute("data-table-family")) return null;
+    try {
+      var value = getComputedStyle(host).getPropertyValue("--table-family-width-locked").trim();
+      if (value === "1") return true;
+      if (value === "0") return false;
+    } catch (e) {}
+    return null;
+  }
+
   function tableStorageKey(table) {
     var section = sectionOf(table) || "global";
     var id = table.id || table.getAttribute("data-table-id") || "anon";
@@ -500,6 +511,8 @@
     } else if (section && !Object.prototype.hasOwnProperty.call(locks, "all")) {
       locked = !!locks[section];
     }
+    var familyLocked = familyWidthLocked(table);
+    if (familyLocked !== null) locked = familyLocked;
     if (table.getAttribute("data-lock-widths") === "1") locked = true;
 
     var metaWidths = null;
@@ -571,6 +584,7 @@
     scrollTableToRtlStart: scrollTableToRtlStart,
     stopReveal: stopReveal,
     playCellReveal: playCellReveal,
+    familyWidthLocked: familyWidthLocked,
     onCellSelected: onCellSelected,
     REVEAL_SPEED_PX_PER_SEC: REVEAL_SPEED_PX_PER_SEC,
   };
