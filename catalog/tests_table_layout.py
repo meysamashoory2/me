@@ -72,7 +72,7 @@ class TableLayoutHelpersTests(SimpleTestCase):
 
     def test_recalculated_impact_counts(self):
         self.assertEqual({key: sum(item["count"] for item in FAMILY_IMPACT_REGISTRY[key]) for key in FAMILY_KEYS},
-                         {"general": 76, "calculation": 3, "report": 10})
+                         {"general": 81, "calculation": 3, "report": 5})
 
     def test_family_validation_and_header_body_independence(self):
         valid = {
@@ -144,11 +144,11 @@ class TableLayoutHelpersTests(SimpleTestCase):
         self.assertIn("--table-header-height:70px", block)
         self.assertIn("--table-header-bg:rgba(255,0,170,1.00)", block)
         self.assertIn("--table-type-width-locked:1", block)
-        self.assertIn('[data-table-type="general"] .table:not(.excel-preview-table):not(.excel-grid) th', block)
-        self.assertIn('[data-table-type="general"] .results table:not(.excel-preview-table):not(.excel-grid) th', block)
-        self.assertIn(f"background-image:linear-gradient({COLUMN_BORDER_COLOR},{COLUMN_BORDER_COLOR}) !important", block)
-        self.assertIn("border-bottom:1px solid #9eb6d4 !important", block)
-        self.assertIn("border-bottom-color:var(--line) !important", block)
+        self.assertIn('[data-table-type="general"] .table:not(.excel-preview-table):not(.excel-grid) thead th', block)
+        self.assertIn('[data-table-type="general"] .results table:not(.excel-preview-table):not(.excel-grid) thead th', block)
+        self.assertIn("background-image:none !important", block)
+        self.assertIn("border-left:1px solid var(--line, #e2e8f0) !important", block)
+        self.assertIn("border-bottom:1px solid var(--line, #e2e8f0) !important", block)
         self.assertIn("white-space:normal !important;overflow-wrap:anywhere !important", block)
         self.assertIn("tr.is-row-selected > td", block)
         self.assertIn("td.is-cell-focus", block)

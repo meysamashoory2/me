@@ -220,11 +220,11 @@ class TableLayoutSettingsTests(TestCase):
         self.assertIn('data-table-type="calculation"', html)
         self.assertEqual(html.count('class="tab '), 3)
         self.assertIn('dir="rtl" name="header_alpha"', html)
-        self.assertIn('dir="ltr" name="header_height_px"', html)
+        self.assertIn('dir="ltr" data-number-for="header_height_px"', html)
 
     def test_each_type_uses_the_same_effective_preview_and_impact_count(self):
         self.client.login(username="admin", password="erp12345")
-        for key, count in (("general", 76), ("calculation", 3), ("report", 10)):
+        for key, count in (("general", 81), ("calculation", 3), ("report", 5)):
             with self.subTest(key=key):
                 response = self.client.get(reverse("system_table_layout"), {"family": key})
                 self.assertEqual(response.status_code, 200)
@@ -239,7 +239,7 @@ class TableLayoutSettingsTests(TestCase):
         self.client.login(username="admin", password="erp12345")
         html = self.client.get(reverse("system_table_layout")).content.decode()
         for name in ("header_height_px", "header_font_size_px", "row_height_px", "body_font_size_px"):
-            self.assertIn(f'type="number" dir="ltr" name="{name}"', html)
+            self.assertIn(f'type="text" inputmode="decimal" dir="ltr" data-number-for="{name}"', html)
         for name in ("header_alpha", "row_selected_alpha", "cell_outline_alpha", "cell_fill_alpha"):
             self.assertIn(f'type="range" dir="rtl" name="{name}"', html)
 
@@ -261,7 +261,7 @@ class TableLayoutSettingsTests(TestCase):
                 self.assertIn(f'data-table-type="{key}"', response.content.decode())
         for path, key in (
             ("templates/catalog/pipe_calc.html", "calculation"),
-            ("templates/planning/systemic_intelligence.html", "report"),
+            ("templates/planning/systemic_intelligence.html", "general"),
             ("templates/reports/detail.html", "report"),
             ("templates/reports/viewer_standalone.html", "report"),
             ("templates/reports/list.html", "general"),
@@ -403,7 +403,8 @@ class TableLayoutSettingsTests(TestCase):
         self.assertEqual(effective["calculation"]["header_height_px"], 70)
         self.assertEqual(effective["calculation"]["header_color"], "#ff00aa")
         reloaded = self.client.get(url, {"family": "calculation"})
-        self.assertContains(reloaded, 'name="body_font_size_px" min="9" max="24" step="0.1" value="20.0"')
+        self.assertContains(reloaded, 'name="body_font_size_px" value="20.0"')
+        self.assertContains(reloaded, 'value="۲۰٫۰"')
 
         reset = self.client.post(
             url,
@@ -449,9 +450,11 @@ class TableLayoutSettingsTests(TestCase):
         self.client.login(username="admin", password="erp12345")
         response = self.client.get(reverse("system_table_layout"))
         html = response.content.decode()
-        self.assertIn("function applyFamilyValuesToForm(v)", html)
-        self.assertIn("applyFamilyValuesToForm(x.j.layout)", html)
-        self.assertIn("e.submitter||lastSubmitter", html)
+        self.assertIn("js/table_settings.js", html)
+        from django.conf import settings
+        script = (settings.BASE_DIR / "static/js/table_settings.js").read_text(encoding="utf-8")
+        self.assertIn("applyFamilyValuesToForm(result.j.layout)", script)
+        self.assertIn("event.submitter || lastSubmitter", script)
 
     def test_family_settings_desktop_grid_and_collapsed_impact_structure(self):
         self.client.login(username="admin", password="erp12345")
@@ -583,7 +586,7 @@ class TableLayoutSettingsTests(TestCase):
         show_rule = (
             f"background-image:linear-gradient({COLUMN_BORDER_COLOR},{COLUMN_BORDER_COLOR}) !important"
         )
-        general_show = '[data-table-type="general"] table:not(.excel-preview-table):not(.excel-grid) th:not(:last-child)'
+        general_show = '[data-table-type="general"] table:not(.excel-preview-table):not(.excel-grid) thead th:not(:last-child)'
 
         self.client.post(
             layout_url,

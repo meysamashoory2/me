@@ -75,6 +75,7 @@ FAMILY_IMPACT_REGISTRY = {
     "general": (
         {"label": "فهرست‌ها، کاربران، پیکربندی و طراحی گزارش", "module": "برنامه‌ریزی، سیستم، گزارشات", "count": 15},
         {"label": "جداول عملیاتی، تولید، موجودی و محصول", "module": "برنامه‌ریزی، تولید، کاتالوگ", "count": 21},
+        {"label": "برنامه‌ریزی هوشمند", "module": "برنامه‌ریزی", "count": 5},
         {"label": "فهرست‌های مدیریت Django", "module": "مدیریت داده‌ها", "count": 40},
     ),
     "calculation": (
@@ -83,7 +84,6 @@ FAMILY_IMPACT_REGISTRY = {
         {"label": "تعاریف اولیه", "module": "محاسبات تولید لوله", "count": 1},
     ),
     "report": (
-        {"label": "تحلیل‌های برنامه‌ریزی هوشمند", "module": "برنامه‌ریزی هوشمند", "count": 5},
         {"label": "خلاصه‌های تحلیلی داشبورد", "module": "داشبورد", "count": 2},
         {"label": "نتایج گزارش و Drilldown", "module": "گزارشات", "count": 3},
     ),
@@ -332,13 +332,34 @@ def css_for_families(families: Any) -> str:
 
         header_rows = family_selector(" thead tr")
         body_rows = family_selector(" tbody tr")
-        headers = family_selector(" th")
-        bodies = family_selector(" td")
+        # Admin changelists use TH for body row links as well as headers.
+        # General header settings must never style those body cells.
+        headers = family_selector(" thead th") if key == "general" else family_selector(" th")
+        bodies = (f"{family_selector(' tbody td')},{family_selector(' tbody th')}"
+                  if key == "general" else family_selector(" td"))
         cells = f"{headers},{bodies}"
         parts.append(f"{header_rows}{{height:var(--table-header-height) !important;}}{body_rows}{{height:var(--table-row-height) !important;}}")
         parts.append(f"{headers}{{font-size:var(--table-family-header-font-size) !important;height:var(--table-header-height) !important;min-height:var(--table-header-height) !important;max-height:var(--table-header-height) !important;line-height:normal !important;box-sizing:border-box;padding:var(--table-family-pad-v) var(--table-family-pad-h) !important;background:var(--table-header-bg) !important;}}")
         parts.append(f"{bodies}{{font-size:var(--table-family-body-font-size) !important;height:var(--table-row-height) !important;min-height:var(--table-row-height) !important;max-height:var(--table-row-height) !important;line-height:normal !important;box-sizing:border-box;padding:var(--table-family-pad-v) var(--table-family-pad-h) !important;}}")
-        if cfg["col_border"]:
+        if key == "general":
+            # A single 1px edge, matching the existing body row border. The old
+            # gradient plus native border painted two adjacent vertical lines.
+            # Separate borders preserve sticky headers; only one cell paints
+            # each shared edge, and header/body controls remain independent.
+            parts.append(f"{family_selector('')}{{border-collapse:separate;border-spacing:0;}}")
+            parts.append(f"{cells}{{border:0 !important;background-image:none !important;box-shadow:none !important;}}")
+            parts.append(f"{headers}{{font-weight:700 !important;color:#1e3a5f !important;}}")
+            parts.append(f"{family_selector(' tbody th')}{{background:transparent !important;}}")
+            edge = "1px solid var(--line, #e2e8f0)"
+            if cfg["header_border"]:
+                parts.append(f"{headers}{{border-bottom:{edge} !important;}}")
+                parts.append(f"{family_selector(' thead th:not(:last-child)')}{{border-left:{edge} !important;}}")
+            if cfg["col_border"]:
+                between = f"{family_selector(' tbody td:not(:last-child)')},{family_selector(' tbody th:not(:last-child)')}"
+                parts.append(f"{between}{{border-left:{edge} !important;}}")
+            if cfg["row_border"]:
+                parts.append(f"{bodies}{{border-bottom:{edge} !important;}}")
+        elif cfg["col_border"]:
             between = f"{family_selector(' th:not(:last-child)')},{family_selector(' td:not(:last-child)')}"
             parts.append(
                 f"{between}{{background-image:linear-gradient({COLUMN_BORDER_COLOR},{COLUMN_BORDER_COLOR}) !important;"
@@ -347,13 +368,13 @@ def css_for_families(families: Any) -> str:
             )
         else:
             parts.append(f"{cells}{{border-left:none !important;border-right:none !important;background-image:none !important;}}")
-        if cfg["row_border"]:
+        if key != "general" and cfg["row_border"]:
             parts.append(f"{bodies}{{border-bottom-color:var(--line) !important;}}")
-        else:
+        elif key != "general":
             parts.append(f"{bodies}{{border-top-color:transparent !important;border-bottom-color:transparent !important;}}")
-        if cfg["header_border"]:
+        if key != "general" and cfg["header_border"]:
             parts.append(f"{headers}{{border-bottom:1px solid #9eb6d4 !important;}}")
-        else:
+        elif key != "general":
             parts.append(f"{headers}{{border-top-color:transparent !important;border-bottom-color:transparent !important;box-shadow:none !important;}}")
         parts.append(
             f"{headers}{{white-space:{'normal' if cfg['header_wrap'] else 'nowrap'} !important;"
@@ -370,6 +391,26 @@ def css_for_families(families: Any) -> str:
             f"{focused}{{background:var(--table-cell-fill) !important;"
             "outline:2px solid var(--table-cell-outline) !important;outline-offset:-2px !important;}"
         )
+        if key == "general":
+            # Text adapters only: leave action buttons, icons, checkbox inputs,
+            # filter controls and admin sort handles at their structural sizes.
+            header_text = ",".join(family_selector(suffix) for suffix in (
+                " thead th > a:not(.btn)", " thead th .th-sort",
+                " thead th .text", " thead th .text > a", " thead th .text > span",
+                " thead th .admin-th-label",
+            ))
+            body_text = ",".join(family_selector(suffix) for suffix in (
+                " tbody td > a:not(.btn)", " tbody th > a:not(.btn)",
+                " tbody .list-title", " tbody .list-desc", " tbody .type-label",
+                " tbody .cell-view", " tbody .cell-reveal-track",
+            ))
+            inherit_text = "font-size:inherit !important;line-height:inherit !important;white-space:inherit !important;overflow-wrap:inherit !important;word-break:inherit !important;"
+            parts.append(f"{header_text}{{{inherit_text}font-weight:inherit !important;color:inherit !important;opacity:1 !important;}}")
+            parts.append(f"{body_text}{{{inherit_text}}}")
+            admin_labels = ",".join(family_selector(suffix) for suffix in (
+                " thead th .text > a", " thead th .text > span", " thead th .admin-th-label",
+            ))
+            parts.append(f"{admin_labels}{{padding-block:0 !important;}}")
     return "".join(parts)
 
 
