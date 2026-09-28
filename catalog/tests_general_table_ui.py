@@ -15,6 +15,7 @@ from django.urls import reverse
 
 from catalog.models import Product, ProductGroup, ProductSubGroup, TableLayoutSettings
 from catalog.table_layout import css_for_families, normalize_family_layouts
+from catalog.templatetags.table_settings import table_number
 from planning.models import WeeklyPlan
 from reports.models import PrintForm, SavedReport
 
@@ -28,7 +29,7 @@ class GeneralTableAcceptanceTests(TestCase):
         for index in range(8):
             Product.objects.create(code=f"UI-{index}", name="نام طولانی محصول برای آزمون جدول " * 3, subgroup=subgroup)
         WeeklyPlan.objects.create(program_number="UI-PLAN", date=jdatetime.date(1405, 1, 1), created_by=cls.user)
-        SavedReport.objects.create(owner=cls.user, title="عنوان بلند گزارش برای آزمون نمایش " * 3, number=1)
+        cls.report = SavedReport.objects.create(owner=cls.user, title="عنوان بلند گزارش برای آزمون نمایش " * 3, number=1)
         PrintForm.objects.create(owner=cls.user, title="عنوان بلند فرم برای آزمون نمایش " * 3, description="توضیح بلند آزمایشی " * 5, number=1)
         TableLayoutSettings.objects.create()
 
@@ -37,15 +38,20 @@ class GeneralTableAcceptanceTests(TestCase):
 
     def test_real_general_surfaces_and_browser_fixtures(self):
         pages = {}
-        for name in ("plan_list", "systemic_intelligence", "production_list", "report_list",
-                     "print_form_list", "product_data", "excel_list",
-                     "admin:catalog_product_changelist", "user_management"):
+        routes = [(name, reverse(name)) for name in (
+            "plan_list", "systemic_intelligence", "production_list", "report_list",
+            "print_form_list", "product_data", "excel_list", "pipe_calc",
+            "admin:catalog_product_changelist", "user_management",
+        )]
+        routes.append(("report_detail", reverse("report_detail", args=[self.report.pk])))
+        for name, url in routes:
             with self.subTest(name=name):
-                response = self.client.get(reverse(name), follow=True)
+                response = self.client.get(url, follow=True)
                 self.assertEqual(response.status_code, 200)
-                self.assertContains(response, 'data-table-type="general"')
+                expected_type = "calculation" if name == "pipe_calc" else "report" if name == "report_detail" else "general"
+                self.assertContains(response, f'data-table-type="{expected_type}"')
                 self.assertContains(response, '--table-family-body-font-size:14px')
-                pages[name] = {"url": reverse(name), "html": response.content.decode()}
+                pages[name] = {"url": url, "html": response.content.decode()}
         for tab in ("materials", "capacity", "variance", "exceptions"):
             response = self.client.get(reverse("systemic_intelligence"), {"tab": tab})
             self.assertContains(response, 'data-table-type="general"')
@@ -71,9 +77,20 @@ class GeneralTableAcceptanceTests(TestCase):
                 "off": {"header_border": False, "col_border": True, "row_border": True, "header_wrap": False, "body_wrap": False},
                 "body_off": {"header_border": True, "col_border": False, "row_border": False},
                 "short": {"row_height_px": 24}, "tall": {"row_height_px": 70},
+                "small_font": {"body_font_size_px": 9}, "large_font": {"body_font_size_px": 24},
             }.items():
                 families = normalize_family_layouts({"families": {"general": overrides}})
                 cases[key] = {"css": css_for_families(families), "layout": families["general"]}
+            for key, family, overrides in (
+                ("calculation_on", "calculation", {"header_font_size_px": 19, "header_border": True, "col_border": True, "row_border": True, "width_locked": False, "header_wrap": True, "body_wrap": True}),
+                ("calculation_off", "calculation", {"header_border": False, "col_border": True, "row_border": True, "width_locked": False, "header_wrap": False, "body_wrap": False, "marquee": False}),
+                ("calculation_marquee", "calculation", {"width_locked": False, "body_wrap": False, "marquee": True}),
+                ("calculation_locked", "calculation", {"width_locked": True, "body_wrap": False, "marquee": True}),
+                ("report_on", "report", {"header_border": True, "col_border": True, "row_border": True, "body_wrap": False, "marquee": True}),
+                ("report_off", "report", {"header_border": False, "col_border": True, "row_border": True, "body_wrap": False, "marquee": False}),
+            ):
+                families = normalize_family_layouts({"families": {family: overrides}})
+                cases[key] = {"css": css_for_families(families), "layout": families[family]}
             defaults = normalize_family_layouts({})
             target.write_text(json.dumps({"pages": pages, "cases": cases, "defaults": defaults,
                                          "defaultCss": css_for_families(defaults)}, ensure_ascii=False), encoding="utf-8")
@@ -92,6 +109,28 @@ class GeneralTableAcceptanceTests(TestCase):
             html = self.client.get(reverse("systemic_intelligence")).content.decode()
             self.assertIn(response.json()["css"], html)
             css = response.json()["css"].split('[data-table-type="calculation"]', 1)[0]
-            self.assertEqual("thead th:not(:last-child)" in css, visible)
+            header_edge_rule = css.split("thead th:not(:last-child)", 1)[1].split("}", 1)[0]
+            self.assertEqual("border-left:1px solid" in header_edge_rule, visible)
             self.assertIn("tbody td:not(:last-child)", css)
             self.assertNotIn("linear-gradient", css)
+
+    def test_display_number_formatter_preserves_only_meaningful_fraction(self):
+        self.assertEqual(table_number("14.0"), "۱۴")
+        self.assertEqual(table_number(12.0), "۱۲")
+        self.assertEqual(table_number("12.50"), "۱۲٫۵")
+        self.assertEqual(table_number(13.5), "۱۳٫۵")
+
+    def test_calculation_and_report_share_header_border_contract(self):
+        families = normalize_family_layouts({})
+        families["calculation"].update(header_font_size_px=19, header_border=True)
+        families["report"].update(header_border=False)
+        css = css_for_families(families)
+        calculation = css.split('[data-table-type="calculation"]', 1)[1].split('[data-table-type="report"]', 1)[0]
+        report = css.split('[data-table-type="report"]', 1)[1]
+        self.assertIn("--table-family-header-font-size:19px", calculation)
+        self.assertIn("thead th:not(:last-child)", calculation)
+        self.assertIn("border-left:1px solid var(--line, #e2e8f0) !important", calculation)
+        self.assertNotIn("linear-gradient", calculation)
+        self.assertIn("thead th:not(:last-child)", report)
+        self.assertIn("border-left:none !important", report)
+        self.assertNotIn("linear-gradient", report)

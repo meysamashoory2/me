@@ -46,10 +46,22 @@ const fixtures = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
     async function styles(selector, props) {
       return page.locator(selector).first().evaluate((el, keys) => Object.fromEntries(keys.map(k => [k, getComputedStyle(el)[k]])), props);
     }
+    async function setLayoutCss(css) {
+      await page.evaluate(value => {
+        let style = document.getElementById("erp-table-layout-css");
+        if (!style) {
+          style = document.createElement("style");
+          style.id = "erp-table-layout-css";
+          document.head.appendChild(style);
+        }
+        style.textContent = value;
+      }, css);
+    }
     const h = 'main[data-table-type="general"] thead th';
     for (const name of Object.keys(fixtures.pages).filter(n => !n.startsWith("settings_"))) {
       await open(name, fixtures.cases.on.css);
-      equal(await page.locator('main[data-table-type="general"]').count(), 1, name + " classification");
+      const expectedType = name === "pipe_calc" ? "calculation" : name === "report_detail" ? "report" : "general";
+      equal(await page.locator('[data-table-type="' + expectedType + '"]').count(), 1, name + " classification");
       if (await page.locator(h).count()) {
         equal((await styles(h, ["fontSize"])).fontSize, "18px", name + " header size");
         equal((await styles(h, ["backgroundColor"])).backgroundColor, "rgb(255, 0, 170)", name + " header color");
@@ -109,7 +121,8 @@ const fixtures = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
     await open("product_data", fixtures.cases.short.css);
     await ensureProductTable();
     const widths = await page.locator(".product-data-table thead th").evaluateAll(ths => ths.map((th, i) => 120 + i * 10));
-    const key = "erp.table.colwidths.product_data.product-data-test-table.c" + widths.length;
+    const productId = await page.locator(".product-data-table").getAttribute("id") || "anon";
+    const key = "erp.table.colwidths.product_data." + productId + ".c" + widths.length;
     await page.evaluate(({key, widths}) => localStorage.setItem(key, JSON.stringify(widths)), {key, widths});
     async function productState() { return page.evaluate(key => ({saved:localStorage.getItem(key), widths:[...document.querySelectorAll(".product-data-table thead th")].map(th => th.getBoundingClientRect().width), width:document.querySelector(".product-data-table").getBoundingClientRect().width}), key); }
     await open("product_data", fixtures.cases.short.css);
@@ -120,6 +133,80 @@ const fixtures = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
     await open("product_data", fixtures.cases.tall.css);
     await ensureProductTable();
     equal(await productState(), before, "Product widths/persistence after reload with changed row height");
+    await page.locator("#erp-table-layout-css").evaluate((el, css) => { el.textContent = css; }, fixtures.cases.large_font.css);
+    const windowState = await productState();
+    equal(windowState, before, "Product widths/persistence after live body-font change");
+    await open("product_data", fixtures.cases.small_font.css);
+    await ensureProductTable();
+    equal(await productState(), before, "Product widths/persistence after reload with changed body font");
+
+    async function prepareTypeTable(name, selector, className, id) {
+      await open(name);
+      let table = page.locator(selector).first();
+      if (!await table.count()) {
+        await page.locator('[data-table-type]').first().evaluate((host, args) => {
+          host.insertAdjacentHTML("beforeend", '<div class="table-scroll"><table id="' + args.id + '" class="' + args.className + '"></table></div>');
+        }, {id, className});
+        table = page.locator("#" + id);
+      }
+      await table.evaluate(t => {
+        t.innerHTML = '<thead><tr><th><span>سرستون بسیار طولانی برای آزمون قطعی شکستن متن</span></th><th>ستون دوم</th></tr></thead><tbody><tr><td>متن بدنه بسیار طولانی برای آزمون قطعی حرکت و شکستن متن در عرض محدود</td><td>مقدار دوم</td></tr></tbody>';
+        t.removeAttribute("data-layout-ready");
+        t.removeAttribute("data-reveal-bound");
+      });
+      await page.evaluate(() => window.ERPTableLayout.enhanceAll());
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      return selector;
+    }
+    const calc = await prepareTypeTable("pipe_calc", "#pcx-depot-table", "pcx-table", "pcx-depot-table");
+    await page.locator("#erp-table-layout-css").evaluate((el, css) => { el.textContent = css; }, fixtures.cases.calculation_on.css);
+    await page.evaluate(() => window.ERPTableLayout.refreshWidthLocks());
+    equal((await styles(calc + " thead th", ["fontSize", "borderLeftWidth", "borderBottomWidth"])),
+      {fontSize:"19px",borderLeftWidth:"1px",borderBottomWidth:"1px"}, "Calculation header font and shared border ON");
+    assert.ok(await page.locator(calc + " .col-resizer").count() > 0, "Calculation unlocked has resize handles"); assertions++;
+    await page.locator(calc).evaluate(t => {
+      const widths = [110, 120];
+      const key = "erp.table.colwidths.pipe_calc.pcx-depot-table.c2";
+      localStorage.setItem(key, JSON.stringify(widths));
+      t.querySelectorAll("thead th").forEach((th, i) => { th.style.width=th.style.minWidth=th.style.maxWidth=widths[i]+"px"; });
+      t.style.width=t.style.minWidth=(widths[0]+widths[1])+"px";
+    });
+    const calcKey = "erp.table.colwidths.pipe_calc.pcx-depot-table.c2";
+    const calcStored = await page.evaluate(key => localStorage.getItem(key), calcKey);
+    async function contentHeight(sel) { return page.locator(sel).evaluate(el => { const r=document.createRange(); r.selectNodeContents(el); return r.getBoundingClientRect().height; }); }
+    const calcHeaderWrapped = await contentHeight(calc + " thead th:first-child > span:not(.col-resizer)");
+    const calcBodyWrapped = await contentHeight(calc + " tbody td:first-child");
+    await page.locator("#erp-table-layout-css").evaluate((el, css) => { el.textContent = css; }, fixtures.cases.calculation_off.css);
+    await page.evaluate(() => window.ERPTableLayout.refreshWidthLocks());
+    equal((await styles(calc + " thead th", ["borderLeftWidth", "borderBottomWidth"])), {borderLeftWidth:"0px",borderBottomWidth:"0px"}, "Calculation header border OFF");
+    assert.ok(calcHeaderWrapped > (await contentHeight(calc + " thead th:first-child > span:not(.col-resizer)")) * 1.5, "Calculation header wrap is effective"); assertions++;
+    assert.ok(calcBodyWrapped > (await contentHeight(calc + " tbody td:first-child")) * 1.5, "Calculation body wrap is effective"); assertions++;
+    await page.locator("#erp-table-layout-css").evaluate((el, css) => { el.textContent = css; }, fixtures.cases.calculation_locked.css);
+    await page.evaluate(() => window.ERPTableLayout.refreshWidthLocks());
+    equal(await page.locator(calc + " .col-resizer:visible").count(), 0, "Calculation lock hides resize handles");
+    equal(await page.evaluate(key => localStorage.getItem(key), calcKey), calcStored, "Calculation lock preserves stored widths");
+    await page.locator("#erp-table-layout-css").evaluate((el, css) => { el.textContent = css; }, fixtures.cases.calculation_marquee.css);
+    await page.evaluate(() => window.ERPTableLayout.refreshWidthLocks());
+    await page.locator(calc + " tbody tr").evaluate(tr => { tr.classList.add("is-row-selected"); tr.cells[0].classList.add("is-cell-focus"); });
+    await page.evaluate(sel => window.ERPTableLayout.playCellReveal(document.querySelector(sel)), calc + " tbody td:first-child");
+    await page.waitForTimeout(120);
+    assert.ok(await page.locator(calc + " .cell-reveal-track.is-revealing").count(), "Calculation marquee ON reveals overflowing text"); assertions++;
+    await page.locator("#erp-table-layout-css").evaluate((el, css) => { el.textContent = css; }, fixtures.cases.calculation_off.css);
+    await page.evaluate(() => window.ERPTableLayout.refreshWidthLocks());
+    equal(await page.locator(calc + " .cell-reveal-track.is-revealing").count(), 0, "Calculation marquee OFF stops reveal");
+
+    const report = await prepareTypeTable("report_detail", "#report-data-table", "table table-nav-cells", "report-data-table");
+    await setLayoutCss(fixtures.cases.report_on.css);
+    equal((await styles(report + " thead th", ["borderLeftWidth", "borderBottomWidth"])), {borderLeftWidth:"1px",borderBottomWidth:"1px"}, "Report header border ON");
+    await page.locator(report).evaluate(t => { t.querySelectorAll("thead th").forEach(th=>{th.style.width=th.style.minWidth=th.style.maxWidth="95px";});t.style.width=t.style.minWidth="190px"; });
+    await page.locator(report + " tbody tr").evaluate(tr => { tr.classList.add("is-row-selected"); tr.cells[0].classList.add("is-cell-focus"); });
+    await page.evaluate(sel => window.ERPTableLayout.playCellReveal(document.querySelector(sel)), report + " tbody td:first-child");
+    await page.waitForTimeout(120);
+    assert.ok(await page.locator(report + " .cell-reveal-track.is-revealing").count(), "Report marquee ON reveals overflowing text"); assertions++;
+    await setLayoutCss(fixtures.cases.report_off.css);
+    await page.evaluate(() => window.ERPTableLayout.refreshWidthLocks());
+    equal((await styles(report + " thead th", ["borderLeftStyle", "borderBottomStyle"])), {borderLeftStyle:"none",borderBottomStyle:"none"}, "Report header border OFF");
+    equal(await page.locator(report + " .cell-reveal-track.is-revealing").count(), 0, "Report marquee OFF stops reveal");
 
     for (const family of ["general", "calculation", "report"]) {
       await open("settings_" + family);
@@ -130,6 +217,8 @@ const fixtures = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
       }));
       const initial = await controlState();
       equal(await input.inputValue(), String(fixtures.defaults[family].row_height_px).replace(/\d/g,d=>"۰۱۲۳۴۵۶۷۸۹"[d]), "initial Persian value");
+      const bodyFontExpected = String(fixtures.defaults[family].body_font_size_px).replace(/\.0$/, "").replace(/\d/g,d=>"۰۱۲۳۴۵۶۷۸۹"[d]).replace(".", "٫");
+      equal(await page.locator('[data-number-for="body_font_size_px"]').inputValue(), bodyFontExpected, family + " meaningful numeric display");
       await input.focus();
       await input.fill("55");
       equal(await input.inputValue(), "۵۵", "Persian while editing");
@@ -143,6 +232,11 @@ const fixtures = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
       equal(await input.evaluate(el=>el.checkValidity()), false, "integer step validation");
       await input.fill("55");
       await page.locator('[name="header_alpha"]').evaluate(el=>{el.value="0";el.dispatchEvent(new Event("input",{bubbles:true}));el.value="100";el.dispatchEvent(new Event("input",{bubbles:true}));});
+      const range = page.locator('[name="header_alpha"]');
+      equal((await styles('[name="header_alpha"]', ["direction"])).direction, "ltr", "native range direction from first render");
+      await range.focus(); await page.keyboard.press("Home"); await page.keyboard.press("ArrowRight");
+      equal(await range.inputValue(), "1", "native range thumb increases to the right");
+      await page.keyboard.press("End");
       equal(await controlState(), initial, "slider endpoint leaves orientation fixed");
       equal(await page.locator(".layout-tint output").first().textContent(), "۱۰۰٪", "Persian percent");
       posted = null;

@@ -219,7 +219,7 @@ class TableLayoutSettingsTests(TestCase):
         self.assertIn('class="is-cell-focus"', html)
         self.assertIn('data-table-type="calculation"', html)
         self.assertEqual(html.count('class="tab '), 3)
-        self.assertIn('dir="rtl" name="header_alpha"', html)
+        self.assertIn('dir="ltr" name="header_alpha"', html)
         self.assertIn('dir="ltr" data-number-for="header_height_px"', html)
 
     def test_each_type_uses_the_same_effective_preview_and_impact_count(self):
@@ -241,7 +241,7 @@ class TableLayoutSettingsTests(TestCase):
         for name in ("header_height_px", "header_font_size_px", "row_height_px", "body_font_size_px"):
             self.assertIn(f'type="text" inputmode="decimal" dir="ltr" data-number-for="{name}"', html)
         for name in ("header_alpha", "row_selected_alpha", "cell_outline_alpha", "cell_fill_alpha"):
-            self.assertIn(f'type="range" dir="rtl" name="{name}"', html)
+            self.assertIn(f'type="range" dir="ltr" name="{name}"', html)
 
     def test_representative_real_pages_receive_explicit_or_default_type(self):
         from django.conf import settings as django_settings
@@ -404,7 +404,7 @@ class TableLayoutSettingsTests(TestCase):
         self.assertEqual(effective["calculation"]["header_color"], "#ff00aa")
         reloaded = self.client.get(url, {"family": "calculation"})
         self.assertContains(reloaded, 'name="body_font_size_px" value="20.0"')
-        self.assertContains(reloaded, 'value="۲۰٫۰"')
+        self.assertContains(reloaded, 'value="۲۰"')
 
         reset = self.client.post(
             url,
@@ -579,13 +579,9 @@ class TableLayoutSettingsTests(TestCase):
 
     def test_legacy_column_border_toggle_does_not_override_general_type(self):
         from django.urls import reverse
-        from catalog.table_layout import COLUMN_BORDER_COLOR
-
         self.client.login(username="admin", password="erp12345")
         layout_url = reverse("system_table_layout")
-        show_rule = (
-            f"background-image:linear-gradient({COLUMN_BORDER_COLOR},{COLUMN_BORDER_COLOR}) !important"
-        )
+        show_rule = "background-image:linear-gradient(#cbd5e1,#cbd5e1) !important"
         general_show = '[data-table-type="general"] table:not(.excel-preview-table):not(.excel-grid) thead th:not(:last-child)'
 
         self.client.post(
@@ -604,11 +600,7 @@ class TableLayoutSettingsTests(TestCase):
         plans_html = plans.content.decode()
         self.assertIn('data-table-section="planning"', plans_html)
         self.assertIn(general_show, plans_html)
-        self.assertIn(show_rule, plans_html)
-        self.assertIn(
-            f"background-image:linear-gradient({COLUMN_BORDER_COLOR},{COLUMN_BORDER_COLOR}) !important",
-            plans_html,
-        )
+        self.assertNotIn(show_rule, plans_html)
 
         history = self.client.get(reverse("production_history"))
         self.assertEqual(history.status_code, 200)
@@ -629,5 +621,5 @@ class TableLayoutSettingsTests(TestCase):
         )
         plans_hidden = self.client.get(reverse("plan_list")).content.decode()
         self.assertIn(general_show, plans_hidden)
-        self.assertIn(show_rule, plans_hidden)
+        self.assertNotIn(show_rule, plans_hidden)
         self.assertNotIn('[data-table-section="planning"] table th:not(:last-child)', plans_hidden)

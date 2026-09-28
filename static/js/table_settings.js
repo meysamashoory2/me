@@ -12,13 +12,17 @@
     return String(value).replace(/[۰-۹]/g, function (d) { return String("۰۱۲۳۴۵۶۷۸۹".indexOf(d)); })
       .replace(/[٠-٩]/g, function (d) { return String("٠١٢٣٤٥٦٧٨٩".indexOf(d)); }).replace(/٫/g, ".");
   }
-  function persian(value) {
-    return ascii(value).replace(/[0-9]/g, function (d) { return "۰۱۲۳۴۵۶۷۸۹"[Number(d)]; }).replace(/\./g, "٫");
+  function displayNumber(value) {
+    var normalized = ascii(value).trim();
+    if (/^-?\d+(?:\.\d+)?$/.test(normalized) && normalized.indexOf(".") >= 0) {
+      normalized = normalized.replace(/0+$/, "").replace(/\.$/, "");
+    }
+    return normalized.replace(/[0-9]/g, function (d) { return "۰۱۲۳۴۵۶۷۸۹"[Number(d)]; }).replace(/\./g, "٫");
   }
   function syncNumber(input) {
     var start = input.selectionStart, end = input.selectionEnd;
     var raw = ascii(input.value).trim();
-    input.value = persian(input.value);
+    input.value = displayNumber(input.value);
     if (document.activeElement === input && start !== null) input.setSelectionRange(start, end);
     var number = Number(raw), min = Number(input.dataset.min), max = Number(input.dataset.max);
     var step = Number(input.dataset.step), steps = (number - min) / step;
@@ -31,7 +35,7 @@
     var color = box.querySelector('input[type="color"]'), range = box.querySelector('input[type="range"]');
     box.style.setProperty("--tint", color.value);
     box.style.setProperty("--tint-a", Number(range.value) / 100);
-    box.querySelector("output").textContent = persian(range.value) + "٪";
+    box.querySelector("output").textContent = displayNumber(range.value) + "٪";
   }
   function syncWrap() {
     marquee.disabled = wrap.checked;
@@ -55,7 +59,7 @@
       });
     });
     form.querySelectorAll("[data-number-for]").forEach(function (input) {
-      input.value = persian(form.elements.namedItem(input.dataset.numberFor).value);
+      input.value = displayNumber(form.elements.namedItem(input.dataset.numberFor).value);
       syncNumber(input);
     });
     syncWrap();

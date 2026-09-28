@@ -848,7 +848,8 @@ tr.is-conflict-row > td {
   overflow: hidden;
   max-height: var(--table-row-height, 36px);
 }
-.table .cell-reveal-track {
+.table .cell-reveal-track,
+.pcx-table .cell-reveal-track {
   display: block;
   overflow: hidden;
   text-overflow: clip;
@@ -858,24 +859,28 @@ tr.is-conflict-row > td {
   will-change: transform;
 }
 /* Parent td/th keeps overflow:hidden so row height never grows while revealing */
-.table .cell-reveal-track.is-revealing {
+.table .cell-reveal-track.is-revealing,
+.pcx-table .cell-reveal-track.is-revealing {
   max-width: none;
   width: max-content;
   overflow: visible;
   white-space: nowrap;
 }
-.table .cell-reveal-inner {
+.table .cell-reveal-inner,
+.pcx-table .cell-reveal-inner {
   display: inline-flex;
   flex-direction: row;
   align-items: center;
   white-space: nowrap;
   will-change: transform;
 }
-.table .cell-reveal-seg {
+.table .cell-reveal-seg,
+.pcx-table .cell-reveal-seg {
   flex: 0 0 auto;
   white-space: nowrap;
 }
-.table .cell-reveal-gap {
+.table .cell-reveal-gap,
+.pcx-table .cell-reveal-gap {
   flex: 0 0 auto;
   display: inline-block;
   height: 1px;
@@ -889,6 +894,17 @@ tr.is-conflict-row > td {
   cursor: col-resize;
   z-index: 2;
 }
+.pcx-table.col-resize-enabled th .col-resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -3px;
+  width: 6px;
+  cursor: col-resize;
+  z-index: 3;
+}
+.pcx-table.col-resize-enabled th .col-resizer-edge { left: 0; width: 8px; }
+.pcx-table.col-width-locked th .col-resizer { display: none !important; }
 .table.col-resize-enabled th .col-resizer-edge {
   left: 0;
   width: 8px;
@@ -3634,10 +3650,10 @@ fieldset.layout-field-choice {
   border-radius: 10px;
 }
 .table-layout-form .layout-field > span,
-.table-layout-form fieldset.layout-field-choice > span { flex: 0 1 118px; width: auto; }
+.table-layout-form fieldset.layout-field-choice > span { flex: 1 1 145px; min-width: 0; width: auto; }
 .table-layout-form .layout-field .input { width: 76px; max-width: 100%; }
 .table-layout-form [data-number-for] { direction: ltr; text-align: center; unicode-bidi: isolate; }
-.table-layout-form input[type="range"] { direction: rtl; }
+.table-layout-form input[type="range"] { direction: ltr; }
 .table-layout-form .layout-choice-row,
 .table-layout-form .layout-tint { flex: 1; min-width: 0; justify-content: flex-start; }
 .table-layout-form .layout-choice-row { gap: 8px; }

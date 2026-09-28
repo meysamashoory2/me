@@ -176,7 +176,10 @@
     table.classList.remove("col-width-locked");
     table.classList.add("col-resize-enabled");
 
-    if (!loadWidths(table) || !table.style.width || table.style.width === "100%") {
+    var stored = loadWidths(table);
+    if (stored) {
+      applyFixedWidths(table, stored);
+    } else if (!table.style.width || table.style.width === "100%") {
       lockAllColumnWidths(table);
     }
 
@@ -552,7 +555,7 @@
   function enhanceAll() {
     document
       .querySelectorAll(
-        "table.table[data-table-section], [data-table-section] table.table"
+        "table.table[data-table-section], [data-table-section] table.table, [data-table-type] table.pcx-table"
       )
       .forEach(enhanceTable);
     // Marquee reveal for all scrollable data tables (height stays locked via CSS).
@@ -566,12 +569,17 @@
 
   function refreshWidthLocks() {
     document.querySelectorAll("table[data-layout-ready='1']").forEach(function (table) {
+      var stored = loadWidths(table);
+      if (stored) applyFixedWidths(table, stored);
       var locked = tableTypeWidthLocked(table);
       if (table.getAttribute("data-lock-widths") === "1") locked = true;
       if (locked === null) return;
       if (locked) clearResizers(table);
       else enableResize(table);
     });
+    var selected = document.querySelector("td.is-cell-focus");
+    if (activeReveal) stopReveal();
+    if (selected) playCellReveal(selected);
   }
 
   function boot() {

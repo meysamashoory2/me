@@ -1,5 +1,7 @@
 """Display-only numeric localization for the table settings controls."""
 
+from decimal import Decimal, InvalidOperation
+
 from django import template
 
 register = template.Library()
@@ -7,5 +9,12 @@ register = template.Library()
 
 @register.filter
 def table_number(value):
-    """Keep the visible value Persian; canonical hidden fields remain ASCII."""
-    return str(value).translate(str.maketrans("0123456789.", "۰۱۲۳۴۵۶۷۸۹٫"))
+    """Localize a number and omit only insignificant fractional zeroes."""
+    raw = str(value).strip()
+    try:
+        formatted = format(Decimal(raw), "f")
+        if "." in formatted:
+            formatted = formatted.rstrip("0").rstrip(".")
+    except (InvalidOperation, ValueError):
+        formatted = raw
+    return formatted.translate(str.maketrans("0123456789.", "۰۱۲۳۴۵۶۷۸۹٫"))
