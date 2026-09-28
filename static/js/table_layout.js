@@ -30,11 +30,11 @@
     );
   }
 
-  function familyWidthLocked(table) {
-    var host = table && table.closest ? table.closest("[data-table-family]") : null;
-    if (!host || !host.getAttribute("data-table-family")) return null;
+  function tableTypeWidthLocked(table) {
+    var host = table && table.closest ? table.closest("[data-table-type]") : null;
+    if (!host || !host.getAttribute("data-table-type")) return null;
     try {
-      var value = getComputedStyle(host).getPropertyValue("--table-family-width-locked").trim();
+      var value = getComputedStyle(host).getPropertyValue("--table-type-width-locked").trim();
       if (value === "1") return true;
       if (value === "0") return false;
     } catch (e) {}
@@ -511,8 +511,8 @@
     } else if (section && !Object.prototype.hasOwnProperty.call(locks, "all")) {
       locked = !!locks[section];
     }
-    var familyLocked = familyWidthLocked(table);
-    if (familyLocked !== null) locked = familyLocked;
+    var typeLocked = tableTypeWidthLocked(table);
+    if (typeLocked !== null) locked = typeLocked;
     if (table.getAttribute("data-lock-widths") === "1") locked = true;
 
     var metaWidths = null;
@@ -564,6 +564,16 @@
       });
   }
 
+  function refreshWidthLocks() {
+    document.querySelectorAll("table[data-layout-ready='1']").forEach(function (table) {
+      var locked = tableTypeWidthLocked(table);
+      if (table.getAttribute("data-lock-widths") === "1") locked = true;
+      if (locked === null) return;
+      if (locked) clearResizers(table);
+      else enableResize(table);
+    });
+  }
+
   function boot() {
     enhanceAll();
     if (global.MutationObserver) {
@@ -584,7 +594,8 @@
     scrollTableToRtlStart: scrollTableToRtlStart,
     stopReveal: stopReveal,
     playCellReveal: playCellReveal,
-    familyWidthLocked: familyWidthLocked,
+    tableTypeWidthLocked: tableTypeWidthLocked,
+    refreshWidthLocks: refreshWidthLocks,
     onCellSelected: onCellSelected,
     REVEAL_SPEED_PX_PER_SEC: REVEAL_SPEED_PX_PER_SEC,
   };

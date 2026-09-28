@@ -914,7 +914,7 @@ def system_naming_key_delete(request: HttpRequest) -> JsonResponse:
 
 @login_required
 def system_table_layout(request: HttpRequest) -> HttpResponse:
-    """Manage the four business-oriented table families."""
+    """Manage the three user-facing table appearance types."""
     from .models import TableLayoutSettings
     from .table_layout import (
         FAMILY_IMPACT_REGISTRY,
@@ -923,11 +923,10 @@ def system_table_layout(request: HttpRequest) -> HttpResponse:
         FAMILY_LAYOUT_KEY,
         FamilyValidationError,
         GLOBAL_LAYOUT_KEY,
-        css_for_layouts,
+        css_for_families,
         default_family_layout,
         family_layout_from_post,
         normalize_family_layouts,
-        normalize_profile_layouts,
         locks_from_layouts,
         merge_layout_post,
         normalize_section_layout,
@@ -945,7 +944,7 @@ def system_table_layout(request: HttpRequest) -> HttpResponse:
     active_family = (request.POST.get("family") or request.GET.get("family") or FAMILY_KEYS[0]).strip()
     if active_family not in FAMILY_KEYS:
         if request.method == "POST":
-            return JsonResponse({"ok": False, "error": "خانواده جدول نامعتبر است."}, status=400)
+            return JsonResponse({"ok": False, "error": "نوع جدول نامعتبر است."}, status=400)
         active_family = FAMILY_KEYS[0]
 
     if request.method == "POST":
@@ -963,7 +962,7 @@ def system_table_layout(request: HttpRequest) -> HttpResponse:
             settings.row_height_px = int(saved_legacy["row_height_px"])
             settings.save()
             if request.headers.get("X-Requested-With") == "XMLHttpRequest":
-                return JsonResponse({"ok": True, "message": "اعمال شد", "css": css_for_layouts(settings.layouts_map(), normalize_profile_layouts(stored_legacy), normalize_family_layouts(stored_legacy)), "locks": settings.section_width_locks, "layout": saved_legacy})
+                return JsonResponse({"ok": True, "message": "اعمال شد", "css": css_for_families(normalize_family_layouts(stored_legacy)), "locks": settings.section_width_locks, "layout": saved_legacy})
             return redirect(request.path + f"?tab={part}")
         stored = dict(settings.section_layouts) if isinstance(settings.section_layouts, dict) else {}
         families = normalize_family_layouts(stored)
@@ -988,7 +987,7 @@ def system_table_layout(request: HttpRequest) -> HttpResponse:
         if request.headers.get("X-Requested-With") == "XMLHttpRequest":
             return JsonResponse({
                 "ok": True, "message": message,
-                "css": css_for_layouts(settings.layouts_map(), normalize_profile_layouts(stored), families),
+                "css": css_for_families(families),
                 "layout": saved,
             })
         messages.success(request, message)
@@ -996,19 +995,16 @@ def system_table_layout(request: HttpRequest) -> HttpResponse:
 
     families = normalize_family_layouts(settings.section_layouts)
     impact_items = FAMILY_IMPACT_REGISTRY[active_family]
-    from django.urls import reverse
-
     return render(
         request,
         "catalog/system_table_layout.html",
         {
             "active_family": active_family,
-            "active_family_slug": active_family.replace("_", "-"),
+            "active_family_slug": active_family,
             "family_choices": tuple((key, FAMILY_LABELS[key]) for key in FAMILY_KEYS),
             "layout": families[active_family],
             "layout_defaults_json": json.dumps(default_family_layout(active_family), ensure_ascii=False),
             "can_edit": _can_edit_naming(request.user),
-            "preview_href": reverse("plan_list"),
             "impact_items": impact_items,
             "impact_count": sum(int(item.get("count", 1)) for item in impact_items),
         },

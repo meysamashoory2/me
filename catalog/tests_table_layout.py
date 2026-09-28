@@ -10,6 +10,7 @@ from django.test import SimpleTestCase
 from catalog.table_layout import (
     COLUMN_BORDER_COLOR,
     FAMILY_DEFAULTS,
+    FAMILY_IMPACT_REGISTRY,
     FAMILY_KEYS,
     FAMILY_LABELS,
     FamilyValidationError,
@@ -31,18 +32,47 @@ from catalog.table_layout import (
 
 class TableLayoutHelpersTests(SimpleTestCase):
     def test_exact_business_family_definitions_and_defaults(self):
-        self.assertEqual(FAMILY_KEYS, ("list_management", "production_calculation", "operational", "report_output"))
-        self.assertEqual(tuple(FAMILY_LABELS.values()), ("فهرست‌ها و مدیریت", "محاسبات تولید", "جداول عملیاتی", "گزارشات"))
-        self.assertEqual(FAMILY_DEFAULTS["list_management"]["body_font_size_px"], 14)
-        self.assertEqual(FAMILY_DEFAULTS["production_calculation"]["cell_padding_vertical_px"], 5)
-        self.assertEqual(FAMILY_DEFAULTS["report_output"]["cell_padding_horizontal_px"], 8)
+        self.assertEqual(FAMILY_KEYS, ("general", "calculation", "report"))
+        self.assertEqual(tuple(FAMILY_LABELS.values()), ("جداول عمومی", "جداول محاسبات", "جداول گزارشات"))
+        self.assertEqual(FAMILY_DEFAULTS["general"]["body_font_size_px"], 14)
+        self.assertEqual(FAMILY_DEFAULTS["calculation"], {
+            "row_height_px": 34, "header_height_px": 34, "body_font_size_px": 12.5,
+            "header_font_size_px": 12, "cell_padding_vertical_px": 5,
+            "cell_padding_horizontal_px": 8,
+        })
+        self.assertEqual(FAMILY_DEFAULTS["report"]["cell_padding_horizontal_px"], 8)
 
     def test_missing_family_data_uses_defaults_without_touching_profiles(self):
         stored = {"all": {"row_height_px": 47}, "profiles": {"compact": {"row_height_px": 26}}, "legacy": {"keep": 1}}
         families = normalize_family_layouts(stored)
-        self.assertEqual(families["operational"]["row_height_px"], 36)
+        self.assertEqual(families["general"]["row_height_px"], 36)
         self.assertEqual(stored["profiles"]["compact"]["row_height_px"], 26)
         self.assertEqual(stored["legacy"], {"keep": 1})
+
+    def test_historical_family_values_do_not_merge_into_general(self):
+        stored = {"families": {
+            "list_management": {"row_height_px": 50, "header_color": "#112233"},
+            "operational": {"row_height_px": 70, "header_color": "#aabbcc"},
+            "production_calculation": {"row_height_px": 40, "body_font_size_px": 13.2},
+            "report_output": {"row_height_px": 45},
+            "unknown": {"keep": True},
+        }}
+        effective = normalize_family_layouts(stored)
+        self.assertEqual(effective["general"]["row_height_px"], 36)
+        self.assertEqual(effective["general"]["header_color"], "#c7d7ea")
+        self.assertEqual(effective["calculation"]["row_height_px"], 40)
+        self.assertEqual(effective["calculation"]["body_font_size_px"], 13.2)
+        self.assertEqual(effective["report"]["row_height_px"], 45)
+        stored["families"]["calculation"] = {"row_height_px": 38}
+        stored["families"]["report"] = {"row_height_px": 39}
+        effective = normalize_family_layouts(stored)
+        self.assertEqual(effective["calculation"]["row_height_px"], 38)
+        self.assertEqual(effective["report"]["row_height_px"], 39)
+        self.assertEqual(stored["families"]["unknown"], {"keep": True})
+
+    def test_recalculated_impact_counts(self):
+        self.assertEqual({key: sum(item["count"] for item in FAMILY_IMPACT_REGISTRY[key]) for key in FAMILY_KEYS},
+                         {"general": 76, "calculation": 3, "report": 10})
 
     def test_family_validation_and_header_body_independence(self):
         valid = {
@@ -51,12 +81,12 @@ class TableLayoutHelpersTests(SimpleTestCase):
             "header_color": "#c7d7ea", "header_alpha": "100", "row_selected_color": "#dbeafe", "row_selected_alpha": "90",
             "cell_outline_color": "#2563eb", "cell_outline_alpha": "80", "cell_fill_color": "#ffffff", "cell_fill_alpha": "70",
         }
-        layout = family_layout_from_post("production_calculation", valid)
+        layout = family_layout_from_post("calculation", valid)
         self.assertEqual(layout["header_font_size_px"], 11.2)
         self.assertEqual(layout["body_font_size_px"], 13.4)
         for field, bad in (("row_height_px", "NaN"), ("header_font_size_px", "Infinity"), ("body_font_size_px", "0"), ("cell_padding_vertical_px", "-1"), ("cell_padding_horizontal_px", "99"), ("header_color", "red"), ("header_alpha", "101")):
             with self.subTest(field=field), self.assertRaises(FamilyValidationError):
-                family_layout_from_post("production_calculation", {**valid, field: bad})
+                family_layout_from_post("calculation", {**valid, field: bad})
         with self.assertRaises(FamilyValidationError):
             family_layout_from_post("unknown", valid)
 
@@ -74,13 +104,13 @@ class TableLayoutHelpersTests(SimpleTestCase):
             "cell_outline_color": "#654321", "cell_outline_alpha": "100",
             "cell_fill_color": "#abcdef", "cell_fill_alpha": "100",
         }
-        layout = family_layout_from_post("list_management", posted, current)
+        layout = family_layout_from_post("general", posted, current)
         self.assertEqual(layout["cell_padding_vertical_px"], 7)
         self.assertEqual(layout["cell_padding_horizontal_px"], 19)
 
     def test_family_css_is_container_scoped(self):
         css = css_for_families(normalize_family_layouts({}))
-        self.assertIn('[data-table-family="production-calculation"]', css)
+        self.assertIn('[data-table-type="calculation"]', css)
         self.assertIn("--table-family-header-font-size:12px", css)
         self.assertIn("--table-family-body-font-size:12.5px", css)
         self.assertIn('table:not(.excel-preview-table):not(.excel-grid) th', css)
@@ -95,13 +125,13 @@ class TableLayoutHelpersTests(SimpleTestCase):
     def test_height_mechanism_is_shared_by_all_business_families(self):
         css = css_for_families(normalize_family_layouts({}))
         for key in FAMILY_KEYS:
-            host = f'[data-table-family="{key.replace("_", "-")}"]'
+            host = f'[data-table-type="{key}"]'
             self.assertIn(f"{host} table:not(.excel-preview-table):not(.excel-grid) tbody tr", css)
             self.assertIn(f"{host} table:not(.excel-preview-table):not(.excel-grid) thead tr", css)
 
     def test_list_family_css_owns_complete_acceptance_contract(self):
         families = normalize_family_layouts({})
-        families["list_management"].update({
+        families["general"].update({
             "row_height_px": 70, "header_height_px": 70,
             "header_border": True, "col_border": True, "row_border": True,
             "width_locked": True, "header_wrap": True, "body_wrap": True,
@@ -109,13 +139,13 @@ class TableLayoutHelpersTests(SimpleTestCase):
             "cell_fill_color": "#abcdef", "cell_outline_color": "#654321",
         })
         css = css_for_families(families)
-        block = css.split('[data-table-family="list-management"]', 1)[1].split('[data-table-family="production-calculation"]', 1)[0]
+        block = css.split('[data-table-type="general"]', 1)[1].split('[data-table-type="calculation"]', 1)[0]
         self.assertIn("--table-row-height:70px", block)
         self.assertIn("--table-header-height:70px", block)
         self.assertIn("--table-header-bg:rgba(255,0,170,1.00)", block)
-        self.assertIn("--table-family-width-locked:1", block)
-        self.assertIn('[data-table-family="list-management"] .table:not(.excel-preview-table):not(.excel-grid) th', block)
-        self.assertIn('[data-table-family="list-management"] .results table:not(.excel-preview-table):not(.excel-grid) th', block)
+        self.assertIn("--table-type-width-locked:1", block)
+        self.assertIn('[data-table-type="general"] .table:not(.excel-preview-table):not(.excel-grid) th', block)
+        self.assertIn('[data-table-type="general"] .results table:not(.excel-preview-table):not(.excel-grid) th', block)
         self.assertIn(f"background-image:linear-gradient({COLUMN_BORDER_COLOR},{COLUMN_BORDER_COLOR}) !important", block)
         self.assertIn("border-bottom:1px solid #9eb6d4 !important", block)
         self.assertIn("border-bottom-color:var(--line) !important", block)
@@ -126,22 +156,18 @@ class TableLayoutHelpersTests(SimpleTestCase):
         self.assertIn("background:var(--table-cell-fill) !important", block)
         self.assertIn("outline:2px solid var(--table-cell-outline) !important", block)
 
-    def test_family_contract_follows_and_matches_legacy_section_specificity(self):
-        css = css_for_layouts(
-            normalize_all_layouts({}),
-            normalize_profile_layouts({}),
-            normalize_family_layouts({}),
-        )
-        legacy = '[data-table-section="planning"] .table th'
-        family = '[data-table-family="list-management"] .table:not(.excel-preview-table):not(.excel-grid) th'
-        self.assertIn(legacy, css)
-        self.assertIn(family, css)
-        self.assertGreater(css.rfind(family), css.rfind(legacy))
+    def test_live_context_uses_one_appearance_owner(self):
+        context = (settings.BASE_DIR / "core" / "context_processors.py").read_text(encoding="utf-8")
+        self.assertIn('"table_layout_css": css_for_families(families)', context)
+        self.assertNotIn('"table_layout_css": css_for_layouts(', context)
+        css = css_for_families(normalize_family_layouts({}))
+        self.assertNotIn('[data-table-section=', css)
+        self.assertNotIn('[data-table-family=', css)
 
     def test_width_lock_uses_family_value_without_changing_storage_contract(self):
         js = (settings.BASE_DIR / "static" / "js" / "table_layout.js").read_text(encoding="utf-8")
-        self.assertIn('getPropertyValue("--table-family-width-locked")', js)
-        self.assertIn("if (familyLocked !== null) locked = familyLocked", js)
+        self.assertIn('getPropertyValue("--table-type-width-locked")', js)
+        self.assertIn("if (typeLocked !== null) locked = typeLocked", js)
         self.assertIn('var STORAGE_PREFIX = "erp.table.colwidths."', js)
         self.assertIn("var stored = loadWidths(table)", js)
         self.assertIn("applyFixedWidths(table, stored)", js)

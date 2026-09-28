@@ -51,7 +51,7 @@
       </div>
     </header>
 
-    <main class="content admin-embed-content" data-table-section="system" data-table-surface="hub" data-table-family="list-management">
+    <main class="content admin-embed-content" data-table-section="system" data-table-surface="hub" data-table-type="general">
       {% block nav-breadcrumbs %}
       <nav class="admin-embed-crumbs" aria-label="{% translate 'Breadcrumbs' %}">
         {% block breadcrumbs %}
@@ -64,7 +64,7 @@
       {% endblock %}
 {% else %}
 <div id="container">
-  <main id="content-start" class="content" tabindex="-1">
+  <main id="content-start" class="content" data-table-type="general" tabindex="-1">
 {% endif %}
 
       {% block messages %}

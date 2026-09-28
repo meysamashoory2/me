@@ -179,7 +179,7 @@ class TableLayoutSettingsTests(TestCase):
         self.assertTrue(settings.is_width_locked("planning"))
         self.assertTrue(settings.is_width_locked("systemic"))
 
-    def _family_payload(self, family="production_calculation", **overrides):
+    def _family_payload(self, family="calculation", **overrides):
         data = {
             "family": family, "row_height_px": "34", "header_height_px": "34",
             "body_font_size_px": "12.5", "header_font_size_px": "12",
@@ -196,11 +196,11 @@ class TableLayoutSettingsTests(TestCase):
     def test_business_family_tabs_panels_and_readonly_impact(self):
         self.client.login(username="admin", password="erp12345")
         url = reverse("system_table_layout")
-        response = self.client.get(url, {"family": "production_calculation"})
+        response = self.client.get(url, {"family": "calculation"})
         self.assertEqual(response.status_code, 200)
-        for label in ("فهرست‌ها و مدیریت", "محاسبات تولید", "جداول عملیاتی", "گزارشات"):
+        for label in ("جداول عمومی", "جداول محاسبات", "جداول گزارشات"):
             self.assertContains(response, label)
-        for old in ("عمومی", "فشرده", "گزارش / محاسبات", "ورود اطلاعات"):
+        for old in ("فهرست‌ها و مدیریت", "جداول عملیاتی", "فشرده", "گزارش / محاسبات", "ورود اطلاعات"):
             self.assertNotContains(response, old)
         self.assertContains(response, "سرستون")
         self.assertContains(response, "بدنه جدول")
@@ -217,20 +217,76 @@ class TableLayoutSettingsTests(TestCase):
         self.assertIn('id="table-family-preview-table"', html)
         self.assertIn('class="is-row-selected"', html)
         self.assertIn('class="is-cell-focus"', html)
-        self.assertIn('data-table-family="production-calculation"', html)
+        self.assertIn('data-table-type="calculation"', html)
+        self.assertEqual(html.count('class="tab '), 3)
+        self.assertIn('dir="rtl" name="header_alpha"', html)
+        self.assertIn('dir="ltr" name="header_height_px"', html)
+
+    def test_each_type_uses_the_same_effective_preview_and_impact_count(self):
+        self.client.login(username="admin", password="erp12345")
+        for key, count in (("general", 76), ("calculation", 3), ("report", 10)):
+            with self.subTest(key=key):
+                response = self.client.get(reverse("system_table_layout"), {"family": key})
+                self.assertEqual(response.status_code, 200)
+                html = response.content.decode()
+                self.assertIn(f'data-table-type="{key}"', html)
+                self.assertEqual(html.count('id="table-family-preview-table"'), 1)
+                self.assertIn(f"جداول تحت تأثیر: {count} جدول", html)
+                self.assertNotIn('>پیش‌نمایش</a>', html)
+                self.assertNotIn('data-table-family=', html)
+
+    def test_initial_input_directions_are_explicit_and_stable(self):
+        self.client.login(username="admin", password="erp12345")
+        html = self.client.get(reverse("system_table_layout")).content.decode()
+        for name in ("header_height_px", "header_font_size_px", "row_height_px", "body_font_size_px"):
+            self.assertIn(f'type="number" dir="ltr" name="{name}"', html)
+        for name in ("header_alpha", "row_selected_alpha", "cell_outline_alpha", "cell_fill_alpha"):
+            self.assertIn(f'type="range" dir="rtl" name="{name}"', html)
+
+    def test_representative_real_pages_receive_explicit_or_default_type(self):
+        from django.conf import settings as django_settings
+
+        self.client.login(username="admin", password="erp12345")
+        for url, key in (
+            (reverse("plan_list"), "general"),
+            (reverse("user_management"), "general"),
+            (reverse("system_data"), "general"),
+            (reverse("admin:catalog_flexibledataset_changelist"), "general"),
+            (reverse("pipe_calc"), "calculation"),
+            (reverse("dashboard"), "report"),
+        ):
+            with self.subTest(url=url):
+                response = self.client.get(url)
+                self.assertEqual(response.status_code, 200)
+                self.assertIn(f'data-table-type="{key}"', response.content.decode())
+        for path, key in (
+            ("templates/catalog/pipe_calc.html", "calculation"),
+            ("templates/planning/systemic_intelligence.html", "report"),
+            ("templates/reports/detail.html", "report"),
+            ("templates/reports/viewer_standalone.html", "report"),
+            ("templates/reports/list.html", "general"),
+            ("templates/reports/builder_standalone.html", "general"),
+        ):
+            with self.subTest(path=path):
+                source = (django_settings.BASE_DIR / path).read_text(encoding="utf-8")
+                if key == "general" and '{% extends "base.html" %}' in source:
+                    self.assertNotIn("{% block table_type %}", source)
+                else:
+                    self.assertIn(f'data-table-type="{key}"' if "standalone" in path else
+                                  f"{{% block table_type %}}{key}{{% endblock %}}", source)
 
     def test_list_family_real_surfaces_and_preview_share_family_container(self):
         self.client.login(username="admin", password="erp12345")
-        settings_page = self.client.get(reverse("system_table_layout"), {"family": "list_management"})
+        settings_page = self.client.get(reverse("system_table_layout"), {"family": "general"})
         plan_list = self.client.get(reverse("plan_list"))
         columns = self.client.get(reverse("system_table_columns"))
         for response in (settings_page, plan_list, columns):
             self.assertEqual(response.status_code, 200)
-            self.assertContains(response, 'data-table-family="list-management"')
+            self.assertContains(response, 'data-table-type="general"')
         from django.conf import settings as django_settings
         plan_template = (django_settings.BASE_DIR / "templates" / "planning" / "plan_list.html").read_text(encoding="utf-8")
         self.assertIn('id="plan-list-table"', plan_template)
-        self.assertIn('{% block table_family %}list-management{% endblock %}', plan_template)
+        self.assertIn('{% extends "base.html" %}', plan_template)
         self.assertContains(columns, 'class="table')
 
     def test_family_save_is_isolated_and_preserves_compatibility_data(self):
@@ -243,14 +299,14 @@ class TableLayoutSettingsTests(TestCase):
         })
         response = self.client.post(reverse("system_table_layout"), self._family_payload(body_font_size_px="13.7", header_font_size_px="11.4"), HTTP_X_REQUESTED_WITH="XMLHttpRequest")
         self.assertEqual(response.status_code, 200)
-        self.assertIn('data-table-family="production-calculation"', response.json()["css"])
+        self.assertIn('data-table-type="calculation"', response.json()["css"])
         settings.refresh_from_db()
         self.assertEqual(settings.section_layouts["all"], {"row_height_px": 47})
         self.assertEqual(settings.section_layouts["planning"], {"row_height_px": 41})
         self.assertEqual(settings.section_layouts["profiles"], {"compact": {"row_height_px": 26}})
         self.assertEqual(settings.section_layouts["unknown"], {"keep": True})
         self.assertEqual(settings.section_layouts["families"]["report_output"], {"row_height_px": 45})
-        saved = settings.section_layouts["families"]["production_calculation"]
+        saved = settings.section_layouts["families"]["calculation"]
         self.assertEqual(saved["body_font_size_px"], 13.7)
         self.assertEqual(saved["header_font_size_px"], 11.4)
 
@@ -259,12 +315,12 @@ class TableLayoutSettingsTests(TestCase):
 
         self.client.login(username="admin", password="erp12345")
         settings = TableLayoutSettings.objects.create(section_layouts={
-            "families": {"list_management": {
+            "families": {"general": {
                 "cell_padding_vertical_px": 6,
                 "cell_padding_horizontal_px": 17,
             }}
         })
-        data = self._family_payload(family="list_management", row_height_px="70", header_height_px="70")
+        data = self._family_payload(family="general", row_height_px="70", header_height_px="70")
         data.pop("cell_padding_vertical_px")
         data.pop("cell_padding_horizontal_px")
         response = self.client.post(
@@ -273,7 +329,7 @@ class TableLayoutSettingsTests(TestCase):
         )
         self.assertEqual(response.status_code, 200)
         settings.refresh_from_db()
-        saved = settings.section_layouts["families"]["list_management"]
+        saved = settings.section_layouts["families"]["general"]
         self.assertEqual(saved["cell_padding_vertical_px"], 6)
         self.assertEqual(saved["cell_padding_horizontal_px"], 17)
 
@@ -294,11 +350,11 @@ class TableLayoutSettingsTests(TestCase):
         self.client.login(username="admin", password="erp12345")
         original = {"all": {"row_height_px": 48}, "profiles": {"compact": {"row_height_px": 26}}, "legacy": {"x": 1}, "families": {"report_output": {"row_height_px": 44}}}
         settings = TableLayoutSettings.objects.create(section_layouts=original)
-        response = self.client.post(reverse("system_table_layout"), {"family": "production_calculation", "family_reset": "production_calculation"}, HTTP_X_REQUESTED_WITH="XMLHttpRequest")
+        response = self.client.post(reverse("system_table_layout"), {"family": "calculation", "family_reset": "calculation"}, HTTP_X_REQUESTED_WITH="XMLHttpRequest")
         self.assertEqual(response.status_code, 200)
         settings.refresh_from_db()
-        saved = settings.section_layouts["families"]["production_calculation"]
-        for key, value in FAMILY_DEFAULTS["production_calculation"].items():
+        saved = settings.section_layouts["families"]["calculation"]
+        for key, value in FAMILY_DEFAULTS["calculation"].items():
             self.assertEqual(saved[key], value)
         self.assertEqual(settings.section_layouts["all"], {"row_height_px": 48})
         self.assertEqual(settings.section_layouts["profiles"], original["profiles"])
@@ -331,7 +387,7 @@ class TableLayoutSettingsTests(TestCase):
         self.assertEqual(payload["layout"]["row_height_px"], 70)
         self.assertEqual(payload["layout"]["header_height_px"], 70)
         self.assertEqual(payload["layout"]["header_color"], "#ff00aa")
-        production_css = payload["css"].split('[data-table-family="production-calculation"]', 1)[1].split('[data-table-family="operational"]', 1)[0]
+        production_css = payload["css"].split('[data-table-type="calculation"]', 1)[1].split('[data-table-type="report"]', 1)[0]
         self.assertIn("--table-family-body-font-size:20px", production_css)
         self.assertIn("--table-family-header-font-size:18px", production_css)
         self.assertIn("--table-row-height:70px", production_css)
@@ -342,16 +398,16 @@ class TableLayoutSettingsTests(TestCase):
 
         settings.refresh_from_db()
         effective = normalize_family_layouts(settings.section_layouts)
-        self.assertEqual(effective["production_calculation"]["body_font_size_px"], 20)
-        self.assertEqual(effective["production_calculation"]["row_height_px"], 70)
-        self.assertEqual(effective["production_calculation"]["header_height_px"], 70)
-        self.assertEqual(effective["production_calculation"]["header_color"], "#ff00aa")
-        reloaded = self.client.get(url, {"family": "production_calculation"})
+        self.assertEqual(effective["calculation"]["body_font_size_px"], 20)
+        self.assertEqual(effective["calculation"]["row_height_px"], 70)
+        self.assertEqual(effective["calculation"]["header_height_px"], 70)
+        self.assertEqual(effective["calculation"]["header_color"], "#ff00aa")
+        reloaded = self.client.get(url, {"family": "calculation"})
         self.assertContains(reloaded, 'name="body_font_size_px" min="9" max="24" step="0.1" value="20.0"')
 
         reset = self.client.post(
             url,
-            {"family": "production_calculation", "family_reset": "production_calculation"},
+            {"family": "calculation", "family_reset": "calculation"},
             HTTP_X_REQUESTED_WITH="XMLHttpRequest",
         )
         self.assertEqual(reset.status_code, 200)
@@ -359,7 +415,7 @@ class TableLayoutSettingsTests(TestCase):
         self.assertEqual(reset_payload["layout"]["body_font_size_px"], 12.5)
         self.assertEqual(reset_payload["layout"]["row_height_px"], 34)
         self.assertEqual(reset_payload["layout"]["header_height_px"], 34)
-        reset_css = reset_payload["css"].split('[data-table-family="production-calculation"]', 1)[1].split('[data-table-family="operational"]', 1)[0]
+        reset_css = reset_payload["css"].split('[data-table-type="calculation"]', 1)[1].split('[data-table-type="report"]', 1)[0]
         self.assertIn("--table-family-body-font-size:12.5px", reset_css)
         self.assertIn("--table-row-height:34px", reset_css)
         self.assertIn("--table-header-height:34px", reset_css)
@@ -371,8 +427,8 @@ class TableLayoutSettingsTests(TestCase):
         self.assertEqual(settings.section_layouts["profiles"], original["profiles"])
         self.assertEqual(settings.section_layouts["legacy"], original["legacy"])
         self.assertEqual(settings.section_layouts["families"]["operational"], original["families"]["operational"])
-        for key, value in FAMILY_DEFAULTS["production_calculation"].items():
-            self.assertEqual(settings.section_layouts["families"]["production_calculation"][key], value)
+        for key, value in FAMILY_DEFAULTS["calculation"].items():
+            self.assertEqual(settings.section_layouts["families"]["calculation"][key], value)
 
     def test_family_font_edits_preserve_the_other_font_value(self):
         from catalog.models import TableLayoutSettings
@@ -385,7 +441,7 @@ class TableLayoutSettingsTests(TestCase):
         second = self.client.post(url, self._family_payload(header_font_size_px="18", body_font_size_px="20"), HTTP_X_REQUESTED_WITH="XMLHttpRequest")
         self.assertEqual(second.status_code, 200)
         settings.refresh_from_db()
-        saved = settings.section_layouts["families"]["production_calculation"]
+        saved = settings.section_layouts["families"]["calculation"]
         self.assertEqual(saved["header_font_size_px"], 18)
         self.assertEqual(saved["body_font_size_px"], 20)
 
@@ -418,7 +474,7 @@ class TableLayoutSettingsTests(TestCase):
         self.assertContains(get, "سرستون")
         self.assertContains(get, "بدنه جدول")
         self.assertContains(get, "جداول تحت تأثیر")
-        body = self.client.get(url, {"family": "list_management"})
+        body = self.client.get(url, {"family": "general"})
         self.assertContains(body, "ارتفاع ردیف")
         self.assertEqual(body.content.decode().count('name="row_height_px"'), 1)
         resp = self.client.post(
@@ -457,13 +513,14 @@ class TableLayoutSettingsTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         payload = resp.json()
         self.assertTrue(payload["ok"])
-        self.assertIn("--table-row-height:52px", payload["css"])
-        self.assertIn('data-table-section="planning"', payload["css"])
+        self.assertIn('data-table-type="general"', payload["css"])
+        self.assertNotIn('data-table-section="planning"', payload["css"])
         self.assertEqual(payload["layout"]["row_height_px"], 52)
         settings = TableLayoutSettings.load()
         self.assertEqual(settings.layouts_map()["planning"]["row_height_px"], 52)
         page = self.client.get(reverse("plan_list"))
-        self.assertIn("--table-row-height:52px", page.content.decode())
+        self.assertIn('data-table-type="general"', page.content.decode())
+        self.assertNotIn("--table-row-height:52px", page.content.decode())
 
     def test_layout_css_does_not_paint_page_background(self):
         import re
@@ -517,7 +574,7 @@ class TableLayoutSettingsTests(TestCase):
         self.assertEqual(settings.section_layouts["all"]["row_height_px"], 8)
         self.assertFalse(settings.section_layouts["all"]["col_border"])
 
-    def test_column_border_toggle_reaches_planning_and_history_pages(self):
+    def test_legacy_column_border_toggle_does_not_override_general_type(self):
         from django.urls import reverse
         from catalog.table_layout import COLUMN_BORDER_COLOR
 
@@ -526,8 +583,7 @@ class TableLayoutSettingsTests(TestCase):
         show_rule = (
             f"background-image:linear-gradient({COLUMN_BORDER_COLOR},{COLUMN_BORDER_COLOR}) !important"
         )
-        planning_show = '[data-table-section="planning"] table th:not(:last-child)'
-        history_show = '[data-table-section="history"] table th:not(:last-child)'
+        general_show = '[data-table-type="general"] table:not(.excel-preview-table):not(.excel-grid) th:not(:last-child)'
 
         self.client.post(
             layout_url,
@@ -544,7 +600,7 @@ class TableLayoutSettingsTests(TestCase):
         self.assertEqual(plans.status_code, 200)
         plans_html = plans.content.decode()
         self.assertIn('data-table-section="planning"', plans_html)
-        self.assertIn(planning_show, plans_html)
+        self.assertIn(general_show, plans_html)
         self.assertIn(show_rule, plans_html)
         self.assertIn(
             f"background-image:linear-gradient({COLUMN_BORDER_COLOR},{COLUMN_BORDER_COLOR}) !important",
@@ -555,7 +611,7 @@ class TableLayoutSettingsTests(TestCase):
         self.assertEqual(history.status_code, 200)
         history_html = history.content.decode()
         self.assertIn('data-table-section="history"', history_html)
-        self.assertIn(history_show, history_html)
+        self.assertIn(general_show, history_html)
 
         self.client.post(
             layout_url,
@@ -569,14 +625,6 @@ class TableLayoutSettingsTests(TestCase):
             },
         )
         plans_hidden = self.client.get(reverse("plan_list")).content.decode()
-        self.assertNotIn(planning_show, plans_hidden)
-        self.assertIn('[data-table-section="planning"] table th,', plans_hidden)
-        self.assertIn("border-left:none !important", plans_hidden)
-        self.assertIn("border-inline-end:none !important", plans_hidden)
-        self.assertIn("background-image:none !important", plans_hidden)
-        self.assertNotIn(
-            '[data-table-section="planning"] table th:not(:last-child)',
-            plans_hidden,
-        )
-        # Unified settings intentionally apply the same hidden-border rule to history.
-        self.assertNotIn(history_show, plans_hidden)
+        self.assertIn(general_show, plans_hidden)
+        self.assertIn(show_rule, plans_hidden)
+        self.assertNotIn('[data-table-section="planning"] table th:not(:last-child)', plans_hidden)

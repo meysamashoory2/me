@@ -7,12 +7,10 @@
   <title>{{ report.heading_label }}</title>
   <link rel="stylesheet" href="{% static 'css/report_app.css' %}?v=8">
   <style>
-    :root { --table-row-height: {{ table_row_height_px|default:36 }}px; }
     {{ table_layout_css|default:''|safe }}
   </style>
 </head>
-<body class="report-app" data-table-family="report-output"
-      style="--table-row-height: {{ table_row_height_px|default:36 }}px"
+<body class="report-app" data-table-type="report"
       data-table-section="reports"
       data-table-width-locks="{{ table_width_locks_json|default:'{}'|escape }}"
       data-list-url="{{ list_url|default:'' }}"

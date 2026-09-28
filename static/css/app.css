@@ -3636,6 +3636,8 @@ fieldset.layout-field-choice {
 .table-layout-form .layout-field > span,
 .table-layout-form fieldset.layout-field-choice > span { flex: 0 1 118px; width: auto; }
 .table-layout-form .layout-field .input { width: 76px; max-width: 100%; }
+.table-layout-form input[type="number"] { direction: ltr; text-align: center; unicode-bidi: plaintext; }
+.table-layout-form input[type="range"] { direction: rtl; }
 .table-layout-form .layout-choice-row,
 .table-layout-form .layout-tint { flex: 1; min-width: 0; justify-content: flex-start; }
 .table-layout-form .layout-choice-row { gap: 8px; }

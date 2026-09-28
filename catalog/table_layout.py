@@ -41,21 +41,22 @@ TABLE_PROFILE_REGISTRY: dict[str, tuple[dict[str, str], ...]] = {
     "report": ({"key": "pipe_calculation_results", "label": "جدول محاسباتی لوله و مواد", "module": "محاسبات تولید لوله"},),
     "data_entry": ({"key": "pipe_initial_definitions", "label": "تعاریف اولیه", "module": "محاسبات تولید لوله"},),
 }
-# Stage 4.5 business families.  The older technical profiles above remain
-# readable for rollback compatibility, but are no longer the primary UI.
+# The three presentation types are the only user-facing appearance owners.
+# Historical families and technical profiles remain readable in stored JSON.
 FAMILY_LAYOUT_KEY = "families"
-FAMILY_KEYS = ("list_management", "production_calculation", "operational", "report_output")
+FAMILY_KEYS = ("general", "calculation", "report")
 FAMILY_LABELS = {
-    "list_management": "فهرست‌ها و مدیریت",
-    "production_calculation": "محاسبات تولید",
-    "operational": "جداول عملیاتی",
-    "report_output": "گزارشات",
+    "general": "جداول عمومی",
+    "calculation": "جداول محاسبات",
+    "report": "جداول گزارشات",
 }
 FAMILY_DEFAULTS: dict[str, dict[str, Any]] = {
-    "list_management": {"row_height_px": 36, "header_height_px": 36, "body_font_size_px": 14, "header_font_size_px": 12, "cell_padding_vertical_px": 0, "cell_padding_horizontal_px": 12},
-    "production_calculation": {"row_height_px": 34, "header_height_px": 34, "body_font_size_px": 12.5, "header_font_size_px": 12, "cell_padding_vertical_px": 5, "cell_padding_horizontal_px": 8},
-    "operational": {"row_height_px": 36, "header_height_px": 36, "body_font_size_px": 14, "header_font_size_px": 12, "cell_padding_vertical_px": 0, "cell_padding_horizontal_px": 12},
-    "report_output": {"row_height_px": 36, "header_height_px": 36, "body_font_size_px": 13, "header_font_size_px": 12, "cell_padding_vertical_px": 0, "cell_padding_horizontal_px": 8},
+    # General uses the former list/management approved default, never a merge
+    # of potentially conflicting list and operational customizations.
+    "general": {"row_height_px": 36, "header_height_px": 36, "body_font_size_px": 14, "header_font_size_px": 12, "cell_padding_vertical_px": 0, "cell_padding_horizontal_px": 12},
+    # Preserve the current approved Production Calculation baseline exactly.
+    "calculation": {"row_height_px": 34, "header_height_px": 34, "body_font_size_px": 12.5, "header_font_size_px": 12, "cell_padding_vertical_px": 5, "cell_padding_horizontal_px": 8},
+    "report": {"row_height_px": 36, "header_height_px": 36, "body_font_size_px": 13, "header_font_size_px": 12, "cell_padding_vertical_px": 0, "cell_padding_horizontal_px": 8},
 }
 FAMILY_VALUE_BOUNDS = {
     "row_height_px": (18, 80), "header_height_px": (18, 80),
@@ -69,22 +70,19 @@ FAMILY_EDITABLE_SIZE_FIELDS = (
     "header_font_size_px",
 )
 FAMILY_IMPACT_REGISTRY = {
-    "list_management": (
-        {"label": "فهرست‌ها، مدیریت کاربران و پیکربندی", "module": "برنامه‌ریزی، سیستم، گزارشات", "count": 12},
-        {"label": "فایل‌ها و ابزارهای مدیریت Excel", "module": "بارگذاری فایل", "count": 4},
-        {"label": "فهرست‌های مدیریت Django", "module": "مدیریت داده‌ها", "count": 42},
+    # Audited source inventory: 52 template table definitions + 40 admin
+    # changelists. Exclude two independent Excel grids and this page's preview.
+    "general": (
+        {"label": "فهرست‌ها، کاربران، پیکربندی و طراحی گزارش", "module": "برنامه‌ریزی، سیستم، گزارشات", "count": 15},
+        {"label": "جداول عملیاتی، تولید، موجودی و محصول", "module": "برنامه‌ریزی، تولید، کاتالوگ", "count": 21},
+        {"label": "فهرست‌های مدیریت Django", "module": "مدیریت داده‌ها", "count": 40},
     ),
-    "production_calculation": (
+    "calculation": (
         {"label": "برنامه دپو و نیاز تولید", "module": "محاسبات تولید لوله", "count": 1},
         {"label": "جدول محاسباتی لوله و مواد", "module": "محاسبات تولید لوله", "count": 1},
         {"label": "تعاریف اولیه", "module": "محاسبات تولید لوله", "count": 1},
     ),
-    "operational": (
-        {"label": "برنامه‌ریزی و موجودی", "module": "برنامه‌ریزی هفتگی و هوشمند", "count": 9},
-        {"label": "تولید و سوابق", "module": "ثبت و کنترل تولید", "count": 8},
-        {"label": "محصول، BOM و داده‌های منتقل‌شده", "module": "دیتای محصولات", "count": 5},
-    ),
-    "report_output": (
+    "report": (
         {"label": "تحلیل‌های برنامه‌ریزی هوشمند", "module": "برنامه‌ریزی هوشمند", "count": 5},
         {"label": "خلاصه‌های تحلیلی داشبورد", "module": "داشبورد", "count": 2},
         {"label": "نتایج گزارش و Drilldown", "module": "گزارشات", "count": 3},
@@ -215,7 +213,7 @@ class FamilyValidationError(ValueError):
 
 def default_family_layout(family_key: str) -> dict[str, Any]:
     if family_key not in FAMILY_KEYS:
-        raise FamilyValidationError("خانواده جدول نامعتبر است.")
+        raise FamilyValidationError("نوع جدول نامعتبر است.")
     return {**default_layout(GLOBAL_LAYOUT_KEY), **FAMILY_DEFAULTS[family_key]}
 
 
@@ -250,7 +248,14 @@ def normalize_family_layouts(stored: Any) -> dict[str, dict[str, Any]]:
     root = stored if isinstance(stored, dict) else {}
     raw = root.get(FAMILY_LAYOUT_KEY)
     raw = raw if isinstance(raw, dict) else {}
-    return {key: normalize_family_layout(key, raw.get(key)) for key in FAMILY_KEYS}
+    # Existing Calculation/Report choices carry forward until their new keys
+    # are saved. Old list/operational values remain stored but do not silently
+    # combine into the single General type.
+    fallback = {"calculation": "production_calculation", "report": "report_output"}
+    return {
+        key: normalize_family_layout(key, raw.get(key, raw.get(fallback.get(key))))
+        for key in FAMILY_KEYS
+    }
 
 
 def family_layout_from_post(family_key: str, post, current: Any = None) -> dict[str, Any]:
@@ -301,8 +306,7 @@ def css_for_families(families: Any) -> str:
     parts: list[str] = []
     for key in FAMILY_KEYS:
         cfg = normalize_family_layout(key, normalized.get(key))
-        slug = key.replace("_", "-")
-        host = f'[data-table-family="{slug}"]'
+        host = f'[data-table-type="{key}"]'
         body_font_size = f"{cfg['body_font_size_px']:g}"
         header_font_size = f"{cfg['header_font_size_px']:g}"
         parts.append(
@@ -311,10 +315,10 @@ def css_for_families(families: Any) -> str:
             f"--table-family-pad-v:{cfg['cell_padding_vertical_px']}px;--table-family-pad-h:{cfg['cell_padding_horizontal_px']}px;"
             f"--table-header-bg:{_rgba(cfg['header_color'], cfg['header_alpha'])};--table-row-selected:{_rgba(cfg['row_selected_color'], cfg['row_selected_alpha'])};"
             f"--table-cell-outline:{_rgba(cfg['cell_outline_color'], cfg['cell_outline_alpha'])};--table-cell-fill:{_rgba(cfg['cell_fill_color'], cfg['cell_fill_alpha'])};"
-            f"--table-marquee:{1 if cfg['marquee'] else 0};--table-family-width-locked:{1 if cfg['width_locked'] else 0};}}"
+            f"--table-marquee:{1 if cfg['marquee'] else 0};--table-type-width-locked:{1 if cfg['width_locked'] else 0};}}"
         )
-        # Family membership belongs to the persistent container, so current and
-        # future descendant tables inherit without a per-table profile class.
+        # Type membership belongs to the persistent container; descendants
+        # inherit without a per-table registration or profile class.
         # Spreadsheet-style Excel surfaces deliberately keep independent sizing.
         family_tables = (
             f"{host} table:not(.excel-preview-table):not(.excel-grid)",
@@ -339,7 +343,7 @@ def css_for_families(families: Any) -> str:
             parts.append(
                 f"{between}{{background-image:linear-gradient({COLUMN_BORDER_COLOR},{COLUMN_BORDER_COLOR}) !important;"
                 "background-repeat:no-repeat !important;background-size:1px 100% !important;"
-                "background-position:left center !important;}}"
+                "background-position:left center !important;}"
             )
         else:
             parts.append(f"{cells}{{border-left:none !important;border-right:none !important;background-image:none !important;}}")
@@ -364,7 +368,7 @@ def css_for_families(families: Any) -> str:
         parts.append(f"{selected}{{background:var(--table-row-selected) !important;}}")
         parts.append(
             f"{focused}{{background:var(--table-cell-fill) !important;"
-            "outline:2px solid var(--table-cell-outline) !important;outline-offset:-2px !important;}}"
+            "outline:2px solid var(--table-cell-outline) !important;outline-offset:-2px !important;}"
         )
     return "".join(parts)
 

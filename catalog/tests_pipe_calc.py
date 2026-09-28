@@ -362,7 +362,7 @@ class PipeCalcViewTests(TestCase):
     def test_pipe_workspace_uses_one_inherited_business_family(self):
         resp = self.client.get("/data/pipe-calc/?line=protect&size=110")
         html = resp.content.decode()
-        self.assertIn('data-table-family="production-calculation"', html)
+        self.assertIn('data-table-type="calculation"', html)
         self.assertIn('class="pcx-table" id="pcx-depot-table"', html)
         self.assertIn('class="pcx-table pcx-table-calc"', html)
         self.assertIn('class="pcx-defs-table"', html)
@@ -375,7 +375,7 @@ class PipeCalcViewTests(TestCase):
 
     def test_new_pipe_descendants_inherit_without_profile_class(self):
         template = (settings.BASE_DIR / "templates" / "catalog" / "pipe_calc.html").read_text(encoding="utf-8")
-        self.assertIn("{% block table_family %}production-calculation{% endblock %}", template)
+        self.assertIn("{% block table_type %}calculation{% endblock %}", template)
         self.assertNotIn("erp-table-profile--", template)
 
     def test_duplicate_pipe_card_headings_are_absent(self):

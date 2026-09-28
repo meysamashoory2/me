@@ -44,7 +44,7 @@ def table_layout(request):
     try:
         from catalog.models import TableLayoutSettings
         from catalog.table_layout import (
-            css_for_layouts,
+            css_for_families,
             locks_from_layouts,
             normalize_family_layouts,
             normalize_profile_layouts,
@@ -63,7 +63,7 @@ def table_layout(request):
             "table_section_layouts_json": json.dumps(layouts, ensure_ascii=False),
             "table_profile_layouts": profiles,
             "table_family_layouts": families,
-            "table_layout_css": css_for_layouts(layouts, profiles, families) + _hidden_column_css(),
+            "table_layout_css": css_for_families(families) + _hidden_column_css(),
         }
     except Exception:  # noqa: BLE001 — migrations / early boot
         return {
