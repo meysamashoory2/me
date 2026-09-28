@@ -3657,15 +3657,22 @@ fieldset.layout-field-choice {
 .table-layout-form .layout-choice-row,
 .table-layout-form .layout-tint { flex: 1; min-width: 0; justify-content: flex-start; }
 .table-layout-form .layout-choice-row { gap: 8px; }
-.table-layout-form .layout-tint input[type="range"] { min-width: 54px; }
+.table-layout-form .layout-field-color {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(190px, 220px);
+  column-gap: 12px;
+  padding-inline-end: clamp(12px, 3%, 18px);
+}
 .table-layout-form .layout-tint {
   display: grid;
-  grid-template-columns: 32px minmax(54px, 1fr) 3.5em;
+  grid-template-columns: 32px minmax(90px, 1fr) 4em;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   direction: rtl;
+  width: 100%;
+  justify-self: start;
 }
-.table-layout-form .layout-tint output { direction: ltr; unicode-bidi: isolate; text-align: center; }
+.table-layout-form .layout-tint output { direction: ltr; unicode-bidi: isolate; text-align: center; min-width: 4em; white-space: nowrap; }
 .table-layout-form .layout-tint-well { position: relative; width: 32px; height: 28px; }
 .table-layout-form .layout-tint input[type="color"] { width: 32px; height: 28px; padding: 0; }
 .table-layout-form .layout-tint input[type="range"] { width: 100%; margin: 0; }

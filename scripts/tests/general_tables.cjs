@@ -216,6 +216,23 @@ const fixtures = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
         children:[...box.children].map(el=>({x:el.getBoundingClientRect().x,width:el.getBoundingClientRect().width,direction:getComputedStyle(el).direction}))
       }));
       const initial = await controlState();
+      const tintGeometry = () => page.locator(".layout-field-color").evaluateAll(rows => rows.map(row => {
+        const box = row.querySelector(".layout-tint"), range = box.querySelector('input[type="range"]'), output = box.querySelector("output");
+        const rr = row.getBoundingClientRect(), br = box.getBoundingClientRect(), sr = range.getBoundingClientRect(), or = output.getBoundingClientRect();
+        return {leftInset:Math.round(br.left-rr.left),sliderWidth:Math.round(sr.width),outputInside:or.left>=rr.left&&or.right<=rr.right,verticalDelta:Math.round(Math.abs((sr.top+sr.height/2)-(or.top+or.height/2)))};
+      }));
+      const initialTintGeometry = await tintGeometry();
+      initialTintGeometry.forEach((g, index) => {
+        assert.ok(g.leftInset >= 12, family + " color row " + index + " is inset from left edge"); assertions++;
+        assert.ok(g.sliderWidth >= 90, family + " color row " + index + " slider is moderately extended"); assertions++;
+        assert.ok(g.outputInside, family + " color row " + index + " percentage stays inside"); assertions++;
+        assert.ok(g.verticalDelta <= 2, family + " color row " + index + " controls are vertically aligned"); assertions++;
+      });
+      for (const value of ["0", "50", "100"]) {
+        await page.locator('[name="header_alpha"]').evaluate((el, next) => { el.value=next;el.dispatchEvent(new Event("input",{bubbles:true})); }, value);
+        equal(await page.locator(".layout-tint output").first().textContent(), value.replace(/\d/g,d=>"۰۱۲۳۴۵۶۷۸۹"[d])+"٪", family + " fully visible " + value + "%");
+        equal(await tintGeometry(), initialTintGeometry, family + " color geometry stable at " + value + "%");
+      }
       equal(await input.inputValue(), String(fixtures.defaults[family].row_height_px).replace(/\d/g,d=>"۰۱۲۳۴۵۶۷۸۹"[d]), "initial Persian value");
       const bodyFontExpected = String(fixtures.defaults[family].body_font_size_px).replace(/\.0$/, "").replace(/\d/g,d=>"۰۱۲۳۴۵۶۷۸۹"[d]).replace(".", "٫");
       equal(await page.locator('[data-number-for="body_font_size_px"]').inputValue(), bodyFontExpected, family + " meaningful numeric display");
