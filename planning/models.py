@@ -334,7 +334,7 @@ class PlanApprovalRevisionQuerySet(SnapshotWriteGuardQuerySet):
     )
 
     approval_evidence_fields = frozenset(
-        {"approved_by", "approved_by_id", "approved_at"}
+        {"approved_by", "approved_by_id", "approved_at", "content_fingerprint"}
     )
 
     def _contains_protected_revisions(self) -> bool:
@@ -399,6 +399,14 @@ class PlanApprovalRevision(models.Model):
         related_name="planning_approval_revisions",
     )
     approved_at = models.DateTimeField(null=True, blank=True)
+    content_fingerprint = models.CharField(
+        "اثر انگشت محتوای تأیید",
+        max_length=64,
+        blank=True,
+        default="",
+        db_index=True,
+        help_text="SHA-256 deterministic fingerprint of approval-relevant draft content.",
+    )
     superseded_by = models.ForeignKey(
         "self",
         on_delete=models.PROTECT,
@@ -443,6 +451,7 @@ class PlanApprovalRevision(models.Model):
             if previous.status != self.Status.PREPARING and (
                 previous.approved_by_id != self.approved_by_id
                 or previous.approved_at != self.approved_at
+                or previous.content_fingerprint != self.content_fingerprint
             ):
                 raise ValueError("Activated approval evidence is immutable.")
         return super().save(*args, **kwargs)
@@ -464,6 +473,117 @@ class PlanApprovalRevision(models.Model):
         return f"{self.plan} / بازنگری {self.revision_number}"
 
 
+class PlanApprovalDecisionQuerySet(models.QuerySet):
+    """Approval exception evidence is append-only through normal ORM paths."""
+
+    def update(self, **kwargs):
+        raise ValueError("Approval decision evidence is immutable.")
+
+    def bulk_update(self, objs, fields, **kwargs):
+        raise ValueError("Approval decision evidence is immutable.")
+
+    def bulk_create(self, objs, **kwargs):
+        objs = tuple(objs)
+        for obj in objs:
+            obj._validate_decision_authority(using=self.db)
+        return super().bulk_create(objs, **kwargs)
+
+    def delete(self):
+        raise ValueError("Approval decision evidence cannot be deleted.")
+
+
+class PlanApprovalDecision(models.Model):
+    """Immutable manager evidence for one approval-time exception."""
+
+    class DecisionType(models.TextChoices):
+        UNKNOWN_COMPATIBILITY = "unknown_compatibility", "سازگاری نامشخص"
+        NEEDS_REVIEW_COMPATIBILITY = "needs_review_compatibility", "سازگاری نیازمند بررسی"
+        UNDER_REPAIR_FUTURE_USE = "under_repair_future_use", "استفاده آینده از قالب در تعمیر"
+
+    class Outcome(models.TextChoices):
+        APPROVED = "approved", "تأیید شد"
+
+    approval_revision = models.ForeignKey(
+        PlanApprovalRevision,
+        on_delete=models.PROTECT,
+        related_name="approval_decisions",
+        verbose_name="بازنگری تأیید",
+    )
+    planned_path = models.ForeignKey(
+        PlannedProductionPath,
+        on_delete=models.PROTECT,
+        related_name="approval_decisions",
+        verbose_name="مسیر برنامه‌ریزی",
+    )
+    reservation = models.ForeignKey(
+        "PhysicalMoldReservation",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="approval_decisions",
+        verbose_name="رزرو مرتبط",
+    )
+    decision_type = models.CharField(
+        "نوع تصمیم", max_length=32, choices=DecisionType.choices
+    )
+    outcome = models.CharField(
+        "نتیجه", max_length=16, choices=Outcome.choices, default=Outcome.APPROVED
+    )
+    condition_snapshot = models.JSONField("تصویر وضعیت هشدار", default=dict)
+    decided_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="planning_approval_decisions",
+        verbose_name="تصمیم‌گیرنده",
+    )
+    decided_at = models.DateTimeField("زمان تصمیم", auto_now_add=True)
+    reason = models.TextField("دلیل اختیاری", blank=True)
+
+    objects = PlanApprovalDecisionQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["approval_revision_id", "planned_path_id", "decision_type", "id"]
+        verbose_name = "تصمیم استثنای تأیید برنامه"
+        verbose_name_plural = "تصمیم‌های استثنای تأیید برنامه"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["approval_revision", "planned_path", "decision_type"],
+                name="uniq_plan_approval_decision_evidence",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(outcome="approved"),
+                name="plan_approval_decision_valid_outcome",
+            ),
+        ]
+
+    def save(self, *args, **kwargs):
+        if self.pk is not None:
+            raise ValueError("Approval decision evidence is immutable.")
+        self._validate_decision_authority(
+            using=kwargs.get("using") or self._state.db or "default"
+        )
+        return super().save(*args, **kwargs)
+
+    def _validate_decision_authority(self, *, using):
+        from accounts.models import UserProfile
+
+        if not self.decided_by_id:
+            raise ValueError("Approval decision evidence requires a decision maker.")
+        if getattr(self.decided_by, "is_superuser", False):
+            return
+        if not UserProfile.objects.using(using).filter(
+            user_id=self.decided_by_id,
+            role="planning_manager",
+        ).exists():
+            raise ValueError("Only a planning manager may create approval decision evidence.")
+
+    def delete(self, *args, **kwargs):
+        raise ValueError("Approval decision evidence cannot be deleted.")
+
+    def __str__(self) -> str:
+        return f"{self.approval_revision} / {self.get_decision_type_display()}"
+
+
 class PhysicalMoldReservationQuerySet(SnapshotWriteGuardQuerySet):
     immutable_fields = frozenset(
         {
@@ -471,9 +591,31 @@ class PhysicalMoldReservationQuerySet(SnapshotWriteGuardQuerySet):
             "requirement", "requirement_id", "machine", "machine_id", "physical_mold",
             "physical_mold_id", "approved_planned_share_quantity", "reserved_start_date",
             "reserved_end_date", "compatibility_status_snapshot", "mold_status_snapshot",
-            "estimated_ready_date_snapshot", "activated_at",
+            "estimated_ready_date_snapshot",
         }
     )
+
+    def _contains_activated_reservations(self) -> bool:
+        return self.exclude(status=self.model.Status.PREPARING).exists()
+
+    def update(self, **kwargs):
+        if "activated_at" in kwargs and self._contains_activated_reservations():
+            raise ValueError("Reservation activation time is immutable after preparation.")
+        return super().update(**kwargs)
+
+    def bulk_update(self, objs, fields, **kwargs):
+        objs = tuple(objs)
+        if "activated_at" in fields:
+            pks = [obj.pk for obj in objs if obj.pk is not None]
+            if (
+                pks
+                and self.model.objects.using(self.db)
+                .filter(pk__in=pks)
+                .exclude(status=self.model.Status.PREPARING)
+                .exists()
+            ):
+                raise ValueError("Reservation activation time is immutable after preparation.")
+        return super().bulk_update(objs, fields, **kwargs)
 
     def active_overlaps(self, *, physical_mold, start_date, end_date):
         return self.filter(
@@ -491,6 +633,7 @@ class PhysicalMoldReservation(models.Model):
     """Immutable approved-path snapshot and future operational mold reservation."""
 
     class Status(models.TextChoices):
+        PREPARING = "preparing", "در حال آماده‌سازی"
         ACTIVE = "active", "فعال"
         SUPERSEDED = "superseded", "جایگزین‌شده"
         RELEASED = "released", "آزادشده"
@@ -550,7 +693,7 @@ class PhysicalMoldReservation(models.Model):
     status = models.CharField(
         "وضعیت رزرو", max_length=16, choices=Status.choices, default=Status.ACTIVE
     )
-    activated_at = models.DateTimeField()
+    activated_at = models.DateTimeField(null=True, blank=True)
     superseded_at = models.DateTimeField(null=True, blank=True)
     released_at = models.DateTimeField(null=True, blank=True)
 
@@ -566,8 +709,17 @@ class PhysicalMoldReservation(models.Model):
                 name="mold_reservation_valid_date_range",
             ),
             models.CheckConstraint(
-                condition=models.Q(status__in=["active", "superseded", "released", "cancelled"]),
+                condition=models.Q(
+                    status__in=["preparing", "active", "superseded", "released", "cancelled"]
+                ),
                 name="mold_reservation_valid_status",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(status="preparing", activated_at__isnull=True)
+                    | ~models.Q(status="preparing") & models.Q(activated_at__isnull=False)
+                ),
+                name="mold_reservation_activation_matches_status",
             ),
         ]
         indexes = [
@@ -585,10 +737,15 @@ class PhysicalMoldReservation(models.Model):
                 "approval_revision_id", "source_path_id", "requirement_id", "machine_id",
                 "physical_mold_id", "approved_planned_share_quantity", "reserved_start_date",
                 "reserved_end_date", "compatibility_status_snapshot", "mold_status_snapshot",
-                "estimated_ready_date_snapshot", "activated_at",
+                "estimated_ready_date_snapshot",
             )
             if any(getattr(previous, field) != getattr(self, field) for field in immutable):
                 raise ValueError("Reservation snapshot fields are immutable.")
+            if (
+                previous.status != self.Status.PREPARING
+                and previous.activated_at != self.activated_at
+            ):
+                raise ValueError("Reservation activation time is immutable after preparation.")
         return super().save(*args, **kwargs)
 
     def delete(self, *args, **kwargs):

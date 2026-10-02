@@ -13,7 +13,7 @@ from production.models import FittingProduction
 
 from .forms import WeeklyPlanForm, WeeklyPlanItemForm, WeeklyPlanLineFormSet
 from .insights import resolve_insights
-from .models import WeeklyPlan, WeeklyPlanItem
+from .models import PlannedProductionPath, WeeklyPlan, WeeklyPlanItem
 from .mold_stats import mold_change_stats
 from .utils import format_jdate, mold_change_date_candidates
 from catalog.models import Product
@@ -683,15 +683,24 @@ def product_insights(request):
 
 @login_required
 def plan_set_status(request, pk):
-    """ذخیره = تأیید نهایی برنامه (فقط ایجادکننده)."""
+    """Legacy approval; path-based operational activation is intentionally gated."""
     plan = get_object_or_404(WeeklyPlan, pk=pk)
     profile = get_profile(request.user)
-    if not _can_request_edit(request.user, profile, plan):
-        raise PermissionDenied("فقط ایجادکنندهٔ برنامه می‌تواند آن را ذخیره کند.")
     if request.method != "POST":
         return redirect("plan_list")
     target = request.POST.get("status")
     if target == WeeklyPlan.Status.APPROVED:
+        if not (
+            getattr(request.user, "is_superuser", False)
+            or (profile and profile.can_approve_plans)
+        ):
+            raise PermissionDenied("فقط مدیر برنامه‌ریزی می‌تواند برنامه را تأیید کند.")
+        if PlannedProductionPath.objects.filter(requirement__item__plan=plan).exists():
+            messages.error(
+                request,
+                "این برنامه دارای مسیر تولید است؛ گردش تأیید عملیاتی مسیرمحور هنوز فعال نشده است.",
+            )
+            return redirect(request.POST.get("next") or "plan_list")
         plan.status = WeeklyPlan.Status.APPROVED
         plan.approved_by = request.user
         plan.approved_at = timezone.now()
@@ -700,6 +709,8 @@ def plan_set_status(request, pk):
             ProductionProgram.objects.get_or_create(item=item)
         messages.success(request, f"برنامه ذخیره و تأیید شد.")
     else:
+        if not _can_request_edit(request.user, profile, plan):
+            raise PermissionDenied("فقط ایجادکننده یا مدیر می‌تواند برنامه را برای ویرایش باز کند.")
         plan.status = WeeklyPlan.Status.DRAFT
         plan.approved_by = None
         plan.approved_at = None

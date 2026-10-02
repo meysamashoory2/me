@@ -5,11 +5,45 @@ from .models import (
     CustomerOrder,
     PlanningProcessDefinition,
     PlanningProcessStep,
+    PlanApprovalDecision,
     SalesForecast,
     WeeklyPlan,
     WeeklyPlanItem,
     WeeklyPlanLine,
 )
+
+
+@admin.register(PlanApprovalDecision)
+class PlanApprovalDecisionAdmin(admin.ModelAdmin):
+    list_display = (
+        "approval_revision",
+        "planned_path",
+        "decision_type",
+        "outcome",
+        "decided_by",
+        "decided_at",
+    )
+    list_filter = ("decision_type", "outcome")
+    readonly_fields = (
+        "approval_revision",
+        "planned_path",
+        "reservation",
+        "decision_type",
+        "outcome",
+        "condition_snapshot",
+        "decided_by",
+        "decided_at",
+        "reason",
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 class WeeklyPlanLineInline(admin.TabularInline):
