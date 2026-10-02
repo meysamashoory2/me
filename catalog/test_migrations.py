@@ -13,6 +13,10 @@ CATALOG_MOLD_0026 = (
     "0026_productmold_moldoption_change_time_hours_and_more",
 )
 CATALOG_MERGE_0027 = ("catalog", "0027_merge_0026_catalog_feature_lines")
+CATALOG_STEP5_0028 = (
+    "catalog",
+    "0028_physicalmold_moldmachineperformance_and_more",
+)
 
 
 class CatalogMigrationTestCase(TransactionTestCase):
@@ -97,7 +101,7 @@ class Catalog0026ReconciliationTests(CatalogMigrationTestCase):
         loader = MigrationLoader(connection, ignore_no_migrations=True)
 
         self.assertEqual(loader.detect_conflicts(), {})
-        self.assertEqual(loader.graph.leaf_nodes("catalog"), [CATALOG_MERGE_0027])
+        self.assertEqual(loader.graph.leaf_nodes("catalog"), [CATALOG_STEP5_0028])
         merge_node = loader.graph.node_map[CATALOG_MERGE_0027]
         self.assertEqual(
             {parent.key for parent in merge_node.parents},

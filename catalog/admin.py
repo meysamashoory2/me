@@ -7,7 +7,11 @@ from .models import (
     FlexibleDataset,
     FlexibleRow,
     Machine,
+    MoldMachineCompatibility,
+    MoldMachineCompatibilityHistory,
+    MoldMachinePerformance,
     MoldOption,
+    PhysicalMold,
     PlanningDisplaySettings,
     PlanningInsightField,
     Product,
@@ -158,6 +162,96 @@ class MoldOptionAdmin(admin.ModelAdmin):
     list_display = ("id", "label", "order", "is_active")
     list_display_links = ("id",)
     list_editable = ("label", "order", "is_active")
+
+
+@admin.register(PhysicalMold)
+class PhysicalMoldAdmin(admin.ModelAdmin):
+    list_display = ("code", "mold_type", "status", "estimated_ready_date", "setup_time_hours")
+    list_filter = ("status", "mold_type")
+    search_fields = ("code", "mold_type__code", "mold_type__label")
+    readonly_fields = ("created_at", "updated_at")
+
+
+@admin.register(MoldMachineCompatibility)
+class MoldMachineCompatibilityAdmin(admin.ModelAdmin):
+    list_display = ("physical_mold", "machine", "status", "updated_at")
+    list_filter = ("status", "machine__unit")
+    search_fields = ("physical_mold__code", "machine__number")
+    readonly_fields = ("created_at", "updated_at")
+
+    def save_model(self, request, obj, form, change):
+        requested_status = obj.status
+        if change and obj.pk:
+            database = obj._state.db or "default"
+            previous_status = (
+                type(obj).objects.using(database).only("status").get(pk=obj.pk).status
+            )
+            status_changed = previous_status != requested_status
+            if status_changed:
+                obj.status = previous_status
+            super().save_model(request, obj, form, change)
+            if status_changed:
+                obj.change_status(
+                    requested_status,
+                    changed_by=request.user,
+                    reason="",
+                )
+            return
+
+        obj.status = MoldMachineCompatibility.Status.UNKNOWN
+        super().save_model(request, obj, form, change)
+        if requested_status != MoldMachineCompatibility.Status.UNKNOWN:
+            obj.change_status(
+                requested_status,
+                changed_by=request.user,
+                reason="",
+            )
+
+
+@admin.register(MoldMachineCompatibilityHistory)
+class MoldMachineCompatibilityHistoryAdmin(admin.ModelAdmin):
+    list_display = (
+        "compatibility",
+        "previous_status",
+        "new_status",
+        "changed_by",
+        "changed_at",
+    )
+    list_filter = ("previous_status", "new_status", "changed_at")
+    search_fields = ("compatibility__physical_mold__code", "reason")
+    readonly_fields = (
+        "compatibility",
+        "previous_status",
+        "new_status",
+        "changed_by",
+        "changed_at",
+        "reason",
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(MoldMachinePerformance)
+class MoldMachinePerformanceAdmin(admin.ModelAdmin):
+    list_display = (
+        "product",
+        "physical_mold",
+        "machine",
+        "cycle_seconds",
+        "active_cavities",
+        "effective_from",
+        "source",
+    )
+    list_filter = ("source", "machine__unit")
+    search_fields = ("product__code", "physical_mold__code", "machine__number")
+    readonly_fields = ("created_at", "updated_at")
 
 
 @admin.register(PlanningInsightField)

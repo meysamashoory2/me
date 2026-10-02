@@ -3,7 +3,9 @@
 from decimal import Decimal
 
 from django.conf import settings
-from django.db import models
+from django.db import models, transaction
+from django.utils import timezone
+from django_jalali.db import models as jmodels
 
 from .table_layout import SECTION_CHOICES as LAYOUT_SECTION_CHOICES
 
@@ -338,6 +340,423 @@ class ProductMold(models.Model):
 
     def __str__(self) -> str:
         return f"{self.product.code} → {self.mold.label} (#{self.slot})"
+
+
+class PhysicalMold(models.Model):
+    """One identified, physical mold owned by the factory.
+
+    ``MoldOption`` remains the legacy mold definition/type.  Physical mold
+    records are created only from verified factory master data; the legacy
+    ``copies`` value is deliberately not expanded into anonymous records.
+    """
+
+    class Status(models.TextChoices):
+        READY = "ready", "آماده"
+        UNDER_REPAIR = "under_repair", "در حال تعمیر"
+        UNAVAILABLE = "unavailable", "غیرقابل استفاده"
+        INACTIVE = "inactive", "غیرفعال"
+
+    DEFAULT_SETUP_TIME_HOURS = Decimal("3.00")
+
+    code = models.CharField("کد فیزیکی قالب", max_length=60, unique=True)
+    mold_type = models.ForeignKey(
+        MoldOption,
+        on_delete=models.PROTECT,
+        related_name="physical_molds",
+        verbose_name="نوع قالب",
+    )
+    status = models.CharField(
+        "وضعیت عملیاتی",
+        max_length=20,
+        choices=Status.choices,
+        default=Status.READY,
+        db_index=True,
+    )
+    estimated_ready_date = jmodels.jDateField(
+        "تاریخ تخمینی آمادگی", null=True, blank=True
+    )
+    setup_time_hours = models.DecimalField(
+        "زمان اختصاصی نصب (ساعت)",
+        max_digits=5,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="در صورت خالی بودن، قاعده آینده از پیش‌فرض ۳ ساعت استفاده می‌کند.",
+    )
+    notes = models.TextField("یادداشت", blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["code"]
+        verbose_name = "قالب فیزیکی"
+        verbose_name_plural = "قالب‌های فیزیکی"
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(status__in=[
+                    "ready",
+                    "under_repair",
+                    "unavailable",
+                    "inactive",
+                ]),
+                name="physical_mold_valid_status",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(setup_time_hours__isnull=True)
+                | models.Q(setup_time_hours__gte=0),
+                name="physical_mold_setup_nonnegative",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.code} — {self.mold_type.label}"
+
+    @property
+    def effective_setup_time_hours(self) -> Decimal:
+        """Mold override or the future-facing three-hour factory default."""
+        if self.setup_time_hours is not None:
+            return self.setup_time_hours
+        return self.DEFAULT_SETUP_TIME_HOURS
+
+
+class MoldMachineCompatibilityQuerySet(models.QuerySet):
+    """Guard audited compatibility state against accidental bulk changes."""
+
+    def update(self, **kwargs):
+        if "status" in kwargs:
+            raise ValueError(
+                "Bulk compatibility status updates are not allowed; "
+                "use change_status() for each record."
+            )
+        return super().update(**kwargs)
+
+    def bulk_create(self, objs, **kwargs):
+        if any(obj.status != self.model.Status.UNKNOWN for obj in objs):
+            raise ValueError(
+                "New compatibility records must start as UNKNOWN; use "
+                "create_with_status() for audited initial transitions."
+            )
+        return super().bulk_create(objs, **kwargs)
+
+    def bulk_update(self, objs, fields, **kwargs):
+        if "status" in fields:
+            raise ValueError(
+                "Bulk compatibility status updates are not allowed; "
+                "use change_status() for each record."
+            )
+        return super().bulk_update(objs, fields, **kwargs)
+
+    def _update_status_for_audit(self, *, status: str, updated_at):
+        """Internal write used only inside the canonical audited transition."""
+        return super().update(status=status, updated_at=updated_at)
+
+    def create_with_status(
+        self,
+        *,
+        status: str = "unknown",
+        changed_by=None,
+        reason: str = "",
+        **kwargs,
+    ):
+        """Create as UNKNOWN, then audit any requested initial transition."""
+        valid_statuses = {
+            value for value, _label in self.model.Status.choices
+        }
+        if status not in valid_statuses:
+            raise ValueError(f"Invalid compatibility status: {status}")
+
+        with transaction.atomic(using=self.db):
+            compatibility = self.create(status=self.model.Status.UNKNOWN, **kwargs)
+            if status != self.model.Status.UNKNOWN:
+                compatibility.change_status(
+                    status,
+                    changed_by=changed_by,
+                    reason=reason,
+                )
+        return compatibility
+
+
+class MoldMachineCompatibilityManager(
+    models.Manager.from_queryset(MoldMachineCompatibilityQuerySet)
+):
+    pass
+
+
+class MoldMachineCompatibility(models.Model):
+    """Explicit master-data assessment of a physical mold/machine pair."""
+
+    class Status(models.TextChoices):
+        CONFIRMED = "confirmed", "تأییدشده"
+        NEEDS_REVIEW = "needs_review", "نیازمند بررسی"
+        UNKNOWN = "unknown", "نامشخص"
+        INCOMPATIBLE = "incompatible", "ناسازگار"
+
+    physical_mold = models.ForeignKey(
+        PhysicalMold,
+        on_delete=models.PROTECT,
+        related_name="machine_compatibilities",
+        verbose_name="قالب فیزیکی",
+    )
+    machine = models.ForeignKey(
+        Machine,
+        on_delete=models.PROTECT,
+        related_name="mold_compatibilities",
+        verbose_name="دستگاه",
+    )
+    status = models.CharField(
+        "وضعیت سازگاری",
+        max_length=20,
+        choices=Status.choices,
+        default=Status.UNKNOWN,
+    )
+    notes = models.TextField("یادداشت", blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    objects = MoldMachineCompatibilityManager()
+
+    class Meta:
+        ordering = ["physical_mold__code", "machine__unit__number", "machine__number"]
+        verbose_name = "سازگاری قالب و دستگاه"
+        verbose_name_plural = "سازگاری‌های قالب و دستگاه"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["physical_mold", "machine"],
+                name="uniq_physical_mold_machine",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(status__in=[
+                    "confirmed",
+                    "needs_review",
+                    "unknown",
+                    "incompatible",
+                ]),
+                name="mold_machine_valid_status",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["machine", "status"], name="moldcompat_machine_status_idx"),
+            models.Index(fields=["physical_mold", "status"], name="moldcompat_mold_status_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.physical_mold} / {self.machine}: {self.get_status_display()}"
+
+    def save(self, *args, **kwargs):
+        database = kwargs.get("using") or self._state.db or "default"
+        if self._state.adding:
+            if self.status != self.Status.UNKNOWN:
+                raise ValueError(
+                    "New compatibility records must start as UNKNOWN; use "
+                    "create_with_status() for an audited initial transition."
+                )
+        elif self.pk is not None:
+            persisted_status = (
+                type(self).objects.using(database).only("status").get(pk=self.pk).status
+            )
+            if persisted_status != self.status:
+                raise ValueError(
+                    "Compatibility status cannot be changed with save(); "
+                    "use change_status()."
+                )
+        return super().save(*args, **kwargs)
+
+    def change_status(self, new_status: str, *, changed_by=None, reason: str = ""):
+        """Atomically change status and append immutable audit evidence."""
+        valid_statuses = {value for value, _label in self.Status.choices}
+        if new_status not in valid_statuses:
+            raise ValueError(f"Invalid compatibility status: {new_status}")
+        if self.pk is None:
+            raise ValueError("Compatibility must be saved before its status can be changed.")
+
+        database = self._state.db or "default"
+        with transaction.atomic(using=database):
+            current = type(self).objects.using(database).select_for_update().get(pk=self.pk)
+            if current.status == new_status:
+                return None
+            previous_status = current.status
+            changed_at = timezone.now()
+            updated = (
+                type(self).objects.using(database)
+                .filter(pk=current.pk)
+                ._update_status_for_audit(status=new_status, updated_at=changed_at)
+            )
+            if updated != 1:
+                raise RuntimeError("Compatibility status update did not affect one record.")
+            current.status = new_status
+            current.updated_at = changed_at
+            event = MoldMachineCompatibilityHistory.objects.using(database).create(
+                compatibility=current,
+                previous_status=previous_status,
+                new_status=new_status,
+                changed_by=changed_by,
+                reason=(reason or "").strip(),
+            )
+
+        self.status = new_status
+        self.updated_at = changed_at
+        return event
+
+
+class AppendOnlyHistoryQuerySet(models.QuerySet):
+    """Reject normal bulk mutation of append-only audit evidence."""
+
+    def update(self, **kwargs):
+        raise ValueError("Compatibility history is immutable.")
+
+    def delete(self):
+        raise ValueError("Compatibility history is immutable.")
+
+
+class AppendOnlyHistoryManager(models.Manager.from_queryset(AppendOnlyHistoryQuerySet)):
+    pass
+
+
+class MoldMachineCompatibilityHistory(models.Model):
+    """Append-only evidence for compatibility status changes."""
+
+    compatibility = models.ForeignKey(
+        MoldMachineCompatibility,
+        on_delete=models.PROTECT,
+        related_name="history",
+        verbose_name="سازگاری",
+    )
+    previous_status = models.CharField(
+        "وضعیت قبلی",
+        max_length=20,
+        choices=MoldMachineCompatibility.Status.choices,
+    )
+    new_status = models.CharField(
+        "وضعیت جدید",
+        max_length=20,
+        choices=MoldMachineCompatibility.Status.choices,
+    )
+    changed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="mold_compatibility_changes",
+        verbose_name="تغییردهنده",
+    )
+    changed_at = models.DateTimeField("زمان تغییر", auto_now_add=True)
+    reason = models.TextField("دلیل", blank=True)
+
+    objects = AppendOnlyHistoryManager()
+
+    class Meta:
+        ordering = ["-changed_at", "-id"]
+        verbose_name = "سابقه تغییر سازگاری"
+        verbose_name_plural = "سوابق تغییر سازگاری"
+        indexes = [
+            models.Index(fields=["compatibility", "-changed_at"], name="moldcompat_history_time_idx"),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(previous_status__in=[
+                    "confirmed",
+                    "needs_review",
+                    "unknown",
+                    "incompatible",
+                ]),
+                name="mold_history_previous_status_valid",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(new_status__in=[
+                    "confirmed",
+                    "needs_review",
+                    "unknown",
+                    "incompatible",
+                ]),
+                name="mold_history_new_status_valid",
+            ),
+        ]
+
+    def save(self, *args, **kwargs):
+        if self.pk is not None:
+            raise ValueError("Compatibility history is immutable.")
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValueError("Compatibility history is immutable.")
+
+    def __str__(self) -> str:
+        return f"{self.compatibility}: {self.previous_status} → {self.new_status}"
+
+
+class MoldMachinePerformance(models.Model):
+    """Effective-dated cycle/cavity evidence for a product/mold/machine tuple.
+
+    Multiple dated rows are intentional: future planners can select the latest
+    valid row without rewriting historical production observations.
+    """
+
+    class Source(models.TextChoices):
+        MANUAL = "manual", "ثبت دستی"
+        PRODUCTION_HISTORY = "production_history", "سابقه تولید"
+        IMPORT = "import", "ورودی داده"
+
+    product = models.ForeignKey(
+        Product,
+        on_delete=models.PROTECT,
+        related_name="mold_machine_performances",
+        verbose_name="محصول / قطعه",
+    )
+    physical_mold = models.ForeignKey(
+        PhysicalMold,
+        on_delete=models.PROTECT,
+        related_name="performance_records",
+        verbose_name="قالب فیزیکی",
+    )
+    machine = models.ForeignKey(
+        Machine,
+        on_delete=models.PROTECT,
+        related_name="mold_performance_records",
+        verbose_name="دستگاه",
+    )
+    cycle_seconds = models.PositiveIntegerField("سیکل تولید (ثانیه)")
+    active_cavities = models.PositiveSmallIntegerField("تعداد حفره فعال")
+    effective_from = models.DateTimeField("معتبر از")
+    source = models.CharField(
+        "منبع",
+        max_length=24,
+        choices=Source.choices,
+        default=Source.MANUAL,
+    )
+    notes = models.TextField("یادداشت", blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["product__code", "physical_mold__code", "machine_id", "-effective_from"]
+        verbose_name = "عملکرد قالب روی دستگاه"
+        verbose_name_plural = "عملکردهای قالب روی دستگاه"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["product", "physical_mold", "machine", "effective_from"],
+                name="uniq_mold_machine_performance_date",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(cycle_seconds__gt=0),
+                name="mold_performance_cycle_positive",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(active_cavities__gt=0),
+                name="mold_performance_cavities_positive",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["product", "physical_mold", "machine", "-effective_from"],
+                name="moldperf_latest_idx",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return (
+            f"{self.product.code} / {self.physical_mold.code} / {self.machine} "
+            f"({self.cycle_seconds}s, {self.active_cavities})"
+        )
 
 
 class PlanningInsightField(models.Model):
