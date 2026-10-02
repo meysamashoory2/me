@@ -4,7 +4,16 @@ from django.conf import settings
 from django.db import models
 from django_jalali.db import models as jmodels
 
-from catalog.models import Machine, MoldOption, Product, ProductionTypeOption, ProductionUnit, ProductSubGroup
+from catalog.models import (
+    Machine,
+    MoldMachineCompatibility,
+    MoldOption,
+    PhysicalMold,
+    Product,
+    ProductionTypeOption,
+    ProductionUnit,
+    ProductSubGroup,
+)
 
 
 def generate_program_uid() -> str:
@@ -198,6 +207,395 @@ class WeeklyPlanLine(models.Model):
         if qty <= 0 or cycle <= 0:
             return 0.0
         return round((qty / cavities) * cycle / 3600.0, 2)
+
+    @property
+    def assigned_planned_share_total(self) -> int:
+        return int(
+            self.planned_paths.filter(is_active=True).aggregate(
+                total=models.Sum("planned_share_quantity")
+            )["total"]
+            or 0
+        )
+
+    @property
+    def assignment_difference(self) -> int:
+        return self.assigned_planned_share_total - int(self.quantity or 0)
+
+    @property
+    def unassigned_quantity(self) -> int:
+        return max(-self.assignment_difference, 0)
+
+    @property
+    def overassigned_quantity(self) -> int:
+        return max(self.assignment_difference, 0)
+
+
+class PlannedProductionPath(models.Model):
+    """Mutable planning intent beneath one component production requirement."""
+
+    requirement = models.ForeignKey(
+        WeeklyPlanLine,
+        on_delete=models.CASCADE,
+        related_name="planned_paths",
+        verbose_name="نیاز تولید قطعه",
+    )
+    machine = models.ForeignKey(
+        Machine,
+        on_delete=models.PROTECT,
+        related_name="planned_production_paths",
+        verbose_name="دستگاه",
+    )
+    physical_mold = models.ForeignKey(
+        PhysicalMold,
+        on_delete=models.PROTECT,
+        related_name="planned_production_paths",
+        verbose_name="قالب فیزیکی",
+    )
+    planned_share_quantity = models.PositiveIntegerField(
+        "سهم برنامه‌ریزی‌شده", default=0
+    )
+    planned_start_date = jmodels.jDateField("تاریخ شروع برنامه‌ریزی‌شده")
+    planned_end_date = jmodels.jDateField("تاریخ پایان برنامه‌ریزی‌شده")
+    sequence = models.PositiveSmallIntegerField("ترتیب مسیر", default=1)
+    is_active = models.BooleanField("فعال", default=True, db_index=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_planned_production_paths",
+    )
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="updated_planned_production_paths",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["requirement_id", "sequence", "id"]
+        verbose_name = "مسیر برنامه‌ریزی تولید"
+        verbose_name_plural = "مسیرهای برنامه‌ریزی تولید"
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(planned_start_date__lte=models.F("planned_end_date")),
+                name="planned_path_valid_date_range",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(sequence__gt=0),
+                name="planned_path_positive_sequence",
+            ),
+            models.UniqueConstraint(
+                fields=["requirement", "sequence"],
+                name="uniq_planned_path_requirement_sequence",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["physical_mold", "planned_start_date", "planned_end_date"],
+                name="planned_path_mold_dates_idx",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.requirement} / {self.machine} / {self.physical_mold}"
+
+
+class SnapshotWriteGuardQuerySet(models.QuerySet):
+    """Prevent accidental bulk rewrites of immutable approval evidence."""
+
+    immutable_fields: frozenset[str] = frozenset()
+
+    def update(self, **kwargs):
+        blocked = self.immutable_fields.intersection(kwargs)
+        if blocked:
+            raise ValueError(
+                "Immutable snapshot fields cannot be updated: "
+                + ", ".join(sorted(blocked))
+            )
+        return super().update(**kwargs)
+
+    def bulk_update(self, objs, fields, **kwargs):
+        blocked = self.immutable_fields.intersection(fields)
+        if blocked:
+            raise ValueError(
+                "Immutable snapshot fields cannot be bulk-updated: "
+                + ", ".join(sorted(blocked))
+            )
+        return super().bulk_update(objs, fields, **kwargs)
+
+
+class PlanApprovalRevisionQuerySet(SnapshotWriteGuardQuerySet):
+    immutable_fields = frozenset(
+        {"plan", "plan_id", "revision_number"}
+    )
+
+    approval_evidence_fields = frozenset(
+        {"approved_by", "approved_by_id", "approved_at"}
+    )
+
+    def _contains_protected_revisions(self) -> bool:
+        return self.exclude(status=self.model.Status.PREPARING).exists()
+
+    def update(self, **kwargs):
+        if self.approval_evidence_fields.intersection(kwargs):
+            if self._contains_protected_revisions():
+                raise ValueError(
+                    "Approval evidence is immutable after a revision leaves PREPARING."
+                )
+        return super().update(**kwargs)
+
+    def bulk_update(self, objs, fields, **kwargs):
+        objs = tuple(objs)
+        if self.approval_evidence_fields.intersection(fields):
+            pks = [obj.pk for obj in objs if obj.pk is not None]
+            if (
+                pks
+                and self.model.objects.using(self.db)
+                .filter(pk__in=pks)
+                .exclude(status=self.model.Status.PREPARING)
+                .exists()
+            ):
+                raise ValueError(
+                    "Approval evidence is immutable after a revision leaves PREPARING."
+                )
+        return super().bulk_update(objs, fields, **kwargs)
+
+    def delete(self):
+        if self._contains_protected_revisions():
+            raise ValueError(
+                "Only PREPARING approval revisions may be deleted."
+            )
+        return super().delete()
+
+
+class PlanApprovalRevision(models.Model):
+    """Future immutable identity for one complete approved planning snapshot."""
+
+    class Status(models.TextChoices):
+        PREPARING = "preparing", "در حال آماده‌سازی"
+        ACTIVE = "active", "فعال"
+        SUPERSEDED = "superseded", "جایگزین‌شده"
+        CANCELLED = "cancelled", "لغوشده"
+
+    plan = models.ForeignKey(
+        WeeklyPlan,
+        on_delete=models.PROTECT,
+        related_name="approval_revisions",
+        verbose_name="برنامه هفتگی",
+    )
+    revision_number = models.PositiveIntegerField("شماره بازنگری")
+    status = models.CharField(
+        "وضعیت", max_length=16, choices=Status.choices, default=Status.PREPARING
+    )
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="planning_approval_revisions",
+    )
+    approved_at = models.DateTimeField(null=True, blank=True)
+    superseded_by = models.ForeignKey(
+        "self",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="superseded_revisions",
+    )
+    superseded_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    objects = PlanApprovalRevisionQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["plan_id", "revision_number"]
+        verbose_name = "بازنگری تأیید برنامه"
+        verbose_name_plural = "بازنگری‌های تأیید برنامه"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["plan", "revision_number"],
+                name="uniq_plan_approval_revision_number",
+            ),
+            models.UniqueConstraint(
+                fields=["plan"],
+                condition=models.Q(status="active"),
+                name="uniq_active_approval_revision_per_plan",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(
+                    status__in=["preparing", "active", "superseded", "cancelled"]
+                ),
+                name="plan_approval_revision_valid_status",
+            ),
+        ]
+
+    def save(self, *args, **kwargs):
+        database = kwargs.get("using") or self._state.db or "default"
+        if self.pk is not None:
+            previous = type(self).objects.using(database).get(pk=self.pk)
+            immutable = ("plan_id", "revision_number")
+            if any(getattr(previous, field) != getattr(self, field) for field in immutable):
+                raise ValueError("Approval revision identity is immutable.")
+            if previous.status != self.Status.PREPARING and (
+                previous.approved_by_id != self.approved_by_id
+                or previous.approved_at != self.approved_at
+            ):
+                raise ValueError("Activated approval evidence is immutable.")
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        database = kwargs.get("using") or self._state.db or "default"
+        if self.pk is not None:
+            persisted_status = (
+                type(self).objects.using(database)
+                .filter(pk=self.pk)
+                .values_list("status", flat=True)
+                .first()
+            )
+            if persisted_status and persisted_status != self.Status.PREPARING:
+                raise ValueError("Only PREPARING approval revisions may be deleted.")
+        return super().delete(*args, **kwargs)
+
+    def __str__(self) -> str:
+        return f"{self.plan} / بازنگری {self.revision_number}"
+
+
+class PhysicalMoldReservationQuerySet(SnapshotWriteGuardQuerySet):
+    immutable_fields = frozenset(
+        {
+            "approval_revision", "approval_revision_id", "source_path", "source_path_id",
+            "requirement", "requirement_id", "machine", "machine_id", "physical_mold",
+            "physical_mold_id", "approved_planned_share_quantity", "reserved_start_date",
+            "reserved_end_date", "compatibility_status_snapshot", "mold_status_snapshot",
+            "estimated_ready_date_snapshot", "activated_at",
+        }
+    )
+
+    def active_overlaps(self, *, physical_mold, start_date, end_date):
+        return self.filter(
+            status=self.model.Status.ACTIVE,
+            physical_mold=physical_mold,
+            reserved_start_date__lte=end_date,
+            reserved_end_date__gte=start_date,
+        )
+
+    def delete(self):
+        raise ValueError("Physical mold reservation snapshots are immutable.")
+
+
+class PhysicalMoldReservation(models.Model):
+    """Immutable approved-path snapshot and future operational mold reservation."""
+
+    class Status(models.TextChoices):
+        ACTIVE = "active", "فعال"
+        SUPERSEDED = "superseded", "جایگزین‌شده"
+        RELEASED = "released", "آزادشده"
+        CANCELLED = "cancelled", "لغوشده"
+
+    approval_revision = models.ForeignKey(
+        PlanApprovalRevision,
+        on_delete=models.PROTECT,
+        related_name="mold_reservations",
+        verbose_name="بازنگری تأیید",
+    )
+    source_path = models.ForeignKey(
+        PlannedProductionPath,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="reservation_snapshots",
+        verbose_name="مسیر برنامه‌ریزی مبدأ",
+    )
+    requirement = models.ForeignKey(
+        WeeklyPlanLine,
+        on_delete=models.PROTECT,
+        related_name="mold_reservations",
+        verbose_name="نیاز تولید قطعه",
+    )
+    machine = models.ForeignKey(
+        Machine,
+        on_delete=models.PROTECT,
+        related_name="physical_mold_reservations",
+        verbose_name="دستگاه تأییدشده",
+    )
+    physical_mold = models.ForeignKey(
+        PhysicalMold,
+        on_delete=models.PROTECT,
+        related_name="reservations",
+        verbose_name="قالب فیزیکی",
+    )
+    approved_planned_share_quantity = models.PositiveIntegerField(
+        "سهم برنامه‌ریزی‌شده تأییدشده", default=0
+    )
+    reserved_start_date = jmodels.jDateField("شروع رزرو")
+    reserved_end_date = jmodels.jDateField("پایان رزرو")
+    compatibility_status_snapshot = models.CharField(
+        "وضعیت سازگاری هنگام تأیید",
+        max_length=20,
+        choices=MoldMachineCompatibility.Status.choices,
+        default=MoldMachineCompatibility.Status.UNKNOWN,
+    )
+    mold_status_snapshot = models.CharField(
+        "وضعیت قالب هنگام تأیید",
+        max_length=20,
+        choices=PhysicalMold.Status.choices,
+    )
+    estimated_ready_date_snapshot = jmodels.jDateField(
+        "تاریخ تخمینی آمادگی هنگام تأیید", null=True, blank=True
+    )
+    status = models.CharField(
+        "وضعیت رزرو", max_length=16, choices=Status.choices, default=Status.ACTIVE
+    )
+    activated_at = models.DateTimeField()
+    superseded_at = models.DateTimeField(null=True, blank=True)
+    released_at = models.DateTimeField(null=True, blank=True)
+
+    objects = PhysicalMoldReservationQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["reserved_start_date", "physical_mold_id", "id"]
+        verbose_name = "رزرو قالب فیزیکی"
+        verbose_name_plural = "رزروهای قالب فیزیکی"
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(reserved_start_date__lte=models.F("reserved_end_date")),
+                name="mold_reservation_valid_date_range",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(status__in=["active", "superseded", "released", "cancelled"]),
+                name="mold_reservation_valid_status",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["physical_mold", "status", "reserved_start_date", "reserved_end_date"],
+                name="mold_reservation_overlap_idx",
+            ),
+        ]
+
+    def save(self, *args, **kwargs):
+        database = kwargs.get("using") or self._state.db or "default"
+        if self.pk is not None:
+            previous = type(self).objects.using(database).get(pk=self.pk)
+            immutable = (
+                "approval_revision_id", "source_path_id", "requirement_id", "machine_id",
+                "physical_mold_id", "approved_planned_share_quantity", "reserved_start_date",
+                "reserved_end_date", "compatibility_status_snapshot", "mold_status_snapshot",
+                "estimated_ready_date_snapshot", "activated_at",
+            )
+            if any(getattr(previous, field) != getattr(self, field) for field in immutable):
+                raise ValueError("Reservation snapshot fields are immutable.")
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValueError("Physical mold reservation snapshots are immutable.")
+
+    def __str__(self) -> str:
+        return f"{self.physical_mold} / {self.reserved_start_date} تا {self.reserved_end_date}"
 
 
 class CustomerOrder(models.Model):
