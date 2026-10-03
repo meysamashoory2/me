@@ -81,7 +81,9 @@ def _parse_jdate(value: str):
 def dashboard(request):
     from .dashboard_analytics import build_dashboard_charts, charts_json
 
-    fitting_qs = ProductionDayEntry.objects.all()
+    # Legacy dashboard semantics remain scoped to legacy programs. Path-based
+    # execution reporting is intentionally deferred from the public UI.
+    fitting_qs = ProductionDayEntry.objects.filter(program__isnull=False)
     pipe_qs = PipeProduction.objects.all()
 
     fitting_produced = fitting_qs.aggregate(t=Sum("produced_quantity"))["t"] or 0
@@ -266,7 +268,7 @@ def reports(request):
         report_type = "fitting"
         qs = ProductionDayEntry.objects.select_related(
             "program__item__product", "program__item__machine__unit", "deviation_reason"
-        ).all()
+        ).filter(program__isnull=False)
         if keyword:
             qs = qs.filter(program__item__product__name__icontains=keyword)
         if unit_id:

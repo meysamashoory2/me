@@ -129,7 +129,10 @@ _SECTION_SPECS: dict[str, dict] = {
             ("production", "FittingProduction"),
             ("production", "PipeProduction"),
             ("production", "ProductionProgram"),
+            ("production", "ProductionRequirementProgram"),
+            ("production", "ProductionExecutionPath"),
             ("production", "ProductionDayEntry"),
+            ("production", "ProductionExecutionEvent"),
             ("production", "ProductionHistoryRecord"),
             ("production", "ProductionStoppage"),
         ],
@@ -393,7 +396,9 @@ def _wipe_section(key: str) -> int:
     models_list = list(reversed(_section_models(key)))
     deleted = 0
     for model in models_list:
-        deleted += model.objects.all().delete()[0]
+        queryset = model.objects.all()
+        controlled_delete = getattr(queryset, "_delete_for_controlled_restore", None)
+        deleted += (controlled_delete() if controlled_delete else queryset.delete())[0]
     return deleted
 
 

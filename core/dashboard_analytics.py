@@ -106,7 +106,7 @@ def build_dashboard_charts() -> dict[str, Any]:
     """Return JSON-serializable chart datasets + comparison metrics."""
     fitting_qs = ProductionDayEntry.objects.select_related(
         "program__item__product"
-    ).all()
+    ).filter(program__isnull=False)
 
     # --- Seasonal / yearly production (proxy until dedicated sales ledger) ---
     year_totals: dict[int, float] = defaultdict(float)

@@ -592,6 +592,7 @@ class PhysicalMoldReservationQuerySet(SnapshotWriteGuardQuerySet):
             "physical_mold_id", "approved_planned_share_quantity", "reserved_start_date",
             "reserved_end_date", "compatibility_status_snapshot", "mold_status_snapshot",
             "estimated_ready_date_snapshot",
+            "execution_path", "execution_path_id",
         }
     )
 
@@ -671,6 +672,14 @@ class PhysicalMoldReservation(models.Model):
         related_name="reservations",
         verbose_name="قالب فیزیکی",
     )
+    execution_path = models.ForeignKey(
+        "production.ProductionExecutionPath",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="reservation_snapshots",
+        verbose_name="مسیر اجرای تولید",
+    )
     approved_planned_share_quantity = models.PositiveIntegerField(
         "سهم برنامه‌ریزی‌شده تأییدشده", default=0
     )
@@ -738,6 +747,7 @@ class PhysicalMoldReservation(models.Model):
                 "physical_mold_id", "approved_planned_share_quantity", "reserved_start_date",
                 "reserved_end_date", "compatibility_status_snapshot", "mold_status_snapshot",
                 "estimated_ready_date_snapshot",
+                "execution_path_id",
             )
             if any(getattr(previous, field) != getattr(self, field) for field in immutable):
                 raise ValueError("Reservation snapshot fields are immutable.")

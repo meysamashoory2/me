@@ -3,7 +3,10 @@
 from decimal import Decimal
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import models
+from django.db.models import Sum
+from django.utils import timezone
 from django_jalali.db import models as jmodels
 
 from catalog.models import Machine, Product, ProductionUnit
@@ -277,18 +280,253 @@ class ProductionProgram(models.Model):
         return None
 
 
+class ProductionRequirementProgram(models.Model):
+    """Stable operational family for one planning requirement."""
+
+    requirement = models.OneToOneField(
+        "planning.WeeklyPlanLine",
+        on_delete=models.PROTECT,
+        related_name="requirement_program",
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_requirement_programs",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "برنامه نیاز تولید"
+        verbose_name_plural = "برنامه‌های نیاز تولید"
+
+    @property
+    def program_number(self) -> str:
+        return f"PP-{self.pk:05d}" if self.pk is not None else "PP-NEW"
+
+    def __str__(self) -> str:
+        return self.program_number
+
+
+class ProductionExecutionPathQuerySet(models.QuerySet):
+    immutable_fields = frozenset({"requirement_program", "requirement_program_id", "initial_good_target"})
+    started_immutable_fields = frozenset(
+        {"machine", "machine_id", "physical_mold", "physical_mold_id", "current_good_target", "first_production_at"}
+    )
+
+    def update(self, **kwargs):
+        if "status" in kwargs or "status_changed_at" in kwargs or "first_production_at" in kwargs:
+            raise ValueError("Execution lifecycle fields require the canonical execution service.")
+        if self.immutable_fields.intersection(kwargs):
+            raise ValueError("Execution path identity and initial target are immutable.")
+        if self.started_immutable_fields.intersection(kwargs) and self.filter(first_production_at__isnull=False).exists():
+            raise ValueError("Started execution path evidence is immutable.")
+        return super().update(**kwargs)
+
+    def _update_for_execution_service(self, **kwargs):
+        return super().update(**kwargs)
+
+    def bulk_update(self, objs, fields, **kwargs):
+        objs = tuple(objs)
+        if {"status", "status_changed_at", "first_production_at"}.intersection(fields):
+            raise ValueError("Execution lifecycle fields require the canonical execution service.")
+        if self.immutable_fields.intersection(fields):
+            raise ValueError("Execution path identity and initial target are immutable.")
+        if self.started_immutable_fields.intersection(fields):
+            pks = [obj.pk for obj in objs if obj.pk is not None]
+            if pks and self.model.objects.using(self.db).filter(pk__in=pks, first_production_at__isnull=False).exists():
+                raise ValueError("Started execution path evidence is immutable.")
+        return super().bulk_update(objs, fields, **kwargs)
+
+
+class ProductionExecutionPath(models.Model):
+    class Status(models.TextChoices):
+        PREPARING = "preparing", "در حال آماده‌سازی"
+        AWAITING = "awaiting", "در انتظار تولید"
+        RUNNING = "running", "در حال تولید"
+        TEMPORARY_STOP = "temporary_stop", "توقف موقت"
+        FULL_STOP = "full_stop", "توقف کامل"
+        STATISTICS_COMPLETED = "statistics_completed", "آمار تکمیل‌شده"
+        SUPERSEDED = "superseded", "جایگزین‌شده"
+        CANCELLED = "cancelled", "لغوشده"
+
+    requirement_program = models.ForeignKey(
+        ProductionRequirementProgram, on_delete=models.PROTECT, related_name="execution_paths"
+    )
+    machine = models.ForeignKey(
+        "catalog.Machine", on_delete=models.PROTECT, related_name="production_execution_paths"
+    )
+    physical_mold = models.ForeignKey(
+        "catalog.PhysicalMold", on_delete=models.PROTECT, related_name="production_execution_paths"
+    )
+    initial_good_target = models.PositiveIntegerField()
+    current_good_target = models.PositiveIntegerField()
+    status = models.CharField(max_length=24, choices=Status.choices, default=Status.PREPARING)
+    first_production_at = models.DateTimeField(null=True, blank=True)
+    status_changed_at = models.DateTimeField(default=timezone.now)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="created_production_execution_paths",
+    )
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="updated_production_execution_paths",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    objects = ProductionExecutionPathQuerySet.as_manager()
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(condition=models.Q(initial_good_target__gt=0), name="execution_path_initial_target_positive"),
+            models.CheckConstraint(condition=models.Q(current_good_target__gt=0), name="execution_path_current_target_positive"),
+            models.UniqueConstraint(
+                fields=["requirement_program", "machine", "physical_mold"],
+                condition=models.Q(first_production_at__isnull=True, status__in=["preparing", "awaiting"]),
+                name="uniq_reusable_unstarted_execution_path",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["physical_mold", "first_production_at"], name="exec_path_mold_started_idx"),
+            models.Index(fields=["status", "machine"], name="exec_path_status_machine_idx"),
+        ]
+
+    def clean(self):
+        super().clean()
+        if not self.initial_good_target or not self.current_good_target:
+            raise ValidationError("Execution targets must be positive.")
+
+    def save(self, *args, **kwargs):
+        database = kwargs.get("using") or self._state.db or "default"
+        if self.pk is not None:
+            previous = type(self).objects.using(database).get(pk=self.pk)
+            if previous.requirement_program_id != self.requirement_program_id or previous.initial_good_target != self.initial_good_target:
+                raise ValueError("Execution path identity and initial target are immutable.")
+            if previous.status != self.status or previous.status_changed_at != self.status_changed_at:
+                raise ValueError("Execution lifecycle fields require the canonical execution service.")
+            if previous.first_production_at is not None:
+                protected = ("machine_id", "physical_mold_id", "current_good_target", "first_production_at")
+                if any(getattr(previous, name) != getattr(self, name) for name in protected):
+                    raise ValueError("Started execution path evidence is immutable.")
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    @property
+    def cumulative_good(self) -> int:
+        return int(self.day_entries.aggregate(total=Sum("good_pieces"))["total"] or 0)
+
+    @property
+    def good_remaining(self) -> int:
+        return max(self.current_good_target - self.cumulative_good, 0)
+
+    def __str__(self) -> str:
+        return f"Path #{self.pk}" if self.pk else "Path #NEW"
+
+
+class AppendOnlyExecutionEventQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        raise ValueError("Production execution events are immutable.")
+
+    def bulk_update(self, objs, fields, **kwargs):
+        raise ValueError("Production execution events are immutable.")
+
+    def delete(self):
+        raise ValueError("Production execution events are immutable.")
+
+    def _delete_for_controlled_restore(self):
+        """Internal backup-restore hook; never exposed through application flows."""
+        return super().delete()
+
+
+class ProductionExecutionEvent(models.Model):
+    class EventType(models.TextChoices):
+        ACTIVATED = "activated", "فعال‌سازی"
+        FIRST_PRODUCTION = "first_production", "اولین تولید"
+        PRODUCTION_ACCEPTED = "production_accepted", "ثبت تولید پذیرفته‌شده"
+        TEMPORARY_STOP = "temporary_stop", "توقف موقت"
+        RESUME = "resume", "ادامه تولید"
+        FULL_STOP = "full_stop", "توقف کامل"
+        MANAGER_REOPEN = "manager_reopen", "بازگشایی مدیر"
+        STATISTICS_COMPLETED = "statistics_completed", "تکمیل آمار"
+        STATISTICS_REOPENED = "statistics_reopened", "بازگشایی آمار"
+        SUPERSEDED = "superseded", "جایگزینی"
+        CANCELLED = "cancelled", "لغو"
+
+    execution_path = models.ForeignKey(
+        ProductionExecutionPath, on_delete=models.PROTECT, related_name="events"
+    )
+    event_type = models.CharField(max_length=24, choices=EventType.choices)
+    occurred_at = models.DateTimeField(default=timezone.now)
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="production_execution_events",
+    )
+    actor_identifier_snapshot = models.CharField(max_length=150, blank=True)
+    old_status = models.CharField(max_length=24, choices=ProductionExecutionPath.Status.choices, blank=True)
+    new_status = models.CharField(max_length=24, choices=ProductionExecutionPath.Status.choices, blank=True)
+    metadata = models.JSONField(default=dict, blank=True)
+
+    objects = AppendOnlyExecutionEventQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["occurred_at", "id"]
+        indexes = [
+            models.Index(fields=["execution_path", "occurred_at"], name="exec_event_path_time_idx"),
+            models.Index(fields=["event_type", "occurred_at"], name="exec_event_type_time_idx"),
+        ]
+
+    def save(self, *args, **kwargs):
+        if self.pk is not None:
+            raise ValueError("Production execution events are immutable.")
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValueError("Production execution events are immutable.")
+
+
+class ProductionDayEntryQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        if self.filter(execution_path__isnull=False).exists():
+            raise ValueError("Path-based production entries are append-only.")
+        return super().update(**kwargs)
+
+    def bulk_update(self, objs, fields, **kwargs):
+        objs = tuple(objs)
+        pks = [obj.pk for obj in objs if obj.pk is not None]
+        if pks and self.model.objects.using(self.db).filter(pk__in=pks, execution_path__isnull=False).exists():
+            raise ValueError("Path-based production entries are append-only.")
+        return super().bulk_update(objs, fields, **kwargs)
+
+    def delete(self):
+        if self.filter(execution_path__isnull=False).exists():
+            raise ValueError("Path-based production entries are append-only.")
+        return super().delete()
+
+    def _delete_for_controlled_restore(self):
+        return super().delete()
+
+
 class ProductionDayEntry(models.Model):
     """Recorded production statistics for one full work-day of a program."""
 
     program = models.ForeignKey(
-        ProductionProgram, on_delete=models.CASCADE, related_name="entries",
+        ProductionProgram, on_delete=models.CASCADE, related_name="entries", null=True, blank=True,
         verbose_name="برنامه تولید",
+    )
+    execution_path = models.ForeignKey(
+        ProductionExecutionPath, on_delete=models.PROTECT, related_name="day_entries",
+        null=True, blank=True, verbose_name="مسیر اجرای تولید",
     )
     date = jmodels.jDateField("تاریخ")
     produced_quantity = models.PositiveIntegerField("مقدار تولیدشده (ضرب)", default=0)
     scrap_quantity = models.PositiveIntegerField("مقدار ضایعات", default=0)
     cycle = models.PositiveIntegerField("سیکل یک‌ضرب (ثانیه)", default=0)
     active_cavities = models.PositiveSmallIntegerField("تعداد حفره فعال", default=1)
+    shots = models.PositiveIntegerField(null=True, blank=True)
+    gross_pieces = models.PositiveIntegerField(null=True, blank=True)
+    good_pieces = models.PositiveIntegerField(null=True, blank=True)
 
     # Denormalised, computed on save from the shift/time model.
     planned_quantity = models.PositiveIntegerField("مقدار برنامه‌ریزی‌شده (ضرب)", default=0)
@@ -305,14 +543,31 @@ class ProductionDayEntry(models.Model):
     )
     created_at = models.DateTimeField(auto_now_add=True)
 
+    objects = ProductionDayEntryQuerySet.as_manager()
+
     class Meta:
         ordering = ["date"]
-        unique_together = ("program", "date")
+        constraints = [
+            models.CheckConstraint(
+                condition=(models.Q(program__isnull=False, execution_path__isnull=True) | models.Q(program__isnull=True, execution_path__isnull=False)),
+                name="production_day_entry_exactly_one_owner",
+            ),
+            models.UniqueConstraint(fields=["program", "date"], condition=models.Q(program__isnull=False), name="uniq_legacy_program_day"),
+            models.UniqueConstraint(fields=["execution_path", "date"], condition=models.Q(execution_path__isnull=False), name="uniq_execution_path_day"),
+            models.CheckConstraint(
+                condition=(models.Q(execution_path__isnull=True) | models.Q(shots__isnull=False, gross_pieces__isnull=False, good_pieces__isnull=False, active_cavities__gt=0, scrap_quantity__gte=0)),
+                name="path_day_entry_required_quantities",
+            ),
+            models.CheckConstraint(condition=(models.Q(execution_path__isnull=True) | models.Q(gross_pieces=models.F("shots") * models.F("active_cavities"))), name="path_day_entry_gross_consistent"),
+            models.CheckConstraint(condition=(models.Q(execution_path__isnull=True) | models.Q(good_pieces=models.F("gross_pieces") - models.F("scrap_quantity"))), name="path_day_entry_good_consistent"),
+            models.CheckConstraint(condition=(models.Q(execution_path__isnull=True) | models.Q(scrap_quantity__lte=models.F("gross_pieces"))), name="path_day_entry_scrap_not_over_gross"),
+        ]
         verbose_name = "آمار تولید روزانه"
         verbose_name_plural = "آمار تولید روزانه"
 
     def __str__(self) -> str:
-        return f"{self.program.resolved_uid} — {self.date}"
+        owner = self.program.resolved_uid if self.program_id else str(self.execution_path)
+        return f"{owner} — {self.date}"
 
     @property
     def deviation(self) -> int:
@@ -320,6 +575,8 @@ class ProductionDayEntry(models.Model):
         return self.planned_quantity - self.produced_quantity
 
     def recompute(self):
+        if self.execution_path_id:
+            return
         from .timeutils import day_active_seconds, expected_shots
         start = self.program.start_datetime()
         stop = self.program.stop_datetime()
@@ -327,8 +584,22 @@ class ProductionDayEntry(models.Model):
         self.planned_quantity = expected_shots(self.active_seconds, self.cycle)
 
     def save(self, *args, **kwargs):
+        database = kwargs.get("using") or self._state.db or "default"
+        if self._state.adding and self.execution_path_id is not None and not getattr(
+            self, "_execution_service_create", False
+        ):
+            raise ValueError("Path-based production entries require the canonical execution service.")
+        if self.pk is not None:
+            previous = type(self).objects.using(database).get(pk=self.pk)
+            if previous.execution_path_id is not None:
+                raise ValueError("Path-based production entries are append-only.")
         self.recompute()
         super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        if self.execution_path_id is not None:
+            raise ValueError("Path-based production entries are append-only.")
+        return super().delete(*args, **kwargs)
 
 
 class ProductionHistoryRecord(models.Model):

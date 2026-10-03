@@ -7,8 +7,47 @@ from .models import (
     ProductionDayEntry,
     ProductionHistoryRecord,
     ProductionProgram,
+    ProductionRequirementProgram,
+    ProductionExecutionPath,
+    ProductionExecutionEvent,
     ProductionStoppage,
 )
+
+
+@admin.register(ProductionRequirementProgram)
+class ProductionRequirementProgramAdmin(admin.ModelAdmin):
+    list_display = ("program_number", "requirement", "created_at")
+    readonly_fields = ("requirement", "created_by", "created_at")
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(ProductionExecutionPath)
+class ProductionExecutionPathAdmin(admin.ModelAdmin):
+    list_display = ("id", "requirement_program", "machine", "physical_mold", "status", "current_good_target")
+    readonly_fields = tuple(field.name for field in ProductionExecutionPath._meta.fields)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(ProductionExecutionEvent)
+class ProductionExecutionEventAdmin(admin.ModelAdmin):
+    list_display = ("execution_path", "event_type", "occurred_at", "actor_identifier_snapshot")
+    readonly_fields = tuple(field.name for field in ProductionExecutionEvent._meta.fields)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 class DayEntryInline(admin.TabularInline):

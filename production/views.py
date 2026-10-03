@@ -102,7 +102,10 @@ def entry_create(request, program_pk):
 
 @login_required
 def entry_edit(request, pk):
-    entry = get_object_or_404(ProductionDayEntry.objects.select_related("program__item"), pk=pk)
+    entry = get_object_or_404(
+        ProductionDayEntry.objects.select_related("program__item").filter(program__isnull=False),
+        pk=pk,
+    )
     profile = _profile(request)
     if not profile or not (profile.is_manager or entry.created_by_id == request.user.id or profile.can_edit_others):
         raise PermissionDenied("فقط مدیر یا ثبت‌کننده می‌تواند ویرایش کند.")

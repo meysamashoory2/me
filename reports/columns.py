@@ -992,7 +992,7 @@ def _queryset(data_source: str):
         "program__item__plan",
         "program__item__machine__unit",
         "deviation_reason",
-    ).all()
+    ).filter(program__isnull=False)
 
 
 def _flex_row_dicts(destination_id: str, level_id: str) -> list[dict]:
