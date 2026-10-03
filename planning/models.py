@@ -14,6 +14,13 @@ from catalog.models import (
     ProductionUnit,
     ProductSubGroup,
 )
+from django.contrib.postgres.constraints import ExclusionConstraint
+from django.contrib.postgres.fields import RangeOperators
+
+from .postgres_constraints import (
+    ACTIVE_MOLD_RESERVATION_CONSTRAINT,
+    InclusiveDateRange,
+)
 
 
 def generate_program_uid() -> str:
@@ -729,6 +736,19 @@ class PhysicalMoldReservation(models.Model):
                     | ~models.Q(status="preparing") & models.Q(activated_at__isnull=False)
                 ),
                 name="mold_reservation_activation_matches_status",
+            ),
+            ExclusionConstraint(
+                name=ACTIVE_MOLD_RESERVATION_CONSTRAINT,
+                expressions=[
+                    ("physical_mold", RangeOperators.EQUAL),
+                    (
+                        InclusiveDateRange(
+                            "reserved_start_date", "reserved_end_date"
+                        ),
+                        RangeOperators.OVERLAPS,
+                    ),
+                ],
+                condition=models.Q(status="active"),
             ),
         ]
         indexes = [
