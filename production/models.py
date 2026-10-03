@@ -315,6 +315,11 @@ class ProductionExecutionPathQuerySet(models.QuerySet):
         {"machine", "machine_id", "physical_mold", "physical_mold_id", "current_good_target", "first_production_at"}
     )
 
+    def bulk_create(self, objs, **kwargs):
+        raise ValueError(
+            "Execution paths must be created through the canonical execution service."
+        )
+
     def update(self, **kwargs):
         if "status" in kwargs or "status_changed_at" in kwargs or "first_production_at" in kwargs:
             raise ValueError("Execution lifecycle fields require the canonical execution service.")
@@ -426,6 +431,11 @@ class ProductionExecutionPath(models.Model):
 
 
 class AppendOnlyExecutionEventQuerySet(models.QuerySet):
+    def bulk_create(self, objs, **kwargs):
+        raise ValueError(
+            "Production execution events must be created by the canonical execution service."
+        )
+
     def update(self, **kwargs):
         raise ValueError("Production execution events are immutable.")
 
@@ -487,6 +497,14 @@ class ProductionExecutionEvent(models.Model):
 
 
 class ProductionDayEntryQuerySet(models.QuerySet):
+    def bulk_create(self, objs, **kwargs):
+        objs = tuple(objs)
+        if any(obj.execution_path_id is not None for obj in objs):
+            raise ValueError(
+                "Path-based production entries require the canonical execution service."
+            )
+        return super().bulk_create(objs, **kwargs)
+
     def update(self, **kwargs):
         if self.filter(execution_path__isnull=False).exists():
             raise ValueError("Path-based production entries are append-only.")

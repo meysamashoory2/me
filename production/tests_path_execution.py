@@ -1,16 +1,21 @@
 import jdatetime
+import tempfile
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.db import IntegrityError, transaction
 from django.test import TestCase
 
 from accounts.models import Role, UserProfile
 from catalog.models import Machine, MoldOption, PhysicalMold, Product, ProductGroup, ProductSubGroup, ProductionUnit
 from planning.models import PlannedProductionPath, Weekday, WeeklyPlan, WeeklyPlanItem, WeeklyPlanLine
 
-from .models import ProductionDayEntry, ProductionExecutionEvent, ProductionExecutionPath
+from .models import (
+    ProductionDayEntry,
+    ProductionExecutionEvent,
+    ProductionExecutionPath,
+    ProductionProgram,
+)
 from .path_execution import activate_execution_path, get_or_create_unstarted_execution_path, register_path_production
 
 
@@ -80,13 +85,13 @@ class RequirementAndIdentityTests(PathExecutionTestCase):
                 get_or_create_unstarted_execution_path(self.planned_path(planned_share_quantity=target), actor=self.user)
         self.assertFalse(ProductionExecutionPath.objects.exists())
 
-    def test_database_rejects_zero_execution_targets(self):
+    def test_model_rejects_zero_execution_targets(self):
         program, _ = get_or_create_unstarted_execution_path(self.planned_path(), actor=self.user)
-        with self.assertRaises(IntegrityError), transaction.atomic():
-            ProductionExecutionPath.objects.bulk_create([ProductionExecutionPath(
+        with self.assertRaises(ValidationError):
+            ProductionExecutionPath.objects.create(
                 requirement_program=program.requirement_program, machine=self.machine_b,
                 physical_mold=self.mold_b, initial_good_target=0, current_good_target=1,
-            )])
+            )
 
 
 class RegistrationAndQuantityTests(PathExecutionTestCase):
@@ -186,3 +191,98 @@ class ImmutabilityTests(PathExecutionTestCase):
             self.entry.save()
         with self.assertRaises(ValueError):
             ProductionDayEntry.objects.filter(pk=self.entry.pk).delete()
+
+
+class BulkCreationHardeningTests(PathExecutionTestCase):
+    def test_path_entry_bulk_create_is_rejected_without_side_effects(self):
+        path = self.active_path()
+        with self.assertRaisesRegex(ValueError, "canonical execution service"):
+            ProductionDayEntry.objects.bulk_create(
+                [
+                    ProductionDayEntry(
+                        execution_path=path,
+                        date=jdatetime.date(1405, 1, 1),
+                        produced_quantity=10,
+                        shots=10,
+                        active_cavities=2,
+                        gross_pieces=20,
+                        good_pieces=20,
+                    )
+                ]
+            )
+        path.refresh_from_db()
+        self.assertEqual(path.status, ProductionExecutionPath.Status.AWAITING)
+        self.assertIsNone(path.first_production_at)
+        self.assertFalse(ProductionDayEntry.objects.filter(execution_path=path).exists())
+        self.assertFalse(path.events.exclude(event_type=ProductionExecutionEvent.EventType.ACTIVATED).exists())
+
+    def test_execution_event_bulk_create_is_rejected(self):
+        path = self.active_path()
+        before = path.events.count()
+        with self.assertRaisesRegex(ValueError, "canonical execution service"):
+            ProductionExecutionEvent.objects.bulk_create(
+                [
+                    ProductionExecutionEvent(
+                        execution_path=path,
+                        event_type=ProductionExecutionEvent.EventType.FIRST_PRODUCTION,
+                    )
+                ]
+            )
+        self.assertEqual(path.events.count(), before)
+
+    def test_execution_path_bulk_create_is_rejected(self):
+        planned = self.planned_path()
+        path, _ = get_or_create_unstarted_execution_path(planned, actor=self.user)
+        with self.assertRaisesRegex(ValueError, "canonical execution service"):
+            ProductionExecutionPath.objects.bulk_create(
+                [
+                    ProductionExecutionPath(
+                        requirement_program=path.requirement_program,
+                        machine=self.machine_b,
+                        physical_mold=self.mold_b,
+                        initial_good_target=1,
+                        current_good_target=1,
+                        status=ProductionExecutionPath.Status.RUNNING,
+                    )
+                ]
+            )
+        self.assertEqual(ProductionExecutionPath.objects.count(), 1)
+
+    def test_legacy_day_entry_bulk_create_remains_available(self):
+        program = ProductionProgram.objects.create(item=self.item)
+        ProductionDayEntry.objects.bulk_create(
+            [
+                ProductionDayEntry(
+                    program=program,
+                    date=jdatetime.date(1405, 1, 1),
+                    produced_quantity=7,
+                )
+            ]
+        )
+        entry = ProductionDayEntry.objects.get(program=program)
+        self.assertIsNone(entry.execution_path_id)
+        self.assertEqual(entry.produced_quantity, 7)
+
+    def test_production_backup_restore_preserves_execution_evidence(self):
+        from core.backup import create_backup, restore_backup
+
+        path = self.active_path()
+        entry = register_path_production(
+            path,
+            date=jdatetime.date(1405, 1, 1),
+            shots=10,
+            active_cavities=2,
+            scrap_pieces=1,
+            actor=self.user,
+        )
+        event_count = path.events.count()
+        with tempfile.TemporaryDirectory(prefix="slice2b2-restore-") as destination:
+            archive = create_backup(sections=["production"], dest=destination).path
+            restore_backup(source=archive, sections=["production"])
+        restored = ProductionDayEntry.objects.get(pk=entry.pk)
+        self.assertEqual(restored.execution_path_id, path.pk)
+        self.assertEqual(restored.good_pieces, 19)
+        self.assertEqual(
+            ProductionExecutionEvent.objects.filter(execution_path_id=path.pk).count(),
+            event_count,
+        )
