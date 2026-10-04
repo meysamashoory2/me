@@ -116,6 +116,67 @@ def activate_execution_path(path, *, actor=None, using="default"):
     return event
 
 
+def cancel_unstarted_execution_path(path, *, actor, reason="", using="default"):
+    """Cancel one operational path before its first production record."""
+    with transaction.atomic(using=using):
+        current = ProductionExecutionPath.objects.using(using).select_for_update().get(pk=path.pk)
+        if current.first_production_at is not None or current.day_entries.using(using).exists():
+            raise ValidationError("An execution path cannot be cancelled after first production.")
+        if current.status == ProductionExecutionPath.Status.CANCELLED:
+            return None
+        if current.status != ProductionExecutionPath.Status.AWAITING:
+            raise ValidationError("Only an unstarted active execution path may be cancelled.")
+        changed_at = timezone.now()
+        ProductionExecutionPath.objects.using(using).filter(pk=current.pk)._update_for_execution_service(
+            status=ProductionExecutionPath.Status.CANCELLED,
+            status_changed_at=changed_at,
+            updated_by=actor,
+        )
+        event = ProductionExecutionEvent.objects.using(using).create(
+            execution_path=current,
+            event_type=ProductionExecutionEvent.EventType.CANCELLED,
+            occurred_at=changed_at,
+            actor=actor,
+            actor_identifier_snapshot=_actor_snapshot(actor),
+            old_status=current.status,
+            new_status=ProductionExecutionPath.Status.CANCELLED,
+            metadata={"reason": (reason or "").strip()},
+        )
+    path.refresh_from_db(using=using)
+    return event
+
+
+def edit_unstarted_execution_path(
+    path, *, machine, physical_mold, current_good_target, actor, before_snapshot, using="default"
+):
+    """Apply a validated manager edit without changing execution-path identity."""
+    with transaction.atomic(using=using):
+        current = ProductionExecutionPath.objects.using(using).select_for_update().get(pk=path.pk)
+        if current.first_production_at is not None or current.day_entries.using(using).exists():
+            raise ValidationError("Machine, mold, and target are immutable after first production.")
+        if current.status != ProductionExecutionPath.Status.AWAITING:
+            raise ValidationError("Only an unstarted active execution path may be edited.")
+        changed_at = timezone.now()
+        ProductionExecutionPath.objects.using(using).filter(pk=current.pk)._update_for_execution_service(
+            machine=machine,
+            physical_mold=physical_mold,
+            current_good_target=int(current_good_target),
+            updated_by=actor,
+        )
+        event = ProductionExecutionEvent.objects.using(using).create(
+            execution_path=current,
+            event_type=ProductionExecutionEvent.EventType.OPERATIONAL_EDIT,
+            occurred_at=changed_at,
+            actor=actor,
+            actor_identifier_snapshot=_actor_snapshot(actor),
+            old_status=current.status,
+            new_status=current.status,
+            metadata={"before": before_snapshot},
+        )
+    path.refresh_from_db(using=using)
+    return event
+
+
 def register_path_production(
     path,
     *,

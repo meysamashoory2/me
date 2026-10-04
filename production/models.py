@@ -463,6 +463,7 @@ class ProductionExecutionEvent(models.Model):
         STATISTICS_REOPENED = "statistics_reopened", "بازگشایی آمار"
         SUPERSEDED = "superseded", "جایگزینی"
         CANCELLED = "cancelled", "لغو"
+        OPERATIONAL_EDIT = "operational_edit", "ویرایش عملیاتی"
 
     execution_path = models.ForeignKey(
         ProductionExecutionPath, on_delete=models.PROTECT, related_name="events"

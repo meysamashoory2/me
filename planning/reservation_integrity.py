@@ -132,3 +132,29 @@ def activate_reservation(reservation, *, using="default"):
         raise
     reservation.refresh_from_db(using=using)
     return reservation
+
+
+def transition_active_reservation(reservation, *, status, using="default"):
+    """Release/cancel/supersede an active reservation without deleting history."""
+    allowed = {
+        PhysicalMoldReservation.Status.RELEASED,
+        PhysicalMoldReservation.Status.CANCELLED,
+        PhysicalMoldReservation.Status.SUPERSEDED,
+    }
+    if status not in allowed:
+        raise ValueError("Unsupported reservation terminal status.")
+    with transaction.atomic(using=using):
+        current = (
+            PhysicalMoldReservation.objects.using(using)
+            .select_for_update()
+            .get(pk=reservation.pk)
+        )
+        if current.status != PhysicalMoldReservation.Status.ACTIVE:
+            raise ValueError("Only an ACTIVE reservation may transition.")
+        now = timezone.now()
+        updates = {"status": status, "released_at": now}
+        if status == PhysicalMoldReservation.Status.SUPERSEDED:
+            updates["superseded_at"] = now
+        PhysicalMoldReservation.objects.using(using).filter(pk=current.pk).update(**updates)
+    reservation.refresh_from_db(using=using)
+    return reservation

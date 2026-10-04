@@ -151,6 +151,52 @@
 </section>
 {% endif %}
 
+{% if operational_rows %}
+<div class="panel">
+  <div class="panel-header"><h3>تأیید و فعال‌سازی مسیرهای تولید</h3></div>
+  <div class="panel-body">
+    {% for row in operational_rows %}
+    <div class="repeat-row" style="align-items:flex-end; margin-bottom:1rem">
+      <div class="field"><label>مسیر</label><span>#{{ row.path.pk }} — {{ row.path.requirement }}</span></div>
+      <div class="field"><label>وضعیت</label><span>{% if row.latest %}{{ row.latest.get_action_display }}{% else %}در انتظار تأیید{% endif %}</span></div>
+      {% if row.error %}<div class="field has-error">{{ row.error }}</div>{% endif %}
+      {% if row.preview %}
+      <form method="post" action="{% url 'path_operational_approve' row.path.pk %}" class="inline-form">
+        {% csrf_token %}<input type="hidden" name="fingerprint" value="{{ row.preview.fingerprint }}">
+        {% for confirmation in row.preview.required_confirmations %}
+        <label><input type="checkbox" name="confirmations" value="{{ confirmation }}" required> تأیید {{ confirmation }}</label>
+        {% endfor %}
+        <button class="btn btn-sm btn-ok" type="submit">تأیید و فعال‌سازی</button>
+      </form>
+      {% if row.latest and row.latest.action != 'cancelled' %}
+      <form method="post" action="{% url 'path_operational_cancel' row.path.pk %}" class="inline-form">
+        {% csrf_token %}<input class="input" name="reason" placeholder="دلیل اختیاری">
+        <button class="btn btn-sm btn-warn" type="submit">لغو مسیر</button>
+      </form>
+      <details>
+        <summary>ویرایش قبل از اولین تولید</summary>
+        <form method="post" action="{% url 'path_operational_edit' row.path.pk %}" class="inline-edit-form">
+          {% csrf_token %}<input type="hidden" name="fingerprint" value="{{ row.preview.fingerprint }}">
+          <select name="machine" data-combo="1">{% for machine in operational_machines %}<option value="{{ machine.pk }}" {% if machine.pk == row.path.machine_id %}selected{% endif %}>{{ machine }}</option>{% endfor %}</select>
+          <select name="physical_mold" data-combo="1">{% for mold in operational_molds %}<option value="{{ mold.pk }}" {% if mold.pk == row.path.physical_mold_id %}selected{% endif %}>{{ mold }}</option>{% endfor %}</select>
+          <input class="input" type="number" min="1" name="target" value="{{ row.path.planned_share_quantity }}">
+          <input class="input" name="start_date" value="{{ row.path.planned_start_date }}">
+          <input class="input" name="end_date" value="{{ row.path.planned_end_date }}">
+          <label><input type="checkbox" name="confirmations" value="unknown"> تأیید سازگاری نامشخص</label>
+          <label><input type="checkbox" name="confirmations" value="needs_review"> تأیید نیازمند بررسی</label>
+          <label><input type="checkbox" name="confirmations" value="under_repair_future_use"> تأیید قالب در تعمیر</label>
+          <input class="input" name="reason" placeholder="دلیل اختیاری">
+          <button class="btn btn-sm" type="submit">ثبت و اعمال ویرایش</button>
+        </form>
+      </details>
+      {% endif %}
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
 <div class="panel panel-items-scroll">
   {% if plan.items.all %}
   <div class="items-scroll">

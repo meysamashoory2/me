@@ -16,7 +16,7 @@ from .insights import resolve_insights
 from .models import PlannedProductionPath, WeeklyPlan, WeeklyPlanItem
 from .mold_stats import mold_change_stats
 from .utils import format_jdate, mold_change_date_candidates
-from catalog.models import Product
+from catalog.models import Machine, PhysicalMold, Product
 
 
 @login_required
@@ -461,6 +461,29 @@ def plan_detail(request, pk):
     insight_product = editing_item.product if editing_item else None
     insights = resolve_insights(insight_product) if editable else []
     alarm_items = _alarm_items_for_plan(plan)
+    operational_rows = []
+    if (profile and profile.can_approve_plans) or getattr(request.user, "is_superuser", False):
+        from django.core.exceptions import ValidationError
+        from .operational_approval import preview_path_approval
+
+        paths = (
+            PlannedProductionPath.objects.filter(requirement__item__plan=plan, is_active=True)
+            .select_related("requirement", "machine", "physical_mold")
+            .prefetch_related("operational_approvals")
+            .order_by("requirement_id", "sequence", "pk")
+        )
+        for path in paths:
+            approvals = list(path.operational_approvals.all())
+            latest = approvals[-1] if approvals else None
+            try:
+                preview = preview_path_approval(path)
+                preview_error = ""
+            except ValidationError as error:
+                preview = None
+                preview_error = "; ".join(error.messages)
+            operational_rows.append(
+                {"path": path, "latest": latest, "preview": preview, "error": preview_error}
+            )
 
     return render(
         request,
@@ -477,8 +500,88 @@ def plan_detail(request, pk):
             "mold_stats": mold_stats,
             "insights": insights,
             "alarm_items": alarm_items,
+            "operational_rows": operational_rows,
+            "operational_machines": Machine.objects.filter(is_active=True).order_by("unit_id", "number"),
+            "operational_molds": PhysicalMold.objects.exclude(
+                status=PhysicalMold.Status.INACTIVE
+            ).order_by("code"),
         },
     )
+
+
+def _operation_redirect(path):
+    return redirect(f"{reverse('plan_detail', args=[path.requirement.item.plan_id])}?mode=view")
+
+
+@login_required
+def path_operational_approve(request, path_id):
+    from django.core.exceptions import ValidationError
+    from .operational_approval import approve_path
+    from .reservation_integrity import PhysicalMoldReservationConflict
+
+    path = get_object_or_404(PlannedProductionPath, pk=path_id)
+    if request.method != "POST":
+        return _operation_redirect(path)
+    try:
+        result = approve_path(
+            path.pk,
+            submitted_fingerprint=request.POST.get("fingerprint") or "",
+            actor=request.user,
+            confirmations=request.POST.getlist("confirmations"),
+            reason=request.POST.get("reason") or "",
+        )
+    except (ValidationError, PhysicalMoldReservationConflict) as error:
+        messages.error(request, "; ".join(getattr(error, "messages", [str(error)])))
+    else:
+        messages.success(request, "مسیر با موفقیت تأیید و عملیاتی شد." if result.created else "این مسیر قبلاً عملیاتی شده است.")
+    return _operation_redirect(path)
+
+
+@login_required
+def path_operational_cancel(request, path_id):
+    from django.core.exceptions import ValidationError
+    from .operational_approval import cancel_path
+
+    path = get_object_or_404(PlannedProductionPath, pk=path_id)
+    if request.method != "POST":
+        return _operation_redirect(path)
+    try:
+        result = cancel_path(path.pk, actor=request.user, reason=request.POST.get("reason") or "")
+    except ValidationError as error:
+        messages.error(request, "; ".join(error.messages))
+    else:
+        messages.success(request, "مسیر لغو شد." if result.created else "مسیر قبلاً لغو شده است.")
+    return _operation_redirect(path)
+
+
+@login_required
+def path_operational_edit(request, path_id):
+    from django.core.exceptions import ValidationError
+    from .operational_approval import edit_path
+    from .reservation_integrity import PhysicalMoldReservationConflict
+    from .utils import parse_jdate_string
+
+    path = get_object_or_404(PlannedProductionPath, pk=path_id)
+    if request.method != "POST":
+        return _operation_redirect(path)
+    try:
+        edit_path(
+            path.pk,
+            submitted_fingerprint=request.POST.get("fingerprint") or "",
+            actor=request.user,
+            machine_id=request.POST.get("machine"),
+            physical_mold_id=request.POST.get("physical_mold"),
+            target=request.POST.get("target"),
+            start_date=parse_jdate_string(request.POST.get("start_date") or ""),
+            end_date=parse_jdate_string(request.POST.get("end_date") or ""),
+            confirmations=request.POST.getlist("confirmations"),
+            reason=request.POST.get("reason") or "",
+        )
+    except (ValidationError, PhysicalMoldReservationConflict, TypeError, ValueError) as error:
+        messages.error(request, "; ".join(getattr(error, "messages", [str(error)])))
+    else:
+        messages.success(request, "ویرایش عملیاتی مسیر با موفقیت ثبت شد.")
+    return _operation_redirect(path)
 
 
 def _plan_item_form_context(request, plan, profile, *, form, formset, editing_item):

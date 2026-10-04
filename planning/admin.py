@@ -6,11 +6,28 @@ from .models import (
     PlanningProcessDefinition,
     PlanningProcessStep,
     PlanApprovalDecision,
+    PathOperationalApproval,
     SalesForecast,
     WeeklyPlan,
     WeeklyPlanItem,
     WeeklyPlanLine,
 )
+
+
+@admin.register(PathOperationalApproval)
+class PathOperationalApprovalAdmin(admin.ModelAdmin):
+    list_display = ("planned_path", "sequence", "action", "execution_path", "actor", "created_at")
+    list_filter = ("action",)
+    readonly_fields = tuple(field.name for field in PathOperationalApproval._meta.fields)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(PlanApprovalDecision)

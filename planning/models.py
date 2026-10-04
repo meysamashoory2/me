@@ -591,6 +591,80 @@ class PlanApprovalDecision(models.Model):
         return f"{self.approval_revision} / {self.get_decision_type_display()}"
 
 
+class PathOperationalApprovalQuerySet(models.QuerySet):
+    """Append-only path-level operational decisions."""
+
+    def update(self, **kwargs):
+        raise ValueError("Path operational approval evidence is immutable.")
+
+    def bulk_update(self, objs, fields, **kwargs):
+        raise ValueError("Path operational approval evidence is immutable.")
+
+    def delete(self):
+        raise ValueError("Path operational approval evidence is immutable.")
+
+
+class PathOperationalApproval(models.Model):
+    """Immutable path-scoped approval/edit/cancellation evidence."""
+
+    class Action(models.TextChoices):
+        APPROVED = "approved", "تأیید و فعال‌سازی"
+        EDITED = "edited", "ویرایش عملیاتی"
+        CANCELLED = "cancelled", "لغو عملیاتی"
+
+    planned_path = models.ForeignKey(
+        PlannedProductionPath,
+        on_delete=models.PROTECT,
+        related_name="operational_approvals",
+    )
+    execution_path = models.ForeignKey(
+        "production.ProductionExecutionPath",
+        on_delete=models.PROTECT,
+        related_name="operational_approvals",
+    )
+    reservation = models.ForeignKey(
+        "PhysicalMoldReservation",
+        on_delete=models.PROTECT,
+        related_name="operational_approvals",
+    )
+    sequence = models.PositiveIntegerField()
+    action = models.CharField(max_length=16, choices=Action.choices)
+    path_fingerprint = models.CharField(max_length=64, db_index=True)
+    before_snapshot = models.JSONField(default=dict, blank=True)
+    after_snapshot = models.JSONField(default=dict)
+    manager_confirmations = models.JSONField(default=list, blank=True)
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="path_operational_approvals",
+    )
+    reason = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    objects = PathOperationalApprovalQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["planned_path_id", "sequence"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["planned_path", "sequence"],
+                name="uniq_path_operational_approval_sequence",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(sequence__gt=0),
+                name="path_operational_approval_sequence_positive",
+            ),
+        ]
+
+    def save(self, *args, **kwargs):
+        if self.pk is not None:
+            raise ValueError("Path operational approval evidence is immutable.")
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValueError("Path operational approval evidence is immutable.")
+
+
 class PhysicalMoldReservationQuerySet(SnapshotWriteGuardQuerySet):
     immutable_fields = frozenset(
         {
@@ -650,6 +724,8 @@ class PhysicalMoldReservation(models.Model):
     approval_revision = models.ForeignKey(
         PlanApprovalRevision,
         on_delete=models.PROTECT,
+        null=True,
+        blank=True,
         related_name="mold_reservations",
         verbose_name="بازنگری تأیید",
     )

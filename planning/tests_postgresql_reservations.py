@@ -29,6 +29,7 @@ from planning.models import (
     WeeklyPlanLine,
 )
 from planning.postgres_constraints import ACTIVE_MOLD_RESERVATION_CONSTRAINT
+from planning.operational_approval import approve_path, preview_path_approval
 from planning.reservation_integrity import (
     PhysicalMoldReservationConflict,
     activate_reservation,
@@ -246,9 +247,50 @@ class PostgreSQLReservationConcurrencyTests(PostgresReservationFixture):
 
 
 @POSTGRESQL_ONLY
+class PostgreSQLPathApprovalConcurrencyTests(PostgresReservationFixture):
+    def test_concurrent_double_submission_creates_one_operational_identity(self):
+        path = self.create_path()
+        preview = preview_path_approval(path)
+        barrier = threading.Barrier(2)
+        results = []
+        lock = threading.Lock()
+
+        def worker():
+            close_old_connections()
+            try:
+                barrier.wait(timeout=10)
+                actor = get_user_model().objects.get(pk=self.user.pk)
+                result = approve_path(
+                    path.pk,
+                    submitted_fingerprint=preview.fingerprint,
+                    actor=actor,
+                    confirmations=["unknown"],
+                )
+                outcome = (result.execution_path.pk, result.reservation.pk, result.created)
+            except Exception as error:
+                outcome = f"error:{type(error).__name__}:{error}"
+            finally:
+                close_old_connections()
+            with lock:
+                results.append(outcome)
+
+        threads = [threading.Thread(target=worker) for _ in range(2)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=20)
+        self.assertFalse(any(thread.is_alive() for thread in threads))
+        self.assertFalse(any(isinstance(item, str) for item in results), results)
+        self.assertEqual(len({item[:2] for item in results}), 1)
+        self.assertEqual(sum(1 for item in results if item[2]), 1)
+        self.assertEqual(path.operational_approvals.count(), 1)
+
+
+@POSTGRESQL_ONLY
 class PostgreSQLReservationMigrationTests(PostgresReservationFixture):
     migrate_from = [("planning", "0016_physicalmoldreservation_execution_path")]
     migrate_to = [("planning", "0017_active_mold_reservation_exclusion")]
+    restore_to = [("planning", "0018_pathoperationalapproval")]
 
     def _executor(self):
         return MigrationExecutor(connection)
@@ -276,7 +318,7 @@ class PostgreSQLReservationMigrationTests(PostgresReservationFixture):
             self.assertIsNone(cursor.fetchone())
             cursor.execute("SELECT 1 FROM pg_extension WHERE extname = 'btree_gist'")
             self.assertIsNotNone(cursor.fetchone())
-        self._executor().migrate(self.migrate_to)
+        self._executor().migrate(self.restore_to)
 
     def test_preflight_blocks_conflicting_populated_migration(self):
         existing = PhysicalMoldReservation.objects.create(**self.reservation_values())
@@ -296,4 +338,4 @@ class PostgreSQLReservationMigrationTests(PostgresReservationFixture):
                 self._executor().migrate(self.migrate_to)
         finally:
             OldReservation.objects.filter(pk=duplicate.pk).delete()
-            self._executor().migrate(self.migrate_to)
+            self._executor().migrate(self.restore_to)
