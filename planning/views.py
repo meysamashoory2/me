@@ -514,14 +514,13 @@ def _operation_redirect(path):
 
 
 @login_required
+@require_POST
 def path_operational_approve(request, path_id):
     from django.core.exceptions import ValidationError
     from .operational_approval import approve_path
     from .reservation_integrity import PhysicalMoldReservationConflict
 
     path = get_object_or_404(PlannedProductionPath, pk=path_id)
-    if request.method != "POST":
-        return _operation_redirect(path)
     try:
         result = approve_path(
             path.pk,
@@ -538,13 +537,12 @@ def path_operational_approve(request, path_id):
 
 
 @login_required
+@require_POST
 def path_operational_cancel(request, path_id):
     from django.core.exceptions import ValidationError
     from .operational_approval import cancel_path
 
     path = get_object_or_404(PlannedProductionPath, pk=path_id)
-    if request.method != "POST":
-        return _operation_redirect(path)
     try:
         result = cancel_path(path.pk, actor=request.user, reason=request.POST.get("reason") or "")
     except ValidationError as error:
@@ -555,6 +553,7 @@ def path_operational_cancel(request, path_id):
 
 
 @login_required
+@require_POST
 def path_operational_edit(request, path_id):
     from django.core.exceptions import ValidationError
     from .operational_approval import edit_path
@@ -562,8 +561,6 @@ def path_operational_edit(request, path_id):
     from .utils import parse_jdate_string
 
     path = get_object_or_404(PlannedProductionPath, pk=path_id)
-    if request.method != "POST":
-        return _operation_redirect(path)
     try:
         edit_path(
             path.pk,

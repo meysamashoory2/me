@@ -17,3 +17,13 @@ class OperationalApprovalMigrationTests(TransactionTestCase):
         Reservation = apps.get_model("planning", "PhysicalMoldReservation")
         self.assertEqual(Approval.objects.count(), 0)
         self.assertTrue(Reservation._meta.get_field("approval_revision").null)
+
+        provenance_target = [
+            ("planning", "0019_reservation_provenance_constraints")
+        ]
+        executor = MigrationExecutor(connection)
+        executor.migrate(provenance_target)
+        executor = MigrationExecutor(connection)
+        executor.migrate(self.migrate_to)
+        executor = MigrationExecutor(connection)
+        executor.migrate(provenance_target)

@@ -1,9 +1,15 @@
+import importlib
+from types import SimpleNamespace
+
 import jdatetime
 
+from django.apps import apps
 from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied, ValidationError
+from django.db import IntegrityError, connection, transaction
 from django.test import TestCase
 from django.urls import reverse
+from django.utils import timezone
 
 from accounts.models import Role, UserProfile
 from catalog.models import Machine, MoldMachineCompatibility, PhysicalMold
@@ -109,6 +115,7 @@ class OperationalApprovalTests(PathFoundationTestCase):
         approved_a = self.approve(path_a)
         with self.assertRaises(PhysicalMoldReservationConflict):
             self.approve(path_b)
+        self.assertEqual(path_b.operational_approvals.count(), 0)
         approved_c = self.approve(path_c)
         self.assertFalse(path_b.operational_approvals.exists())
         path_b.physical_mold = mold_c
@@ -256,6 +263,136 @@ class OperationalApprovalTests(PathFoundationTestCase):
             PathOperationalApproval.objects.filter(pk=evidence.pk).update(reason="forged")
         with self.assertRaises(ValueError):
             PathOperationalApproval.objects.filter(pk=evidence.pk).delete()
+
+    def test_approval_evidence_creation_requires_canonical_service(self):
+        approved = self.approve(self.create_path())
+        values = {
+            "planned_path": approved.approval.planned_path,
+            "execution_path": approved.execution_path,
+            "reservation": approved.reservation,
+            "sequence": 2,
+            "action": PathOperationalApproval.Action.EDITED,
+            "path_fingerprint": approved.approval.path_fingerprint,
+            "after_snapshot": approved.approval.after_snapshot,
+            "actor": self.user,
+        }
+        with self.assertRaisesRegex(ValueError, "canonical service"):
+            PathOperationalApproval.objects.create(**values)
+        instance = PathOperationalApproval(**values)
+        with self.assertRaisesRegex(ValueError, "canonical service"):
+            instance.save(force_insert=True)
+        with self.assertRaisesRegex(ValueError, "canonical service"):
+            PathOperationalApproval.objects.bulk_create(
+                [PathOperationalApproval(**values)]
+            )
+        self.assertEqual(PathOperationalApproval.objects.count(), 1)
+        self.assertFalse(
+            hasattr(approved.approval, "_operational_approval_service_create")
+        )
+
+    def test_reservation_provenance_constraints_preserve_valid_lifecycles(self):
+        legacy_path = self.create_path(sequence=1)
+        legacy = self.create_reservation(legacy_path)
+        self.assertIsNotNone(legacy.approval_revision_id)
+
+        preparing_path = self.create_path(physical_mold=self.mold_b, sequence=2)
+        preparing = PhysicalMoldReservation.objects.create(
+            approval_revision=None,
+            source_path=preparing_path,
+            requirement=preparing_path.requirement,
+            machine=preparing_path.machine,
+            physical_mold=preparing_path.physical_mold,
+            execution_path=None,
+            approved_planned_share_quantity=preparing_path.planned_share_quantity,
+            reserved_start_date=preparing_path.planned_start_date,
+            reserved_end_date=preparing_path.planned_end_date,
+            compatibility_status_snapshot=MoldMachineCompatibility.Status.UNKNOWN,
+            mold_status_snapshot=preparing_path.physical_mold.status,
+            status=PhysicalMoldReservation.Status.PREPARING,
+        )
+        self.assertIsNone(preparing.execution_path_id)
+
+        active_path = self.create_path(
+            physical_mold=PhysicalMold.objects.create(
+                code="SLICE-2B4-PROVENANCE", mold_type=self.mold_type
+            ),
+            sequence=3,
+        )
+        active = self.approve(active_path).reservation
+        self.assertIsNotNone(active.source_path_id)
+        self.assertIsNotNone(active.execution_path_id)
+
+    def test_reservation_without_any_provenance_is_database_rejected(self):
+        path = self.create_path()
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            PhysicalMoldReservation.objects.create(
+                approval_revision=None,
+                source_path=None,
+                requirement=path.requirement,
+                machine=path.machine,
+                physical_mold=path.physical_mold,
+                approved_planned_share_quantity=path.planned_share_quantity,
+                reserved_start_date=path.planned_start_date,
+                reserved_end_date=path.planned_end_date,
+                compatibility_status_snapshot=MoldMachineCompatibility.Status.UNKNOWN,
+                mold_status_snapshot=path.physical_mold.status,
+                status=PhysicalMoldReservation.Status.PREPARING,
+            )
+
+    def test_active_path_reservation_without_execution_is_database_rejected(self):
+        path = self.create_path()
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            PhysicalMoldReservation.objects.create(
+                approval_revision=None,
+                source_path=path,
+                requirement=path.requirement,
+                machine=path.machine,
+                physical_mold=path.physical_mold,
+                execution_path=None,
+                approved_planned_share_quantity=path.planned_share_quantity,
+                reserved_start_date=path.planned_start_date,
+                reserved_end_date=path.planned_end_date,
+                compatibility_status_snapshot=MoldMachineCompatibility.Status.UNKNOWN,
+                mold_status_snapshot=path.physical_mold.status,
+                status=PhysicalMoldReservation.Status.ACTIVE,
+                activated_at=timezone.now(),
+            )
+
+    def test_0018_reverse_refuses_path_only_reservations_without_data_loss(self):
+        approved = self.approve(self.create_path())
+        revision_count = approved.reservation.requirement.item.plan.approval_revisions.count()
+        reverse = importlib.import_module(
+            "planning.migrations.0018_pathoperationalapproval"
+        ).make_approval_revision_required
+        with self.assertRaisesRegex(RuntimeError, "Cannot reverse planning.0018"):
+            reverse(apps, SimpleNamespace(connection=connection))
+        self.assertTrue(
+            PhysicalMoldReservation.objects.filter(pk=approved.reservation.pk).exists()
+        )
+        self.assertIsNone(
+            PhysicalMoldReservation.objects.get(pk=approved.reservation.pk).approval_revision_id
+        )
+        self.assertEqual(
+            approved.reservation.requirement.item.plan.approval_revisions.count(),
+            revision_count,
+        )
+
+    def test_operational_state_endpoints_are_strictly_post_only(self):
+        path = self.create_path()
+        self.client.force_login(self.user)
+        urls = (
+            reverse("path_operational_approve", args=[path.pk]),
+            reverse("path_operational_edit", args=[path.pk]),
+            reverse("path_operational_cancel", args=[path.pk]),
+        )
+        for url in urls:
+            with self.subTest(method="GET", url=url):
+                self.assertEqual(self.client.get(url).status_code, 405)
+            with self.subTest(method="HEAD", url=url):
+                self.assertEqual(self.client.head(url).status_code, 405)
+        self.assertEqual(PathOperationalApproval.objects.count(), 0)
+        self.assertEqual(PhysicalMoldReservation.objects.count(), 0)
+        self.assertEqual(ProductionExecutionPath.objects.count(), 0)
 
     def test_manager_view_endpoint_activates_and_expert_is_forbidden(self):
         path = self.create_path()

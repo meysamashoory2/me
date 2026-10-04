@@ -594,6 +594,11 @@ class PlanApprovalDecision(models.Model):
 class PathOperationalApprovalQuerySet(models.QuerySet):
     """Append-only path-level operational decisions."""
 
+    def bulk_create(self, objs, **kwargs):
+        raise ValueError(
+            "Path operational approval evidence must be created through the canonical service."
+        )
+
     def update(self, **kwargs):
         raise ValueError("Path operational approval evidence is immutable.")
 
@@ -657,6 +662,12 @@ class PathOperationalApproval(models.Model):
         ]
 
     def save(self, *args, **kwargs):
+        if self._state.adding and not getattr(
+            self, "_operational_approval_service_create", False
+        ):
+            raise ValueError(
+                "Path operational approval evidence must be created through the canonical service."
+            )
         if self.pk is not None:
             raise ValueError("Path operational approval evidence is immutable.")
         return super().save(*args, **kwargs)
@@ -812,6 +823,23 @@ class PhysicalMoldReservation(models.Model):
                     | ~models.Q(status="preparing") & models.Q(activated_at__isnull=False)
                 ),
                 name="mold_reservation_activation_matches_status",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(approval_revision__isnull=False)
+                    | models.Q(source_path__isnull=False)
+                ),
+                name="mold_reservation_has_provenance",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    ~models.Q(status="active", approval_revision__isnull=True)
+                    | models.Q(
+                        source_path__isnull=False,
+                        execution_path__isnull=False,
+                    )
+                ),
+                name="active_path_reservation_has_execution",
             ),
             ExclusionConstraint(
                 name=ACTIVE_MOLD_RESERVATION_CONSTRAINT,

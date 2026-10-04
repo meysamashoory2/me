@@ -169,6 +169,17 @@ def _next_sequence(path, *, using):
     return (latest.sequence + 1) if latest else 1
 
 
+def _create_approval_evidence(*, using, **values):
+    """Persist evidence only inside the narrow canonical-service scope."""
+    evidence = PathOperationalApproval(**values)
+    evidence._operational_approval_service_create = True
+    try:
+        evidence.save(using=using, force_insert=True)
+    finally:
+        del evidence._operational_approval_service_create
+    return evidence
+
+
 def approve_path(path_id, *, submitted_fingerprint, actor, confirmations=(), reason="", using="default"):
     assert_can_approve(actor)
     with transaction.atomic(using=using):
@@ -228,7 +239,8 @@ def approve_path(path_id, *, submitted_fingerprint, actor, confirmations=(), rea
         )
         activate_reservation(reservation, using=using)
         activate_execution_path(execution, actor=actor, using=using)
-        approval = PathOperationalApproval.objects.using(using).create(
+        approval = _create_approval_evidence(
+            using=using,
             planned_path=path,
             execution_path=execution,
             reservation=reservation,
@@ -261,7 +273,8 @@ def cancel_path(path_id, *, actor, reason="", using="default"):
         transition_active_reservation(
             reservation, status=PhysicalMoldReservation.Status.CANCELLED, using=using
         )
-        evidence = PathOperationalApproval.objects.using(using).create(
+        evidence = _create_approval_evidence(
+            using=using,
             planned_path=path,
             execution_path=execution,
             reservation=reservation,
@@ -369,7 +382,8 @@ def edit_path(
             updated_by=actor,
         )
         fingerprint = _fingerprint(proposed)
-        evidence = PathOperationalApproval.objects.using(using).create(
+        evidence = _create_approval_evidence(
+            using=using,
             planned_path=path,
             execution_path=execution,
             reservation=replacement,

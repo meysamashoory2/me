@@ -57,9 +57,9 @@ PLANNING_0017 = (
     "planning",
     "0017_active_mold_reservation_exclusion",
 )
-PLANNING_0018 = (
+PLANNING_0019 = (
     "planning",
-    "0018_pathoperationalapproval",
+    "0019_reservation_provenance_constraints",
 )
 PRODUCTION_0005 = (
     "production",
@@ -239,7 +239,7 @@ class WeeklyPlanItemUidMigrationTests(MigrationTestCase):
         self.assertEqual(loader.detect_conflicts(), {})
         self.assertEqual(
             loader.graph.leaf_nodes("planning"),
-            [PLANNING_0018],
+            [PLANNING_0019],
         )
         replacement_node = loader.graph.node_map[PLANNING_UID_FIX]
         historical_0004 = loader.graph.node_map[
