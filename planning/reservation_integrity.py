@@ -103,6 +103,12 @@ def activate_reservation(reservation, *, using="default"):
                 .select_for_update()
                 .get(pk=reservation.pk)
             )
+            if current.source_path_id is not None:
+                from .program_governance import assert_operational_program_is_governed
+
+                assert_operational_program_is_governed(
+                    current.source_path.requirement.item.plan, using=using
+                )
             if current.status != PhysicalMoldReservation.Status.PREPARING:
                 raise ValueError("Only a PREPARING reservation may be activated.")
             lock_physical_molds([current.physical_mold_id], using=using)

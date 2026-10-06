@@ -52,12 +52,13 @@ class WeeklyPlanForm(forms.ModelForm):
         fields = ["program_number", "date"]
 
     def __init__(self, *args, **kwargs):
+        self.governance_creation = kwargs.pop("governance_creation", False)
         super().__init__(*args, **kwargs)
         self.fields["program_number"].widget.attrs.setdefault("class", "input")
 
     def clean_date(self):
         value = self.cleaned_data.get("date")
-        if value is None:
+        if value is None or self.governance_creation:
             return value
         qs = WeeklyPlan.objects.filter(date=value)
         if self.instance and self.instance.pk:

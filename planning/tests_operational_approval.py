@@ -16,7 +16,7 @@ from catalog.models import Machine, MoldMachineCompatibility, PhysicalMold
 from production.models import ProductionDayEntry, ProductionExecutionEvent, ProductionExecutionPath
 from production.path_execution import register_path_production
 
-from .models import PathOperationalApproval, PhysicalMoldReservation
+from .models import PathOperationalApproval, PhysicalMoldReservation, WeeklyProgramCycle
 from .operational_approval import (
     CancelledPathApproval,
     StalePathApproval,
@@ -25,7 +25,7 @@ from .operational_approval import (
     edit_path,
     preview_path_approval,
 )
-from .reservation_integrity import PhysicalMoldReservationConflict
+from .reservation_integrity import PhysicalMoldReservationConflict, activate_reservation
 from .tests_path_foundation import PathFoundationTestCase
 
 
@@ -61,6 +61,45 @@ class OperationalApprovalTests(PathFoundationTestCase):
                     confirmations=self.confirmations,
                 )
         self.assertTrue(self.approve(path).created)
+
+    def test_governed_source_cannot_become_operational_before_final_merge(self):
+        cycle = WeeklyProgramCycle.objects.create(
+            program_number=8800,
+            program_date=self.plan.date,
+            created_by=self.user,
+        )
+        self.plan.governance_cycle = cycle
+        self.plan.save(update_fields=["governance_cycle"])
+        path = self.create_path()
+        preview = self.preview(path)
+        with self.assertRaisesMessage(ValidationError, "Merged/Final"):
+            approve_path(
+                path.pk,
+                submitted_fingerprint=preview.fingerprint,
+                actor=self.user,
+                confirmations=self.confirmations,
+            )
+        self.assertFalse(PathOperationalApproval.objects.exists())
+        self.assertFalse(PhysicalMoldReservation.objects.exists())
+        self.assertFalse(ProductionExecutionPath.objects.exists())
+
+        preparing = PhysicalMoldReservation.objects.create(
+            approval_revision=None,
+            source_path=path,
+            requirement=self.requirement,
+            machine=self.machine_a,
+            physical_mold=self.mold_a,
+            approved_planned_share_quantity=path.planned_share_quantity,
+            reserved_start_date=path.planned_start_date,
+            reserved_end_date=path.planned_end_date,
+            compatibility_status_snapshot=MoldMachineCompatibility.Status.UNKNOWN,
+            mold_status_snapshot=PhysicalMold.Status.READY,
+            status=PhysicalMoldReservation.Status.PREPARING,
+        )
+        with self.assertRaisesMessage(ValidationError, "Merged/Final"):
+            activate_reservation(preparing)
+        preparing.refresh_from_db()
+        self.assertEqual(preparing.status, PhysicalMoldReservation.Status.PREPARING)
 
     def test_approval_is_atomic_operational_and_audited(self):
         path = self.create_path()

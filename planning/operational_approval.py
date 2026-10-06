@@ -186,9 +186,12 @@ def approve_path(path_id, *, submitted_fingerprint, actor, confirmations=(), rea
         path = (
             PlannedProductionPath.objects.using(using)
             .select_for_update()
-            .select_related("requirement", "machine", "physical_mold")
+            .select_related("requirement__item__plan", "machine", "physical_mold")
             .get(pk=path_id)
         )
+        from .program_governance import assert_operational_program_is_governed
+
+        assert_operational_program_is_governed(path.requirement.item.plan, using=using)
         snapshot, fingerprint = _assert_fingerprint(path, submitted_fingerprint, using=using)
         latest = path.operational_approvals.using(using).order_by("-sequence").first()
         if latest and latest.action == PathOperationalApproval.Action.CANCELLED:

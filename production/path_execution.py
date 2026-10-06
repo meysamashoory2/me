@@ -94,7 +94,17 @@ def get_or_create_unstarted_execution_path(
 
 def activate_execution_path(path, *, actor=None, using="default"):
     with transaction.atomic(using=using):
-        current = ProductionExecutionPath.objects.using(using).select_for_update().get(pk=path.pk)
+        current = (
+            ProductionExecutionPath.objects.using(using)
+            .select_for_update()
+            .select_related("requirement_program__requirement__item__plan")
+            .get(pk=path.pk)
+        )
+        from planning.program_governance import assert_operational_program_is_governed
+
+        assert_operational_program_is_governed(
+            current.requirement_program.requirement.item.plan, using=using
+        )
         if current.status != ProductionExecutionPath.Status.PREPARING:
             raise ValidationError("Only a PREPARING execution path may be activated.")
         changed_at = timezone.now()
@@ -200,7 +210,17 @@ def register_path_production(
     good = gross - scrap_pieces
 
     with transaction.atomic(using=using):
-        current = ProductionExecutionPath.objects.using(using).select_for_update().get(pk=path.pk)
+        current = (
+            ProductionExecutionPath.objects.using(using)
+            .select_for_update()
+            .select_related("requirement_program__requirement__item__plan")
+            .get(pk=path.pk)
+        )
+        from planning.program_governance import assert_operational_program_is_governed
+
+        assert_operational_program_is_governed(
+            current.requirement_program.requirement.item.plan, using=using
+        )
         if current.status not in {
             ProductionExecutionPath.Status.AWAITING,
             ProductionExecutionPath.Status.RUNNING,

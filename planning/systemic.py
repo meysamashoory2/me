@@ -234,14 +234,8 @@ def build_systemic_proposals() -> list[SystemicProposal]:
     return proposals
 
 
-@transaction.atomic
-def create_systemic_plan(
-    *,
-    program_number: str,
-    plan_date,
-    user,
-) -> tuple[WeeklyPlan, list[str]]:
-    """Create a draft weekly plan populated from systemic proposals."""
+def populate_systemic_plan(plan: WeeklyPlan) -> tuple[WeeklyPlan, list[str]]:
+    """Populate an already-created System source from current proposals."""
     alarms: list[str] = []
     proposals = build_systemic_proposals()
     if not proposals:
@@ -249,19 +243,10 @@ def create_systemic_plan(
             "هیچ قلم قابل برنامه‌ریزی یافت نشد. ابتدا سفارشات و موجودی را از اکسل منتقل کنید."
         )
 
-    plan = WeeklyPlan.objects.create(
-        program_number=program_number,
-        date=plan_date,
-        status=WeeklyPlan.Status.DRAFT,
-        planning_mode=WeeklyPlan.PlanningMode.SYSTEMIC,
-        created_by=user,
-        alarms="\n".join(alarms),
-    )
-
     # Default mold-change: first Saturday (or plan weekday) on/after plan date
     target_weekday = 0  # شنبه
-    candidates = mold_change_date_candidates(plan_date, target_weekday) or []
-    change_date = candidates[0] if candidates else plan_date
+    candidates = mold_change_date_candidates(plan.date, target_weekday) or []
+    change_date = candidates[0] if candidates else plan.date
     weekday = change_date.weekday() if hasattr(change_date, "weekday") else target_weekday
 
     seq_by_machine: dict[int, int] = {}
@@ -309,3 +294,35 @@ def create_systemic_plan(
         plan.alarms = "برنامه سیستمی خالی ایجاد شد."
     plan.save(update_fields=["alarms"])
     return plan, alarms
+
+
+@transaction.atomic
+def create_systemic_plan(
+    *,
+    program_number: str,
+    plan_date,
+    user,
+) -> tuple[WeeklyPlan, list[str]]:
+    """Legacy-compatible direct creator; governed flows create the source first."""
+    plan = WeeklyPlan.objects.create(
+        program_number=program_number,
+        date=plan_date,
+        status=WeeklyPlan.Status.DRAFT,
+        planning_mode=WeeklyPlan.PlanningMode.SYSTEMIC,
+        created_by=user,
+    )
+    return populate_systemic_plan(plan)
+
+
+@transaction.atomic
+def create_governed_systemic_plan(*, program_number, plan_date, user):
+    """Atomically allocate and populate a governed System source."""
+    from .program_governance import create_program_source
+
+    plan = create_program_source(
+        origin=WeeklyPlan.PlanningMode.SYSTEMIC,
+        program_date=plan_date,
+        actor=user,
+        requested_program_number=program_number or None,
+    )
+    return populate_systemic_plan(plan)

@@ -58,6 +58,34 @@ class Weekday(models.IntegerChoices):
     JOME = 6, "جمعه"
 
 
+class WeeklyPlanQuerySet(models.QuerySet):
+    def content_locked(self):
+        return self.filter(
+            models.Q(source_state="history")
+            | models.Q(source_approval__isnull=False)
+            | models.Q(system_row_decisions__isnull=False)
+        ).distinct()
+
+    def update(self, **kwargs):
+        if self.content_locked().exists():
+            raise ValueError("Governed source content is immutable after evidence exists.")
+        return super().update(**kwargs)
+
+    def bulk_update(self, objs, fields, **kwargs):
+        object_ids = [obj.pk for obj in objs if obj.pk is not None]
+        if self.model.objects.filter(pk__in=object_ids).content_locked().exists():
+            raise ValueError("Governed source content is immutable after evidence exists.")
+        return super().bulk_update(objs, fields, **kwargs)
+
+    def delete(self):
+        if self.filter(governance_cycle__isnull=False).exists():
+            raise ValueError("Governed program sources are immutable audit records.")
+        return super().delete()
+
+    def _update_for_governance_service(self, **kwargs):
+        return super().update(**kwargs)
+
+
 class WeeklyPlan(models.Model):
     class Status(models.TextChoices):
         DRAFT = "draft", "در انتظار تأیید"
@@ -67,8 +95,8 @@ class WeeklyPlan(models.Model):
         MANUAL = "manual", "دستی"
         SYSTEMIC = "systemic", "سیستمی"
 
-    program_number = models.CharField("شماره برنامه", max_length=30, unique=True)
-    date = jmodels.jDateField("تاریخ برنامه‌ریزی", unique=True)
+    program_number = models.CharField("شماره برنامه", max_length=30, db_index=True)
+    date = jmodels.jDateField("تاریخ برنامه‌ریزی", db_index=True)
     status = models.CharField(
         max_length=12, choices=Status.choices, default=Status.DRAFT
     )
@@ -95,11 +123,55 @@ class WeeklyPlan(models.Model):
     )
     approved_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    governance_cycle = models.ForeignKey(
+        "WeeklyProgramCycle",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="sources",
+    )
+    source_state = models.CharField(
+        max_length=16,
+        choices=[("active", "فعال"), ("history", "تاریخچه")],
+        default="active",
+        db_index=True,
+    )
+
+    objects = WeeklyPlanQuerySet.as_manager()
 
     class Meta:
         ordering = ["-date", "-created_at"]
         verbose_name = "برنامه هفتگی"
         verbose_name_plural = "برنامه‌ریزی هفتگی"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["program_number"],
+                condition=models.Q(governance_cycle__isnull=True),
+                name="uniq_legacy_plan_program_number",
+            ),
+            models.UniqueConstraint(
+                fields=["date"],
+                condition=models.Q(governance_cycle__isnull=True),
+                name="uniq_legacy_plan_date",
+            ),
+            models.UniqueConstraint(
+                fields=["governance_cycle", "planning_mode"],
+                condition=models.Q(governance_cycle__isnull=False),
+                name="uniq_governed_program_source",
+            ),
+        ]
+
+    def delete(self, *args, **kwargs):
+        if self.governance_cycle_id is not None:
+            raise ValueError("Governed program sources are immutable audit records.")
+        return super().delete(*args, **kwargs)
+
+    def save(self, *args, **kwargs):
+        using = kwargs.get("using") or self._state.db or "default"
+        if self.pk is not None and not getattr(self, "_governance_service_update", False):
+            if WeeklyPlan.objects.using(using).filter(pk=self.pk).content_locked().exists():
+                raise ValueError("Governed source content is immutable after evidence exists.")
+        return super().save(*args, **kwargs)
 
     def __str__(self) -> str:
         from .utils import format_jdate
@@ -108,6 +180,306 @@ class WeeklyPlan(models.Model):
     @property
     def weekday_name(self) -> str:
         return persian_weekday(self.date)
+
+
+class WeeklyProgramSequenceQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        raise ValueError("Program numbering may change only through the canonical allocator.")
+
+    def bulk_update(self, objs, fields, **kwargs):
+        raise ValueError("Program numbering may change only through the canonical allocator.")
+
+    def delete(self):
+        raise ValueError("Program numbering cannot be deleted.")
+
+    def _update_for_governance_service(self, **kwargs):
+        return super().update(**kwargs)
+
+
+class WeeklyProgramSequence(models.Model):
+    """Single locked allocator for contiguous governed program numbers."""
+
+    singleton = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
+    last_allocated_number = models.PositiveIntegerField()
+    initialized_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+"
+    )
+    initialized_at = models.DateTimeField(auto_now_add=True)
+
+    objects = WeeklyProgramSequenceQuerySet.as_manager()
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(singleton=1),
+                name="weekly_program_sequence_singleton",
+            )
+        ]
+
+    def save(self, *args, **kwargs):
+        if self._state.adding and not getattr(self, "_governance_service_create", False):
+            raise ValueError("Program numbering requires the canonical allocator.")
+        if self.pk is not None and not self._state.adding:
+            raise ValueError("Program numbering may change only through the canonical allocator.")
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValueError("Program numbering cannot be deleted.")
+
+
+class WeeklyProgramCycle(models.Model):
+    """Governed weekly cycle containing at most one Manual and one System source."""
+
+    program_number = models.PositiveIntegerField(unique=True)
+    program_date = jmodels.jDateField(unique=True)
+    final_plan = models.OneToOneField(
+        WeeklyPlan,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="final_for_governance_cycle",
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="created_program_cycles"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-program_number"]
+
+    def delete(self, *args, **kwargs):
+        raise ValueError("Governed program cycles cannot be deleted.")
+
+
+class AppendOnlyProgramEvidenceQuerySet(models.QuerySet):
+    def bulk_create(self, objs, **kwargs):
+        raise ValueError("Program governance evidence requires the canonical service.")
+
+    def update(self, **kwargs):
+        raise ValueError("Program governance evidence is immutable.")
+
+    def bulk_update(self, objs, fields, **kwargs):
+        raise ValueError("Program governance evidence is immutable.")
+
+    def delete(self):
+        raise ValueError("Program governance evidence is immutable.")
+
+
+class ProgramSourceApproval(models.Model):
+    class ApprovalType(models.TextChoices):
+        MANUAL = "manual", "تأیید برنامه دستی"
+        SYSTEM_FINAL = "system_final", "تأیید نهایی برنامه سیستمی"
+
+    source_plan = models.OneToOneField(
+        WeeklyPlan, on_delete=models.PROTECT, related_name="source_approval"
+    )
+    approval_type = models.CharField(max_length=16, choices=ApprovalType.choices)
+    content_fingerprint = models.CharField(max_length=64, db_index=True)
+    content_snapshot = models.JSONField(default=dict)
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="program_source_approvals"
+    )
+    approved_at = models.DateTimeField(auto_now_add=True)
+
+    objects = AppendOnlyProgramEvidenceQuerySet.as_manager()
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(approval_type__in=["manual", "system_final"]),
+                name="program_source_approval_valid_type",
+            )
+        ]
+
+    def save(self, *args, **kwargs):
+        if self._state.adding and not getattr(self, "_governance_service_create", False):
+            raise ValueError("Program governance evidence requires the canonical service.")
+        if self.pk is not None:
+            raise ValueError("Program governance evidence is immutable.")
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValueError("Program governance evidence is immutable.")
+
+
+class SystemProgramRowDecision(models.Model):
+    class Decision(models.TextChoices):
+        APPROVE = "approve", "تأیید"
+        MODIFY = "modify", "تأیید با اصلاح"
+        REJECT = "reject", "رد"
+
+    source_plan = models.ForeignKey(
+        WeeklyPlan, on_delete=models.PROTECT, related_name="system_row_decisions"
+    )
+    item = models.ForeignKey(
+        "WeeklyPlanItem", on_delete=models.PROTECT, related_name="system_review_decisions"
+    )
+    sequence = models.PositiveIntegerField()
+    decision = models.CharField(max_length=12, choices=Decision.choices)
+    decision_snapshot = models.JSONField(default=dict)
+    decided_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="system_program_decisions"
+    )
+    decided_at = models.DateTimeField(auto_now_add=True)
+
+    objects = AppendOnlyProgramEvidenceQuerySet.as_manager()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["source_plan", "item", "sequence"],
+                name="uniq_system_row_decision_sequence",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(sequence__gt=0),
+                name="system_row_decision_sequence_positive",
+            ),
+        ]
+
+    def save(self, *args, **kwargs):
+        if self._state.adding and not getattr(self, "_governance_service_create", False):
+            raise ValueError("Program governance evidence requires the canonical service.")
+        if self.pk is not None:
+            raise ValueError("Program governance evidence is immutable.")
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValueError("Program governance evidence is immutable.")
+
+
+class FinalProgramRowProvenance(models.Model):
+    """Reserved B2 evidence linking each future Final row to reviewed sources."""
+
+    class Origin(models.TextChoices):
+        MANUAL = "manual", "دستی"
+        SYSTEM = "system", "سیستمی"
+        MANUAL_SYSTEM_MODIFIED = "manual_system_modified", "دستی + سیستمی/اصلاح‌شده"
+
+    final_item = models.OneToOneField(
+        "WeeklyPlanItem", on_delete=models.PROTECT, related_name="final_provenance"
+    )
+    manual_source_item = models.ForeignKey(
+        "WeeklyPlanItem",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="manual_final_provenance",
+    )
+    system_source_item = models.ForeignKey(
+        "WeeklyPlanItem",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="system_final_provenance",
+    )
+    origin = models.CharField(max_length=24, choices=Origin.choices)
+    provenance_snapshot = models.JSONField(default=dict)
+    recorded_at = models.DateTimeField(auto_now_add=True)
+
+    objects = AppendOnlyProgramEvidenceQuerySet.as_manager()
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    models.Q(origin="manual", manual_source_item__isnull=False)
+                    | models.Q(origin="system", system_source_item__isnull=False)
+                    | models.Q(
+                        origin="manual_system_modified",
+                        manual_source_item__isnull=False,
+                        system_source_item__isnull=False,
+                    )
+                ),
+                name="final_row_provenance_has_required_sources",
+            )
+        ]
+
+    def save(self, *args, **kwargs):
+        if self._state.adding and not getattr(self, "_governance_service_create", False):
+            raise ValueError("Program governance evidence requires the canonical service.")
+        if self.pk is not None:
+            raise ValueError("Program governance evidence is immutable.")
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValueError("Program governance evidence is immutable.")
+
+
+class PlanningGovernanceAlarm(models.Model):
+    class Kind(models.TextChoices):
+        MANUAL_WITHOUT_SYSTEM = "manual_without_system", "برنامه دستی بدون پیشنهاد سیستمی"
+
+    cycle = models.ForeignKey(
+        WeeklyProgramCycle, on_delete=models.PROTECT, related_name="governance_alarms"
+    )
+    source_plan = models.ForeignKey(
+        WeeklyPlan, on_delete=models.PROTECT, related_name="governance_alarms"
+    )
+    kind = models.CharField(max_length=32, choices=Kind.choices)
+    title = models.CharField(max_length=200)
+    message = models.TextField()
+    details = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    objects = AppendOnlyProgramEvidenceQuerySet.as_manager()
+
+    def save(self, *args, **kwargs):
+        if self._state.adding and not getattr(self, "_governance_service_create", False):
+            raise ValueError("Program governance evidence requires the canonical service.")
+        if self.pk is not None:
+            raise ValueError("Program governance evidence is immutable.")
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValueError("Program governance evidence is immutable.")
+
+
+class PlanningGovernanceAlarmView(models.Model):
+    alarm = models.ForeignKey(
+        PlanningGovernanceAlarm, on_delete=models.PROTECT, related_name="views"
+    )
+    viewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="viewed_governance_alarms"
+    )
+    viewed_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["alarm", "viewed_by"], name="uniq_governance_alarm_viewer"
+            )
+        ]
+
+
+class GovernedSourceContentQuerySet(models.QuerySet):
+    def _locked(self):
+        if self.model.__name__ == "WeeklyPlanItem":
+            return self.filter(
+                models.Q(plan__source_state="history")
+                | models.Q(plan__source_approval__isnull=False)
+                | models.Q(plan__system_row_decisions__isnull=False)
+            ).distinct()
+        return self.filter(
+            models.Q(item__plan__source_state="history")
+            | models.Q(item__plan__source_approval__isnull=False)
+            | models.Q(item__plan__system_row_decisions__isnull=False)
+        ).distinct()
+
+    def update(self, **kwargs):
+        if self._locked().exists():
+            raise ValueError("Governed source content is immutable after evidence exists.")
+        return super().update(**kwargs)
+
+    def bulk_update(self, objs, fields, **kwargs):
+        object_ids = [obj.pk for obj in objs if obj.pk is not None]
+        if self.model.objects.filter(pk__in=object_ids)._locked().exists():
+            raise ValueError("Governed source content is immutable after evidence exists.")
+        return super().bulk_update(objs, fields, **kwargs)
+
+    def delete(self):
+        if self._locked().exists():
+            raise ValueError("Governed source content is immutable after evidence exists.")
+        return super().delete()
 
 
 class WeeklyPlanItem(models.Model):
@@ -150,12 +522,36 @@ class WeeklyPlanItem(models.Model):
 
     history_alarm = models.BooleanField(default=False)
 
+    objects = GovernedSourceContentQuerySet.as_manager()
+
     class Meta:
         verbose_name = "کالای برنامه"
         verbose_name_plural = "کالاهای برنامه"
 
     def __str__(self) -> str:
         return f"{self.product.name} @ {self.machine}"
+
+    def _locked_source_exists(self, using):
+        plan_ids = {self.plan_id}
+        if self.pk is not None:
+            previous_plan_id = type(self).objects.using(using).filter(pk=self.pk).values_list(
+                "plan_id", flat=True
+            ).first()
+            plan_ids.add(previous_plan_id)
+        plan_ids.discard(None)
+        return WeeklyPlan.objects.using(using).filter(pk__in=plan_ids).content_locked().exists()
+
+    def save(self, *args, **kwargs):
+        using = kwargs.get("using") or self._state.db or "default"
+        if self._locked_source_exists(using):
+            raise ValueError("Governed source content is immutable after evidence exists.")
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        using = kwargs.get("using") or self._state.db or "default"
+        if self._locked_source_exists(using):
+            raise ValueError("Governed source content is immutable after evidence exists.")
+        return super().delete(*args, **kwargs)
 
     def uid_for_type(self, production_type_index: int = 1) -> str:
         from .uid import uid_for_item
@@ -198,12 +594,36 @@ class WeeklyPlanLine(models.Model):
         help_text="شناسه ۱۴ رقمی مخصوص این نوع تولید",
     )
 
+    objects = GovernedSourceContentQuerySet.as_manager()
+
     class Meta:
         verbose_name = "ردیف تولید"
         verbose_name_plural = "ردیف‌های تولید"
 
     def __str__(self) -> str:
         return f"{self.production_type} — {self.quantity}"
+
+    def _locked_source_exists(self, using):
+        item_ids = {self.item_id}
+        if self.pk is not None:
+            previous_item_id = type(self).objects.using(using).filter(pk=self.pk).values_list(
+                "item_id", flat=True
+            ).first()
+            item_ids.add(previous_item_id)
+        item_ids.discard(None)
+        return WeeklyPlanItem.objects.using(using).filter(pk__in=item_ids)._locked().exists()
+
+    def save(self, *args, **kwargs):
+        using = kwargs.get("using") or self._state.db or "default"
+        if self._locked_source_exists(using):
+            raise ValueError("Governed source content is immutable after evidence exists.")
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        using = kwargs.get("using") or self._state.db or "default"
+        if self._locked_source_exists(using):
+            raise ValueError("Governed source content is immutable after evidence exists.")
+        return super().delete(*args, **kwargs)
 
     @property
     def production_hours(self) -> float:

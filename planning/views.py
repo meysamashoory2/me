@@ -1,6 +1,6 @@
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.core.exceptions import PermissionDenied
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -42,7 +42,8 @@ def plan_list(request):
         ProductionProgram.Status.TEMP_STOP,
     ]
     plans = list(
-        WeeklyPlan.objects.select_related("created_by", "approved_by")
+        WeeklyPlan.objects.filter(source_state="active")
+        .select_related("created_by", "approved_by")
         .annotate(
             mold_count=Count("items", distinct=True),
             active_mold_count=Count(
@@ -60,7 +61,9 @@ def plan_list(request):
 
     for plan in plans:
         plan.can_edit_by_user = _can_request_edit(request.user, profile, plan)
-        plan.can_delete_by_user = _can_delete_plan(request.user, profile)
+        plan.can_delete_by_user = bool(
+            plan.governance_cycle_id is None and _can_delete_plan(request.user, profile)
+        )
     forms_weekly = [
         {"id": f.pk, "number": f.number, "title": f.title}
         for f in forms_for_purpose(request.user, PURPOSE_WEEKLY)
@@ -175,7 +178,7 @@ def plan_create(request):
         return redirect(f"{reverse('plan_list')}?create=1")
 
     if request.method == "POST":
-        form = WeeklyPlanForm(request.POST)
+        form = WeeklyPlanForm(request.POST, governance_creation=True)
         planning_mode = (
             request.POST.get("planning_mode") or WeeklyPlan.PlanningMode.MANUAL
         ).strip()
@@ -186,38 +189,49 @@ def plan_create(request):
             planning_mode = WeeklyPlan.PlanningMode.MANUAL
         if form.is_valid():
             if planning_mode == WeeklyPlan.PlanningMode.SYSTEMIC:
-                from .systemic import create_systemic_plan
+                from .systemic import create_governed_systemic_plan
 
-                plan, alarms = create_systemic_plan(
-                    program_number=form.cleaned_data["program_number"],
-                    plan_date=form.cleaned_data["date"],
-                    user=request.user,
-                )
-                detail_url = f"{reverse('plan_detail', args=[plan.pk])}?mode=edit"
-                if alarms:
-                    messages.warning(
-                        request,
-                        "برنامه سیستمی ایجاد شد با هشدار: " + " | ".join(alarms[:3]),
+                try:
+                    plan, alarms = create_governed_systemic_plan(
+                        program_number=form.cleaned_data["program_number"],
+                        plan_date=form.cleaned_data["date"],
+                        user=request.user,
                     )
+                except ValidationError as error:
+                    form.add_error(None, error)
                 else:
-                    messages.success(
-                        request,
-                        "برنامه سیستمی از روی سفارشات و موجودی ایجاد شد. ردیف‌ها را بررسی کنید.",
-                    )
-                if wants_json:
-                    return JsonResponse({"ok": True, "redirect_url": detail_url, "plan_id": plan.pk})
-                return redirect(detail_url)
+                    detail_url = f"{reverse('plan_detail', args=[plan.pk])}?mode=edit"
+                    if alarms:
+                        messages.warning(
+                            request,
+                            "برنامه سیستمی ایجاد شد با هشدار: " + " | ".join(alarms[:3]),
+                        )
+                    else:
+                        messages.success(
+                            request,
+                            "برنامه سیستمی از روی سفارشات و موجودی ایجاد شد. ردیف‌ها را بررسی کنید.",
+                        )
+                    if wants_json:
+                        return JsonResponse({"ok": True, "redirect_url": detail_url, "plan_id": plan.pk})
+                    return redirect(detail_url)
+            else:
+                from .program_governance import create_program_source
 
-            plan = form.save(commit=False)
-            plan.created_by = request.user
-            plan.status = WeeklyPlan.Status.DRAFT
-            plan.planning_mode = WeeklyPlan.PlanningMode.MANUAL
-            plan.save()
-            detail_url = f"{reverse('plan_detail', args=[plan.pk])}?mode=edit"
-            messages.success(request, "برنامه دستی ایجاد شد. اکنون کالاها را اضافه کنید.")
-            if wants_json:
-                return JsonResponse({"ok": True, "redirect_url": detail_url, "plan_id": plan.pk})
-            return redirect(detail_url)
+                try:
+                    plan = create_program_source(
+                        origin=WeeklyPlan.PlanningMode.MANUAL,
+                        program_date=form.cleaned_data["date"],
+                        actor=request.user,
+                        requested_program_number=form.cleaned_data["program_number"],
+                    )
+                except ValidationError as error:
+                    form.add_error(None, error)
+                else:
+                    detail_url = f"{reverse('plan_detail', args=[plan.pk])}?mode=edit"
+                    messages.success(request, "برنامه دستی ایجاد شد. اکنون کالاها را اضافه کنید.")
+                    if wants_json:
+                        return JsonResponse({"ok": True, "redirect_url": detail_url, "plan_id": plan.pk})
+                    return redirect(detail_url)
 
         if wants_json:
             return JsonResponse(
@@ -330,14 +344,16 @@ def _can_edit_plan(user, profile, plan) -> bool:
     """Creator or planning manager may edit a draft plan."""
     if not profile or not profile.can_create_plans:
         return False
-    if plan.status != WeeklyPlan.Status.DRAFT:
+    if plan.status != WeeklyPlan.Status.DRAFT or plan.source_state != "active":
         return False
     return _is_planning_manager(user, profile) or _is_plan_owner(user, plan)
 
 
 def _can_request_edit(user, profile, plan) -> bool:
     """Creator or manager may choose ویرایش (approved plans reopen to draft)."""
-    if not profile or not profile.can_create_plans:
+    if not profile or not profile.can_create_plans or plan.source_state != "active":
+        return False
+    if plan.governance_cycle_id is not None and plan.status != WeeklyPlan.Status.DRAFT:
         return False
     return _is_planning_manager(user, profile) or _is_plan_owner(user, plan)
 
@@ -356,7 +372,7 @@ def plan_operate(request, pk):
     if request.method != "POST":
         return redirect(f"{reverse('plan_detail', args=[pk])}?mode=view")
     if action == "delete":
-        if not _can_delete_plan(request.user, profile):
+        if plan.governance_cycle_id is not None or not _can_delete_plan(request.user, profile):
             raise PermissionDenied("فقط مدیر برنامه‌ریزی می‌تواند برنامه را حذف کند.")
         plan.delete()
         messages.success(request, "برنامه حذف شد.")
@@ -378,6 +394,8 @@ def plan_operate(request, pk):
 def plan_edit(request, pk):
     """Inline edit of a plan's program number and date."""
     plan = get_object_or_404(WeeklyPlan, pk=pk)
+    if plan.governance_cycle_id is not None:
+        raise PermissionDenied("Governed Program number and date belong to their cycle.")
     profile = get_profile(request.user)
     if not _can_edit_plan(request.user, profile, plan):
         raise PermissionDenied("اجازه ویرایش برنامه ندارید.")
@@ -795,6 +813,15 @@ def plan_set_status(request, pk):
             or (profile and profile.can_approve_plans)
         ):
             raise PermissionDenied("فقط مدیر برنامه‌ریزی می‌تواند برنامه را تأیید کند.")
+        if plan.governance_cycle_id is not None:
+            if plan.planning_mode != WeeklyPlan.PlanningMode.MANUAL:
+                messages.error(request, "Only the governed Manual source may be approved here.")
+                return redirect(request.POST.get("next") or "plan_list")
+            from .program_governance import approve_manual_source
+
+            approve_manual_source(plan.pk, actor=request.user)
+            messages.success(request, "برنامه دستی ذخیره و تأیید شد.")
+            return redirect(request.POST.get("next") or "plan_list")
         if PlannedProductionPath.objects.filter(requirement__item__plan=plan).exists():
             messages.error(
                 request,

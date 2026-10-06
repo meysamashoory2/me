@@ -552,9 +552,13 @@ def sync_history_record_to_planning(
     if backfill:
         rec.save(update_fields=[*backfill, "updated_at"])
 
-    plan = WeeklyPlan.objects.filter(program_number=plan_number).first()
+    plan = WeeklyPlan.objects.filter(
+        program_number=plan_number, governance_cycle__isnull=True
+    ).first()
     if not plan and len(plan_number) > 30:
-        plan = WeeklyPlan.objects.filter(program_number=plan_number[:30]).first()
+        plan = WeeklyPlan.objects.filter(
+            program_number=plan_number[:30], governance_cycle__isnull=True
+        ).first()
     if not plan:
         from django.db import IntegrityError
 
@@ -574,7 +578,9 @@ def sync_history_record_to_planning(
                 result["created"] = True
                 break
             except IntegrityError:
-                plan = WeeklyPlan.objects.filter(program_number=plan_number[:30]).first()
+                plan = WeeklyPlan.objects.filter(
+                    program_number=plan_number[:30], governance_cycle__isnull=True
+                ).first()
                 if plan:
                     break
                 plan_date = _next_free_plan_date(plan_date + timedelta(days=1))

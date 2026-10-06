@@ -288,7 +288,7 @@ class InventoryOrdersSystemicTests(TestCase):
             reverse("plan_create"),
             {
                 "planning_mode": "systemic",
-                "program_number": "SYS-DIALOG-1",
+                "program_number": "9100",
                 "date": format_jalali_slash(plan_date),
             },
             HTTP_X_REQUESTED_WITH="XMLHttpRequest",
@@ -298,7 +298,7 @@ class InventoryOrdersSystemicTests(TestCase):
         data = resp.json()
         self.assertTrue(data["ok"])
         self.assertIn("/planning/", data["redirect_url"])
-        plan = WeeklyPlan.objects.get(program_number="SYS-DIALOG-1")
+        plan = WeeklyPlan.objects.get(program_number="9100")
         self.assertEqual(plan.planning_mode, WeeklyPlan.PlanningMode.SYSTEMIC)
 
     def test_systemic_create_validation_errors_json(self):
