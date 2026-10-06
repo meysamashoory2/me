@@ -290,7 +290,7 @@ class PostgreSQLPathApprovalConcurrencyTests(PostgresReservationFixture):
 class PostgreSQLReservationMigrationTests(PostgresReservationFixture):
     migrate_from = [("planning", "0016_physicalmoldreservation_execution_path")]
     migrate_to = [("planning", "0017_active_mold_reservation_exclusion")]
-    restore_to = [("planning", "0021_final_program_row_provenance")]
+    restore_to = [("planning", "0022_system_final_merge_foundation")]
 
     def _executor(self):
         return MigrationExecutor(connection)

@@ -64,6 +64,7 @@ class WeeklyPlanQuerySet(models.QuerySet):
             models.Q(source_state="history")
             | models.Q(source_approval__isnull=False)
             | models.Q(system_row_decisions__isnull=False)
+            | models.Q(final_revision__isnull=False)
         ).distinct()
 
     def update(self, **kwargs):
@@ -94,6 +95,7 @@ class WeeklyPlan(models.Model):
     class PlanningMode(models.TextChoices):
         MANUAL = "manual", "دستی"
         SYSTEMIC = "systemic", "سیستمی"
+        FINAL = "final", "نهایی/تلفیقی"
 
     program_number = models.CharField("شماره برنامه", max_length=30, db_index=True)
     date = jmodels.jDateField("تاریخ برنامه‌ریزی", db_index=True)
@@ -156,7 +158,10 @@ class WeeklyPlan(models.Model):
             ),
             models.UniqueConstraint(
                 fields=["governance_cycle", "planning_mode"],
-                condition=models.Q(governance_cycle__isnull=False),
+                condition=models.Q(
+                    governance_cycle__isnull=False,
+                    planning_mode__in=["manual", "systemic"],
+                ),
                 name="uniq_governed_program_source",
             ),
         ]
@@ -168,6 +173,12 @@ class WeeklyPlan(models.Model):
 
     def save(self, *args, **kwargs):
         using = kwargs.get("using") or self._state.db or "default"
+        if (
+            self._state.adding
+            and self.planning_mode == self.PlanningMode.FINAL
+            and not getattr(self, "_merge_service_create", False)
+        ):
+            raise ValueError("Final Programs require the canonical merge service.")
         if self.pk is not None and not getattr(self, "_governance_service_update", False):
             if WeeklyPlan.objects.using(using).filter(pk=self.pk).content_locked().exists():
                 raise ValueError("Governed source content is immutable after evidence exists.")
@@ -372,6 +383,13 @@ class FinalProgramRowProvenance(models.Model):
         blank=True,
         related_name="system_final_provenance",
     )
+    system_decision = models.ForeignKey(
+        SystemProgramRowDecision,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="final_row_provenance",
+    )
     origin = models.CharField(max_length=24, choices=Origin.choices)
     provenance_snapshot = models.JSONField(default=dict)
     recorded_at = models.DateTimeField(auto_now_add=True)
@@ -399,10 +417,177 @@ class FinalProgramRowProvenance(models.Model):
             raise ValueError("Program governance evidence requires the canonical service.")
         if self.pk is not None:
             raise ValueError("Program governance evidence is immutable.")
+        self.clean()
         return super().save(*args, **kwargs)
+
+    def clean(self):
+        super().clean()
+        final_cycle = getattr(getattr(self.final_item, "plan", None), "governance_cycle_id", None)
+        for source in (self.manual_source_item, self.system_source_item):
+            if source is not None and source.plan.governance_cycle_id != final_cycle:
+                raise ValueError("Final provenance cannot cross Program cycles.")
+        if self.system_decision_id and self.system_source_item_id:
+            if self.system_decision.item_id != self.system_source_item_id:
+                raise ValueError("Final provenance decision must belong to its System row.")
+            if self.system_decision.source_plan_id != self.system_source_item.plan_id:
+                raise ValueError("Final provenance decision must belong to its System source.")
 
     def delete(self, *args, **kwargs):
         raise ValueError("Program governance evidence is immutable.")
+
+
+class FinalProgramRevisionQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        raise ValueError("Final Program revisions require the canonical merge service.")
+
+    def bulk_update(self, objs, fields, **kwargs):
+        raise ValueError("Final Program revisions require the canonical merge service.")
+
+    def bulk_create(self, objs, **kwargs):
+        raise ValueError("Final Program revisions require the canonical merge service.")
+
+    def delete(self):
+        raise ValueError("Final Program revisions are immutable evidence.")
+
+    def _update_for_merge_service(self, **kwargs):
+        return super().update(**kwargs)
+
+
+class FinalProgramRevision(models.Model):
+    class Status(models.TextChoices):
+        EFFECTIVE = "effective", "مؤثر"
+        SUPERSEDED = "superseded", "جایگزین‌شده"
+
+    cycle = models.ForeignKey(
+        WeeklyProgramCycle, on_delete=models.PROTECT, related_name="final_revisions"
+    )
+    revision_number = models.PositiveIntegerField()
+    final_plan = models.OneToOneField(
+        WeeklyPlan, on_delete=models.PROTECT, related_name="final_revision"
+    )
+    manual_source = models.ForeignKey(
+        WeeklyPlan, on_delete=models.PROTECT, related_name="manual_final_revisions"
+    )
+    system_source = models.ForeignKey(
+        WeeklyPlan,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="system_final_revisions",
+    )
+    supersedes = models.OneToOneField(
+        "self",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="superseded_by",
+    )
+    status = models.CharField(max_length=16, choices=Status.choices)
+    source_review_fingerprint = models.CharField(max_length=64, db_index=True)
+    result_fingerprint = models.CharField(max_length=64, db_index=True)
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="approved_final_program_revisions",
+    )
+    approved_at = models.DateTimeField(auto_now_add=True)
+    superseded_at = models.DateTimeField(null=True, blank=True)
+
+    objects = FinalProgramRevisionQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["cycle_id", "revision_number"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["cycle", "revision_number"],
+                name="uniq_final_revision_number_per_cycle",
+            ),
+            models.UniqueConstraint(
+                fields=["cycle"],
+                condition=models.Q(status="effective"),
+                name="uniq_effective_final_revision_per_cycle",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(revision_number__gt=0),
+                name="final_revision_number_positive",
+            ),
+        ]
+
+    def save(self, *args, **kwargs):
+        if self._state.adding and not getattr(self, "_merge_service_create", False):
+            raise ValueError("Final Program revisions require the canonical merge service.")
+        if self.pk is not None:
+            raise ValueError("Final Program revisions are immutable evidence.")
+        self.clean()
+        return super().save(*args, **kwargs)
+
+    def clean(self):
+        super().clean()
+        if self.final_plan.governance_cycle_id != self.cycle_id:
+            raise ValueError("Final revision plan must belong to its Program cycle.")
+        if self.final_plan.planning_mode != WeeklyPlan.PlanningMode.FINAL:
+            raise ValueError("Final revision must reference a Final Program plan.")
+        if (
+            self.manual_source.governance_cycle_id != self.cycle_id
+            or self.manual_source.planning_mode != WeeklyPlan.PlanningMode.MANUAL
+        ):
+            raise ValueError("Final revision Manual source must belong to its Program cycle.")
+        if self.system_source_id and (
+            self.system_source.governance_cycle_id != self.cycle_id
+            or self.system_source.planning_mode != WeeklyPlan.PlanningMode.SYSTEMIC
+        ):
+            raise ValueError("Final revision System source must belong to its Program cycle.")
+        if self.supersedes_id and self.supersedes.cycle_id != self.cycle_id:
+            raise ValueError("Final revision cannot supersede another Program cycle.")
+
+    def delete(self, *args, **kwargs):
+        raise ValueError("Final Program revisions are immutable evidence.")
+
+
+class SystemFinalApproval(models.Model):
+    cycle = models.ForeignKey(
+        WeeklyProgramCycle, on_delete=models.PROTECT, related_name="system_final_approvals"
+    )
+    system_source = models.OneToOneField(
+        WeeklyPlan, on_delete=models.PROTECT, related_name="system_final_approval"
+    )
+    review_fingerprint = models.CharField(max_length=64, db_index=True)
+    final_revision = models.OneToOneField(
+        FinalProgramRevision,
+        on_delete=models.PROTECT,
+        related_name="system_final_approval",
+    )
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="system_final_approvals",
+    )
+    approved_at = models.DateTimeField(auto_now_add=True)
+
+    objects = AppendOnlyProgramEvidenceQuerySet.as_manager()
+
+    def save(self, *args, **kwargs):
+        if self._state.adding and not getattr(self, "_governance_service_create", False):
+            raise ValueError("System Final Approval requires the canonical merge service.")
+        if self.pk is not None:
+            raise ValueError("System Final Approval evidence is immutable.")
+        self.clean()
+        return super().save(*args, **kwargs)
+
+    def clean(self):
+        super().clean()
+        if (
+            self.system_source.governance_cycle_id != self.cycle_id
+            or self.system_source.planning_mode != WeeklyPlan.PlanningMode.SYSTEMIC
+        ):
+            raise ValueError("System Final Approval source must belong to its Program cycle.")
+        if self.final_revision.cycle_id != self.cycle_id:
+            raise ValueError("System Final Approval revision must belong to its Program cycle.")
+        if self.final_revision.system_source_id != self.system_source_id:
+            raise ValueError("System Final Approval source must match the Final revision source.")
+
+    def delete(self, *args, **kwargs):
+        raise ValueError("System Final Approval evidence is immutable.")
 
 
 class PlanningGovernanceAlarm(models.Model):
@@ -458,11 +643,14 @@ class GovernedSourceContentQuerySet(models.QuerySet):
                 models.Q(plan__source_state="history")
                 | models.Q(plan__source_approval__isnull=False)
                 | models.Q(plan__system_row_decisions__isnull=False)
+                | models.Q(plan__final_revision__isnull=False)
             ).distinct()
+        prefix = "requirement__item__plan" if self.model.__name__ == "PlannedProductionPath" else "item__plan"
         return self.filter(
-            models.Q(item__plan__source_state="history")
-            | models.Q(item__plan__source_approval__isnull=False)
-            | models.Q(item__plan__system_row_decisions__isnull=False)
+            models.Q(**{f"{prefix}__source_state": "history"})
+            | models.Q(**{f"{prefix}__source_approval__isnull": False})
+            | models.Q(**{f"{prefix}__system_row_decisions__isnull": False})
+            | models.Q(**{f"{prefix}__final_revision__isnull": False})
         ).distinct()
 
     def update(self, **kwargs):
@@ -702,6 +890,8 @@ class PlannedProductionPath(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    objects = GovernedSourceContentQuerySet.as_manager()
+
     class Meta:
         ordering = ["requirement_id", "sequence", "id"]
         verbose_name = "مسیر برنامه‌ریزی تولید"
@@ -729,6 +919,30 @@ class PlannedProductionPath(models.Model):
 
     def __str__(self) -> str:
         return f"{self.requirement} / {self.machine} / {self.physical_mold}"
+
+    def _locked_source_exists(self, using):
+        requirement_ids = {self.requirement_id}
+        if self.pk is not None:
+            previous_id = type(self).objects.using(using).filter(pk=self.pk).values_list(
+                "requirement_id", flat=True
+            ).first()
+            requirement_ids.add(previous_id)
+        requirement_ids.discard(None)
+        return type(self).objects.using(using).filter(
+            requirement_id__in=requirement_ids
+        )._locked().exists()
+
+    def save(self, *args, **kwargs):
+        using = kwargs.get("using") or self._state.db or "default"
+        if self._locked_source_exists(using):
+            raise ValueError("Governed source content is immutable after evidence exists.")
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        using = kwargs.get("using") or self._state.db or "default"
+        if self._locked_source_exists(using):
+            raise ValueError("Governed source content is immutable after evidence exists.")
+        return super().delete(*args, **kwargs)
 
 
 class SnapshotWriteGuardQuerySet(models.QuerySet):

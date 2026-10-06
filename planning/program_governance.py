@@ -12,6 +12,7 @@ from accounts.models import UserProfile
 
 from .approval_service import assert_can_approve
 from .models import (
+    FinalProgramRevision,
     PlanningGovernanceAlarm,
     PlanningGovernanceAlarmView,
     ProgramSourceApproval,
@@ -251,28 +252,20 @@ def approve_manual_source(plan_id, *, actor, using="default"):
 def record_system_row_decision(
     *, source_plan_id, item_id, decision, actor, snapshot=None, using="default"
 ):
-    assert_can_approve(actor)
-    with transaction.atomic(using=using):
-        plan = WeeklyPlan.objects.using(using).select_for_update().get(pk=source_plan_id)
-        if (
-            plan.planning_mode != WeeklyPlan.PlanningMode.SYSTEMIC
-            or plan.governance_cycle_id is None
-            or plan.source_state != "active"
-        ):
-            raise ValidationError("Row decisions belong to a governed System source.")
-        item = plan.items.using(using).get(pk=item_id)
-        latest = plan.system_row_decisions.using(using).filter(item=item).order_by("-sequence").first()
-        evidence = _create_evidence(
-            SystemProgramRowDecision,
-            using=using,
-            source_plan=plan,
-            item=item,
-            sequence=(latest.sequence + 1) if latest else 1,
-            decision=decision,
-            decision_snapshot=snapshot or {},
-            decided_by=actor,
-        )
-        return evidence
+    # Keep the frozen B1 entry point, but route all B2 review evidence through
+    # the single structured/audited implementation.
+    from .final_merge import review_system_row
+
+    return review_system_row(
+        source_plan_id=source_plan_id,
+        item_id=item_id,
+        decision=decision,
+        actor=actor,
+        modified=(snapshot or None)
+        if decision == SystemProgramRowDecision.Decision.MODIFY
+        else None,
+        using=using,
+    )
 
 
 def mark_governance_alarm_viewed(alarm_id, *, user, using="default"):
@@ -288,5 +281,11 @@ def assert_operational_program_is_governed(plan, *, using="default"):
     cycle = WeeklyProgramCycle.objects.using(using).get(pk=plan.governance_cycle_id)
     if cycle.final_plan_id != plan.pk:
         raise ValidationError("Only the Merged/Final Program may be operational.")
+    if not FinalProgramRevision.objects.using(using).filter(
+        cycle=cycle,
+        final_plan=plan,
+        status=FinalProgramRevision.Status.EFFECTIVE,
+    ).exists():
+        raise ValidationError("Only the currently effective Final revision may be operational.")
     if not _manual_is_approved(cycle, using=using):
         raise ValidationError("Manual approval is required before production may start.")
