@@ -292,7 +292,7 @@ def cancel_path(path_id, *, actor, reason="", using="default"):
         return PathOperationResult(evidence, reservation, execution, True)
 
 
-def edit_path(
+def _edit_legacy_path(
     path_id,
     *,
     submitted_fingerprint,
@@ -400,3 +400,62 @@ def edit_path(
             reason=(reason or "").strip(),
         )
         return PathOperationResult(evidence, replacement, execution, True)
+
+
+def edit_path(
+    path_id,
+    *,
+    submitted_fingerprint,
+    actor,
+    machine_id,
+    physical_mold_id,
+    target,
+    start_date,
+    end_date,
+    confirmations=(),
+    reason="",
+    using="default",
+):
+    """Route governed Final edits through B3-B; preserve genuine legacy behavior."""
+    identity = (
+        PlannedProductionPath.objects.using(using)
+        .filter(pk=path_id)
+        .values(
+            "requirement__item__plan__governance_cycle_id",
+            "requirement__item__plan__planning_mode",
+        )
+        .get()
+    )
+    if (
+        identity["requirement__item__plan__governance_cycle_id"] is not None
+        or identity["requirement__item__plan__planning_mode"] == "final"
+    ):
+        from .preproduction_revision import apply_preproduction_revision
+
+        result = apply_preproduction_revision(
+            path_id,
+            submitted_fingerprint=submitted_fingerprint,
+            actor=actor,
+            machine_id=machine_id,
+            physical_mold_id=physical_mold_id,
+            target=target,
+            start_date=start_date,
+            end_date=end_date,
+            confirmations=confirmations,
+            reason=reason,
+            using=using,
+        )
+        return result.operation
+    return _edit_legacy_path(
+        path_id,
+        submitted_fingerprint=submitted_fingerprint,
+        actor=actor,
+        machine_id=machine_id,
+        physical_mold_id=physical_mold_id,
+        target=target,
+        start_date=start_date,
+        end_date=end_date,
+        confirmations=confirmations,
+        reason=reason,
+        using=using,
+    )

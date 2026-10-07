@@ -156,7 +156,7 @@ def cancel_unstarted_execution_path(path, *, actor, reason="", using="default"):
     return event
 
 
-def edit_unstarted_execution_path(
+def _edit_unstarted_execution_path(
     path, *, machine, physical_mold, current_good_target, actor, before_snapshot, using="default"
 ):
     """Apply a validated manager edit without changing execution-path identity."""
@@ -185,6 +185,31 @@ def edit_unstarted_execution_path(
         )
     path.refresh_from_db(using=using)
     return event
+
+
+def edit_unstarted_execution_path(
+    path, *, machine, physical_mold, current_good_target, actor, before_snapshot, using="default"
+):
+    """Legacy edit entry point; governed Final paths require Planning B3-B."""
+    current = (
+        ProductionExecutionPath.objects.using(using)
+        .select_related("requirement_program__requirement__item__plan")
+        .get(pk=path.pk)
+    )
+    plan = current.requirement_program.requirement.item.plan
+    if plan.governance_cycle_id is not None or plan.planning_mode == "final":
+        raise ValidationError(
+            "Governed execution paths must be edited through the canonical pre-production revision workflow."
+        )
+    return _edit_unstarted_execution_path(
+        current,
+        machine=machine,
+        physical_mold=physical_mold,
+        current_good_target=current_good_target,
+        actor=actor,
+        before_snapshot=before_snapshot,
+        using=using,
+    )
 
 
 def register_path_production(

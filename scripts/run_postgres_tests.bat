@@ -11,9 +11,9 @@ if "%POSTGRES_TEST_DB_HOST%"=="" (echo [ERROR] POSTGRES_TEST_DB_HOST is required
 if "%POSTGRES_TEST_DB_PORT%"=="" (echo [ERROR] POSTGRES_TEST_DB_PORT is required.& exit /b 2)
 if not exist ".venv\Scripts\python.exe" (echo [ERROR] Project virtual environment Python was not found.& exit /b 2)
 
-set "TEST_LABELS=planning.tests_postgresql_reservations planning.tests_postgresql_program_governance planning.tests_postgresql_final_merge production.tests_postgresql_execution"
+set "TEST_LABELS=planning.tests_postgresql_reservations planning.tests_postgresql_program_governance planning.tests_postgresql_final_merge planning.tests_postgresql_preproduction_revision production.tests_postgresql_execution"
 if "%~1"=="" goto :run
-if /I "%~1"=="planning" set "TEST_LABELS=planning.tests_postgresql_reservations planning.tests_postgresql_program_governance planning.tests_postgresql_final_merge"& goto :run
+if /I "%~1"=="planning" set "TEST_LABELS=planning.tests_postgresql_reservations planning.tests_postgresql_program_governance planning.tests_postgresql_final_merge planning.tests_postgresql_preproduction_revision"& goto :run
 if /I "%~1"=="production" set "TEST_LABELS=production.tests_postgresql_execution"& goto :run
 echo [ERROR] Unknown mode. Use planning, production, or no argument.
 exit /b 2
