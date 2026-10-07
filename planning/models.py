@@ -1,6 +1,7 @@
 """Weekly production planning for fittings, with a manager-approval workflow."""
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import models
 from django_jalali.db import models as jmodels
 
@@ -943,6 +944,139 @@ class PlannedProductionPath(models.Model):
         if self._locked_source_exists(using):
             raise ValueError("Governed source content is immutable after evidence exists.")
         return super().delete(*args, **kwargs)
+
+
+class RevisionEvidenceQuerySet(models.QuerySet):
+    def bulk_create(self, objs, **kwargs):
+        raise ValueError("Revision and deviation evidence requires validated individual creation.")
+
+    def update(self, **kwargs):
+        raise ValueError("Revision and deviation evidence is immutable.")
+
+    def bulk_update(self, objs, fields, **kwargs):
+        raise ValueError("Revision and deviation evidence is immutable.")
+
+    def delete(self):
+        raise ValueError("Revision and deviation evidence is immutable.")
+
+
+class PlanningRevision(models.Model):
+    class RevisionType(models.TextChoices):
+        PLAN = "plan", "Plan"
+        ROW = "row", "Final row"
+        PATH = "path", "Production path"
+        OTHER = "other", "Other"
+
+    cycle = models.ForeignKey(WeeklyProgramCycle, on_delete=models.PROTECT, related_name="planning_revisions")
+    final_revision = models.ForeignKey(FinalProgramRevision, on_delete=models.PROTECT, related_name="planning_revisions")
+    final_item = models.ForeignKey("WeeklyPlanItem", on_delete=models.PROTECT, null=True, blank=True, related_name="planning_revisions")
+    planned_path = models.ForeignKey(PlannedProductionPath, on_delete=models.PROTECT, null=True, blank=True, related_name="planning_revisions")
+    revision_type = models.CharField(max_length=16, choices=RevisionType.choices)
+    before_snapshot = models.JSONField(default=dict)
+    after_snapshot = models.JSONField(default=dict)
+    context = models.JSONField(default=dict, blank=True)
+    actor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="planning_revisions")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    objects = RevisionEvidenceQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["created_at", "id"]
+        indexes = [
+            models.Index(fields=["cycle", "created_at"], name="plan_rev_cycle_time_idx"),
+            models.Index(fields=["final_revision", "created_at"], name="plan_rev_final_time_idx"),
+            models.Index(fields=["planned_path", "created_at"], name="plan_rev_path_time_idx"),
+        ]
+
+    def clean(self):
+        super().clean()
+        if self.final_revision_id and self.final_revision.cycle_id != self.cycle_id:
+            raise ValidationError("Planning revision Final revision must belong to its cycle.")
+        if self.final_item_id and self.final_item.plan_id != self.final_revision.final_plan_id:
+            raise ValidationError("Planning revision Final row must belong to its Final revision.")
+        if self.planned_path_id:
+            if self.planned_path.requirement.item.plan_id != self.final_revision.final_plan_id:
+                raise ValidationError("Planning revision path must belong to its Final revision.")
+            if self.final_item_id and self.planned_path.requirement.item_id != self.final_item_id:
+                raise ValidationError("Planning revision path must belong to its Final row.")
+
+    def save(self, *args, **kwargs):
+        if self.pk is not None:
+            raise ValueError("Planning revision evidence is immutable.")
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def save_base(self, *args, **kwargs):
+        if kwargs.get("raw"):
+            raise ValueError("Planning revision evidence cannot bypass validation through fixtures.")
+        return super().save_base(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValueError("Planning revision evidence is immutable.")
+
+
+class PlanningDeviation(models.Model):
+    cycle = models.ForeignKey(WeeklyProgramCycle, on_delete=models.PROTECT, related_name="planning_deviations")
+    final_revision = models.ForeignKey(FinalProgramRevision, on_delete=models.PROTECT, related_name="planning_deviations")
+    final_item = models.ForeignKey("WeeklyPlanItem", on_delete=models.PROTECT, null=True, blank=True, related_name="planning_deviations")
+    planned_path = models.ForeignKey(PlannedProductionPath, on_delete=models.PROTECT, null=True, blank=True, related_name="planning_deviations")
+    reason = models.ForeignKey("catalog.DeviationReason", on_delete=models.PROTECT, related_name="planning_deviations")
+    explained_quantity = models.PositiveIntegerField(null=True, blank=True)
+    note = models.TextField(blank=True)
+    actor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="planning_deviations")
+    revision = models.ForeignKey(PlanningRevision, on_delete=models.PROTECT, null=True, blank=True, related_name="deviations")
+    context = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    objects = RevisionEvidenceQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["created_at", "id"]
+        constraints = [models.CheckConstraint(condition=models.Q(explained_quantity__isnull=True) | models.Q(explained_quantity__gt=0), name="planning_deviation_quantity_positive")]
+        indexes = [
+            models.Index(fields=["cycle", "created_at"], name="plan_dev_cycle_time_idx"),
+            models.Index(fields=["final_revision", "created_at"], name="plan_dev_final_time_idx"),
+            models.Index(fields=["planned_path", "created_at"], name="plan_dev_path_time_idx"),
+        ]
+
+    def clean(self):
+        super().clean()
+        if self.final_revision_id and self.final_revision.cycle_id != self.cycle_id:
+            raise ValidationError("Planning deviation Final revision must belong to its cycle.")
+        if self.final_item_id and self.final_item.plan_id != self.final_revision.final_plan_id:
+            raise ValidationError("Planning deviation Final row must belong to its Final revision.")
+        if self.planned_path_id and self.planned_path.requirement.item.plan_id != self.final_revision.final_plan_id:
+            raise ValidationError("Planning deviation path must belong to its Final revision.")
+        if self.final_item_id and self.planned_path_id and self.planned_path.requirement.item_id != self.final_item_id:
+            raise ValidationError("Planning deviation path must belong to its Final row.")
+        if self.revision_id and (self.revision.cycle_id != self.cycle_id or self.revision.final_revision_id != self.final_revision_id):
+            raise ValidationError("Planning deviation revision must share its cycle and Final revision.")
+        if self.revision_id:
+            if (self.revision.final_item_id or self.final_item_id) and self.revision.final_item_id != self.final_item_id:
+                raise ValidationError("Planning deviation and revision must share the same Final row context.")
+            if (self.revision.planned_path_id or self.planned_path_id) and self.revision.planned_path_id != self.planned_path_id:
+                raise ValidationError("Planning deviation and revision must share the same path context.")
+        if self.explained_quantity is not None and self.explained_quantity <= 0:
+            raise ValidationError("Explained quantity must be positive when supplied.")
+        if self.reason_id:
+            if not self.reason.code or self.reason.applicability not in (self.reason.Applicability.PLANNING, self.reason.Applicability.BOTH):
+                raise ValidationError("A structured planning-applicable reason is required.")
+            if (self.reason.requires_note or self.reason.code == self.reason.Code.OTHER) and not self.note.strip():
+                raise ValidationError("This deviation reason requires a note.")
+
+    def save(self, *args, **kwargs):
+        if self.pk is not None:
+            raise ValueError("Planning deviation evidence is immutable.")
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def save_base(self, *args, **kwargs):
+        if kwargs.get("raw"):
+            raise ValueError("Planning deviation evidence cannot bypass validation through fixtures.")
+        return super().save_base(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValueError("Planning deviation evidence is immutable.")
 
 
 class SnapshotWriteGuardQuerySet(models.QuerySet):

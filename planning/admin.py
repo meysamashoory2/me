@@ -7,11 +7,36 @@ from .models import (
     PlanningProcessStep,
     PlanApprovalDecision,
     PathOperationalApproval,
+    PlanningDeviation,
+    PlanningRevision,
     SalesForecast,
     WeeklyPlan,
     WeeklyPlanItem,
     WeeklyPlanLine,
 )
+
+
+class ImmutableEvidenceAdmin(admin.ModelAdmin):
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(PlanningRevision)
+class PlanningRevisionAdmin(ImmutableEvidenceAdmin):
+    list_display = ("cycle", "revision_type", "final_revision", "planned_path", "actor", "created_at")
+    readonly_fields = tuple(field.name for field in PlanningRevision._meta.fields)
+
+
+@admin.register(PlanningDeviation)
+class PlanningDeviationAdmin(ImmutableEvidenceAdmin):
+    list_display = ("cycle", "reason", "explained_quantity", "actor", "created_at")
+    readonly_fields = tuple(field.name for field in PlanningDeviation._meta.fields)
 
 
 @admin.register(PathOperationalApproval)

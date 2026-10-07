@@ -10,8 +10,33 @@ from .models import (
     ProductionRequirementProgram,
     ProductionExecutionPath,
     ProductionExecutionEvent,
+    ProductionDeviation,
+    ProductionTargetRevision,
     ProductionStoppage,
 )
+
+
+class ImmutableEvidenceAdmin(admin.ModelAdmin):
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(ProductionTargetRevision)
+class ProductionTargetRevisionAdmin(ImmutableEvidenceAdmin):
+    list_display = ("execution_path", "state", "requested_target", "requester", "requested_at")
+    readonly_fields = tuple(field.name for field in ProductionTargetRevision._meta.fields)
+
+
+@admin.register(ProductionDeviation)
+class ProductionDeviationAdmin(ImmutableEvidenceAdmin):
+    list_display = ("execution_path", "category", "reason", "explained_quantity", "actor", "created_at")
+    readonly_fields = tuple(field.name for field in ProductionDeviation._meta.fields)
 
 
 @admin.register(ProductionRequirementProgram)

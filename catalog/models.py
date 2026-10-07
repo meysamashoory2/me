@@ -244,7 +244,33 @@ class StoppageReason(models.Model):
 class DeviationReason(models.Model):
     """Editable list backing the «دلیل انحراف» dropdowns."""
 
+    class Code(models.TextChoices):
+        NEW_SALES_ORDER = "new_sales_order", "New sales order"
+        PLANNING_CALCULATION_ERROR = "planning_calculation_error", "Planning calculation error"
+        PRIORITY_CHANGE = "priority_change", "Priority change"
+        MACHINE_BREAKDOWN = "machine_breakdown", "Machine breakdown"
+        MOLD_PROBLEM = "mold_problem", "Mold problem"
+        MATERIAL_SHORTAGE = "material_shortage", "Material shortage"
+        MANPOWER_SHORTAGE = "manpower_shortage", "Manpower shortage"
+        QUALITY_PROBLEM = "quality_problem", "Quality problem"
+        MAINTENANCE = "maintenance", "Maintenance"
+        SETUP_MOLD_CHANGE = "setup_mold_change", "Setup / mold change"
+        TARGET_REALLOCATION = "target_reallocation", "Target reallocation"
+        OTHER = "other", "Other"
+
+    class Applicability(models.TextChoices):
+        PLANNING = "planning", "Planning"
+        PRODUCTION = "production", "Production"
+        BOTH = "both", "Planning and production"
+
     label = models.CharField("عنوان", max_length=120, unique=True)
+    code = models.CharField(
+        max_length=40, choices=Code.choices, unique=True, null=True, blank=True
+    )
+    applicability = models.CharField(
+        max_length=16, choices=Applicability.choices, null=True, blank=True
+    )
+    requires_note = models.BooleanField(default=False)
     order = models.PositiveSmallIntegerField("ترتیب", default=0)
     is_active = models.BooleanField("فعال", default=True)
 
@@ -252,6 +278,19 @@ class DeviationReason(models.Model):
         ordering = ["order", "label"]
         verbose_name = "دلیل انحراف"
         verbose_name_plural = "دلایل انحراف"
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    models.Q(code__isnull=True, applicability__isnull=True)
+                    | models.Q(code__isnull=False, applicability__isnull=False)
+                ),
+                name="deviation_reason_classification_complete",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(code__isnull=True) | ~models.Q(code=""),
+                name="deviation_reason_code_not_blank",
+            ),
+        ]
 
     def __str__(self) -> str:
         return self.label

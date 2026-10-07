@@ -621,6 +621,156 @@ class ProductionDayEntry(models.Model):
         return super().delete(*args, **kwargs)
 
 
+class RevisionEvidenceQuerySet(models.QuerySet):
+    def bulk_create(self, objs, **kwargs):
+        raise ValueError("Revision and deviation evidence requires validated individual creation.")
+
+    def update(self, **kwargs):
+        raise ValueError("Revision and deviation evidence is immutable.")
+
+    def bulk_update(self, objs, fields, **kwargs):
+        raise ValueError("Revision and deviation evidence is immutable.")
+
+    def delete(self):
+        raise ValueError("Revision and deviation evidence is immutable.")
+
+
+class ProductionTargetRevision(models.Model):
+    class Source(models.TextChoices):
+        MANUAL = "manual", "Manual"
+        PLANNING = "planning", "Planning"
+        REALLOCATION = "reallocation", "Target reallocation"
+
+    class State(models.TextChoices):
+        PENDING = "pending", "Pending"
+        APPROVED = "approved", "Approved"
+        REJECTED = "rejected", "Rejected"
+
+    execution_path = models.ForeignKey(ProductionExecutionPath, on_delete=models.PROTECT, related_name="target_revisions")
+    original_target = models.PositiveIntegerField()
+    previous_effective_target = models.PositiveIntegerField()
+    requested_target = models.PositiveIntegerField()
+    approved_target = models.PositiveIntegerField(null=True, blank=True)
+    delta = models.IntegerField(null=True, blank=True)
+    source = models.CharField(max_length=16, choices=Source.choices)
+    requester = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="requested_target_revisions")
+    requested_at = models.DateTimeField(default=timezone.now)
+    approver = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True, related_name="decided_target_revisions")
+    approved_at = models.DateTimeField(null=True, blank=True)
+    reason = models.ForeignKey("catalog.DeviationReason", on_delete=models.PROTECT, related_name="production_target_revisions")
+    note = models.TextField(blank=True)
+    state = models.CharField(max_length=12, choices=State.choices, default=State.PENDING)
+    context = models.JSONField(default=dict, blank=True)
+
+    objects = RevisionEvidenceQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["requested_at", "id"]
+        constraints = [
+            models.CheckConstraint(condition=models.Q(original_target__gt=0), name="target_revision_original_positive"),
+            models.CheckConstraint(condition=models.Q(previous_effective_target__gt=0), name="target_revision_previous_positive"),
+            models.CheckConstraint(condition=models.Q(requested_target__gt=0), name="target_revision_requested_positive"),
+            models.CheckConstraint(condition=models.Q(approved_target__isnull=True) | models.Q(approved_target__gt=0), name="target_revision_approved_positive"),
+            models.CheckConstraint(condition=(models.Q(state="pending", approver__isnull=True, approved_at__isnull=True, approved_target__isnull=True) | models.Q(state="approved", approver__isnull=False, approved_at__isnull=False, approved_target__isnull=False) | models.Q(state="rejected", approver__isnull=False, approved_at__isnull=False, approved_target__isnull=True)), name="target_revision_state_evidence_consistent"),
+        ]
+        indexes = [models.Index(fields=["execution_path", "state", "requested_at"], name="target_rev_path_state_idx")]
+
+    def clean(self):
+        super().clean()
+        if self.execution_path_id:
+            if self.original_target != self.execution_path.initial_good_target:
+                raise ValidationError("Original target must snapshot the path initial target.")
+            if self.state == self.State.PENDING and self.previous_effective_target != self.execution_path.current_good_target:
+                raise ValidationError("Pending revision must snapshot the current effective target.")
+        effective_requested_target = (
+            self.approved_target
+            if self.state == self.State.APPROVED and self.approved_target is not None
+            else self.requested_target
+        )
+        expected_delta = effective_requested_target - self.previous_effective_target
+        if self.delta is not None and self.delta != expected_delta:
+            raise ValidationError("Target revision delta is inconsistent.")
+        if self.reason_id:
+            if not self.reason.code or self.reason.applicability not in (self.reason.Applicability.PRODUCTION, self.reason.Applicability.BOTH):
+                raise ValidationError("A structured production-applicable reason is required.")
+            if (self.reason.requires_note or self.reason.code == self.reason.Code.OTHER) and not self.note.strip():
+                raise ValidationError("This target revision reason requires a note.")
+
+    def save(self, *args, **kwargs):
+        if self.pk is not None:
+            raise ValueError("Production target revision evidence is immutable.")
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def save_base(self, *args, **kwargs):
+        if kwargs.get("raw"):
+            raise ValueError("Production target revision evidence cannot bypass validation through fixtures.")
+        return super().save_base(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValueError("Production target revision evidence is immutable.")
+
+
+class ProductionDeviation(models.Model):
+    class Category(models.TextChoices):
+        TARGET_CHANGE = "target_change", "Target change"
+        SHORTFALL = "shortfall", "Shortfall"
+        OVERPRODUCTION = "overproduction", "Overproduction"
+        OPERATIONAL_CHANGE = "operational_change", "Operational change"
+        OTHER = "other", "Other"
+
+    execution_path = models.ForeignKey(ProductionExecutionPath, on_delete=models.PROTECT, related_name="deviations")
+    category = models.CharField(max_length=24, choices=Category.choices)
+    reason = models.ForeignKey("catalog.DeviationReason", on_delete=models.PROTECT, related_name="production_deviations")
+    explained_quantity = models.PositiveIntegerField(null=True, blank=True)
+    note = models.TextField(blank=True)
+    actor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="production_deviations")
+    target_revision = models.ForeignKey(ProductionTargetRevision, on_delete=models.PROTECT, null=True, blank=True, related_name="deviations")
+    day_entry = models.ForeignKey(ProductionDayEntry, on_delete=models.PROTECT, null=True, blank=True, related_name="deviations")
+    context = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    objects = RevisionEvidenceQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["created_at", "id"]
+        constraints = [models.CheckConstraint(condition=models.Q(explained_quantity__isnull=True) | models.Q(explained_quantity__gt=0), name="production_deviation_quantity_positive")]
+        indexes = [
+            models.Index(fields=["execution_path", "created_at"], name="prod_dev_path_time_idx"),
+            models.Index(fields=["category", "created_at"], name="prod_dev_category_time_idx"),
+        ]
+
+    def clean(self):
+        super().clean()
+        if self.target_revision_id and self.target_revision.execution_path_id != self.execution_path_id:
+            raise ValidationError("Production deviation target revision must belong to its path.")
+        if self.day_entry_id and self.day_entry.execution_path_id != self.execution_path_id:
+            raise ValidationError("Production deviation day entry must belong to its path.")
+        if self.explained_quantity is not None and self.explained_quantity <= 0:
+            raise ValidationError("Explained quantity must be positive when supplied.")
+        if self.category == self.Category.OTHER and not self.note.strip():
+            raise ValidationError("Other production deviations require a note.")
+        if self.reason_id:
+            if not self.reason.code or self.reason.applicability not in (self.reason.Applicability.PRODUCTION, self.reason.Applicability.BOTH):
+                raise ValidationError("A structured production-applicable reason is required.")
+            if (self.reason.requires_note or self.reason.code == self.reason.Code.OTHER) and not self.note.strip():
+                raise ValidationError("This deviation reason requires a note.")
+
+    def save(self, *args, **kwargs):
+        if self.pk is not None:
+            raise ValueError("Production deviation evidence is immutable.")
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def save_base(self, *args, **kwargs):
+        if kwargs.get("raw"):
+            raise ValueError("Production deviation evidence cannot bypass validation through fixtures.")
+        return super().save_base(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValueError("Production deviation evidence is immutable.")
+
+
 class ProductionHistoryRecord(models.Model):
     """Archived / Excel-imported production history row, sorted by program UID.
 

@@ -145,7 +145,7 @@ class StoppageReasonAdmin(admin.ModelAdmin):
 
 @admin.register(DeviationReason)
 class DeviationReasonAdmin(admin.ModelAdmin):
-    list_display = ("id", "label", "order", "is_active")
+    list_display = ("id", "label", "code", "applicability", "requires_note", "order", "is_active")
     list_display_links = ("id",)
     list_editable = ("label", "order", "is_active")
 
