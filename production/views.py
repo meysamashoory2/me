@@ -20,6 +20,7 @@ from .forms import (
     TargetRevisionDecisionForm,
     TargetRevisionRequestForm,
     FullStopForm,
+    GovernedProductionEntryForm,
     ResumeExecutionForm,
     StatisticsCompletedForm,
     TemporaryStopForm,
@@ -42,6 +43,7 @@ from .target_semantics import (
     resolve_required_good,
 )
 from .models import ProductionExecutionPath, ProductionTargetRevision
+from .path_execution import register_path_production
 
 
 def _governed_path_queryset():
@@ -165,6 +167,8 @@ def execution_path_list(request):
 def execution_path_detail(request, path_id):
     path = get_object_or_404(_governed_path_queryset(), pk=path_id)
     row = _path_read_model(path)
+    profile = get_profile(request.user)
+    has_operation_permission = bool(profile and profile.can_enter_data)
     row.update(
         {
             "entries": path.day_entries.select_related("created_by").order_by("date", "pk"),
@@ -178,9 +182,62 @@ def execution_path_detail(request, path_id):
             "reservations": path.reservation_snapshots.select_related(
                 "physical_mold", "machine"
             ).order_by("-activated_at", "-pk"),
+            "has_operation_permission": has_operation_permission,
+            "can_operate_path": (
+                has_operation_permission
+                and row["lineage_classification"] == "governed_final"
+            ),
+            "production_entry_form": GovernedProductionEntryForm(),
+            "temporary_stop_form": TemporaryStopForm(),
+            "resume_form": ResumeExecutionForm(),
         }
     )
     return render(request, "production/execution_path_detail.html", row)
+
+
+def _detail_ui_requested(request):
+    return request.POST.get("ui_context") == "execution_path_detail"
+
+
+def _form_error_messages(form):
+    return [
+        f"{form.fields.get(field).label if field in form.fields else 'فرم'}: {message}"
+        for field, errors in form.errors.items()
+        for message in errors
+    ]
+
+
+def _redirect_with_errors(request, path_id, errors):
+    for error in errors:
+        messages.error(request, error)
+    return redirect("execution_path_detail", path_id=path_id)
+
+
+@login_required
+@require_POST
+def execution_path_entry_create(request, path_id):
+    path = get_object_or_404(ProductionExecutionPath, pk=path_id)
+    form = GovernedProductionEntryForm(request.POST)
+    if not form.is_valid():
+        return _redirect_with_errors(request, path_id, _form_error_messages(form))
+    try:
+        entry = register_path_production(
+            path,
+            date=form.cleaned_data["date"],
+            shots=form.cleaned_data["shots"],
+            active_cavities=form.cleaned_data["active_cavities"],
+            scrap_pieces=form.cleaned_data["scrap_pieces"],
+            description=form.cleaned_data["description"],
+            actor=request.user,
+            require_governed_lineage=True,
+        )
+    except ValidationError as error:
+        return _redirect_with_errors(request, path_id, error.messages)
+    messages.success(
+        request,
+        f"آمار تولید ثبت شد: ناخالص {entry.gross_pieces}، خوب {entry.good_pieces}، ضایعات {entry.scrap_quantity}.",
+    )
+    return redirect("execution_path_detail", path_id=path_id)
 
 
 def _form_error_response(form):
@@ -256,6 +313,8 @@ def target_revision_scrap_request(request, path_id):
 def execution_path_temporary_stop(request, path_id):
     form = TemporaryStopForm(request.POST)
     if not form.is_valid():
+        if _detail_ui_requested(request):
+            return _redirect_with_errors(request, path_id, _form_error_messages(form))
         return _form_error_response(form)
     try:
         event = temporary_stop_execution_path(
@@ -265,7 +324,12 @@ def execution_path_temporary_stop(request, path_id):
             note=form.cleaned_data["note"],
         )
     except ValidationError as error:
+        if _detail_ui_requested(request):
+            return _redirect_with_errors(request, path_id, error.messages)
         return _validation_error_response(error)
+    if _detail_ui_requested(request):
+        messages.success(request, "مسیر تولید با موفقیت به‌صورت موقت متوقف شد.")
+        return redirect("execution_path_detail", path_id=path_id)
     return JsonResponse({"event_id": event.pk, "status": event.new_status})
 
 
@@ -274,13 +338,20 @@ def execution_path_temporary_stop(request, path_id):
 def execution_path_resume(request, path_id):
     form = ResumeExecutionForm(request.POST)
     if not form.is_valid():
+        if _detail_ui_requested(request):
+            return _redirect_with_errors(request, path_id, _form_error_messages(form))
         return _form_error_response(form)
     try:
         event = resume_execution_path(
             path_id, actor=request.user, note=form.cleaned_data["note"]
         )
     except ValidationError as error:
+        if _detail_ui_requested(request):
+            return _redirect_with_errors(request, path_id, error.messages)
         return _validation_error_response(error)
+    if _detail_ui_requested(request):
+        messages.success(request, "تولید این مسیر با موفقیت از سر گرفته شد.")
+        return redirect("execution_path_detail", path_id=path_id)
     return JsonResponse({"event_id": event.pk, "status": event.new_status})
 
 

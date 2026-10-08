@@ -114,6 +114,36 @@ def jdate_field(label="تاریخ"):
     )
 
 
+class GovernedProductionEntryForm(forms.Form):
+    date = jdate_field("تاریخ تولید")
+    shots = forms.IntegerField(label="تعداد ضرب", min_value=0)
+    active_cavities = forms.IntegerField(label="تعداد حفره فعال", min_value=1)
+    scrap_pieces = forms.IntegerField(label="تعداد ضایعات", min_value=0)
+    description = forms.CharField(
+        label="توضیحات",
+        required=False,
+        widget=forms.Textarea(attrs={"rows": 2}),
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        style_fields(self)
+
+    def clean(self):
+        cleaned = super().clean()
+        shots = cleaned.get("shots")
+        active_cavities = cleaned.get("active_cavities")
+        scrap_pieces = cleaned.get("scrap_pieces")
+        if None not in (shots, active_cavities, scrap_pieces):
+            gross = shots * active_cavities
+            if scrap_pieces > gross:
+                self.add_error(
+                    "scrap_pieces",
+                    "تعداد ضایعات نمی‌تواند بیشتر از تولید ناخالص باشد.",
+                )
+        return cleaned
+
+
 def style_fields(form):
     """Apply ``input`` class to non-combo widgets only.
 

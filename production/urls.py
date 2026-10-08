@@ -10,6 +10,11 @@ urlpatterns = [
         name="execution_path_detail",
     ),
     path(
+        "execution-paths/<int:path_id>/entries/",
+        views.execution_path_entry_create,
+        name="execution_path_entry_create",
+    ),
+    path(
         "execution-paths/<int:path_id>/temporary-stop/",
         views.execution_path_temporary_stop,
         name="execution_path_temporary_stop",

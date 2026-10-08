@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 
 from django.contrib.auth import get_user_model
 from django.db import connection
-from django.test import TestCase
+from django.test import Client, TestCase
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
@@ -14,12 +14,19 @@ from planning.models import (
     FinalProgramRevision,
     PathOperationalApproval,
     PhysicalMoldReservation,
+    ProgramSourceApproval,
     WeeklyPlan,
     WeeklyProgramCycle,
 )
 from planning.tests_path_foundation import PathFoundationTestCase
 
-from .models import ProductionExecutionPath, ProductionProgram, ProductionRequirementProgram
+from .models import (
+    ProductionDayEntry,
+    ProductionExecutionEvent,
+    ProductionExecutionPath,
+    ProductionProgram,
+    ProductionRequirementProgram,
+)
 from .path_execution import register_path_production
 from .target_revision_service import decide_target_revision, request_target_revision
 from .target_semantics import RequiredGoodUnavailable, resolve_required_good
@@ -35,6 +42,12 @@ class GovernedProductionReadOnlyUITests(PathFoundationTestCase):
         )
         profile, _ = UserProfile.objects.get_or_create(user=cls.viewer)
         profile.role = Role.VIEWER
+        profile.save(update_fields=["role"])
+        cls.operator = get_user_model().objects.create_user(
+            username="governed-ui-operator", password="test-only"
+        )
+        profile, _ = UserProfile.objects.get_or_create(user=cls.operator)
+        profile.role = Role.PLANNING_EXPERT
         profile.save(update_fields=["role"])
         cls.reason = DeviationReason.objects.create(
             label="Governed UI target reason",
@@ -69,7 +82,7 @@ class GovernedProductionReadOnlyUITests(PathFoundationTestCase):
         )
         return path, reservation
 
-    def make_governed_final(self, path, reservation):
+    def make_governed_final(self, path, reservation, *, create_approval=True):
         cycle = WeeklyProgramCycle.objects.create(
             program_number=88000 + path.pk,
             program_date=self.plan.date,
@@ -87,6 +100,18 @@ class GovernedProductionReadOnlyUITests(PathFoundationTestCase):
         self.plan.save(update_fields=["governance_cycle", "planning_mode"])
         cycle.final_plan = self.plan
         cycle.save(update_fields=["final_plan"])
+        source_approval = ProgramSourceApproval(
+            source_plan=manual,
+            approval_type=ProgramSourceApproval.ApprovalType.MANUAL,
+            content_fingerprint="e" * 64,
+            content_snapshot={},
+            approved_by=self.user,
+        )
+        source_approval._governance_service_create = True
+        try:
+            source_approval.save(force_insert=True)
+        finally:
+            del source_approval._governance_service_create
         revision = FinalProgramRevision(
             cycle=cycle,
             revision_number=1,
@@ -102,8 +127,13 @@ class GovernedProductionReadOnlyUITests(PathFoundationTestCase):
             revision.save(force_insert=True)
         finally:
             del revision._merge_service_create
+        if not create_approval:
+            return None
+        return self.make_operational_approval(path, reservation)
+
+    def make_operational_approval(self, path, reservation, *, planned_path=None):
         approval = PathOperationalApproval(
-            planned_path=reservation.source_path,
+            planned_path=planned_path or reservation.source_path,
             execution_path=path,
             reservation=reservation,
             sequence=1,
@@ -394,3 +424,230 @@ class GovernedProductionReadOnlyUITests(PathFoundationTestCase):
             response = self.client.get(reverse("execution_path_list"))
         self.assertEqual(response.status_code, 200)
         self.assertLessEqual(len(queries), 15)
+
+    def governed_path(self, *, target=200):
+        path, reservation = self.make_execution(target=target)
+        self.make_governed_final(path, reservation)
+        return path, reservation
+
+    def post_entry(self, path, **overrides):
+        data = {
+            "date": "1405/02/01",
+            "shots": 50,
+            "active_cavities": 2,
+            "scrap_pieces": 10,
+            "description": "ثبت رابط مسیرمحور",
+        }
+        data.update(overrides)
+        return self.client.post(
+            reverse("execution_path_entry_create", args=[path.pk]), data
+        )
+
+    def assert_entry_rejected_without_side_effects(self, path, reservation):
+        path.refresh_from_db()
+        reservation.refresh_from_db()
+        before = {
+            "status": path.status,
+            "first_production_at": path.first_production_at,
+            "entries": path.day_entries.count(),
+            "events": path.events.count(),
+            "reservation_status": reservation.status,
+        }
+        response = self.post_entry(path)
+        self.assertEqual(response.status_code, 302)
+        path.refresh_from_db()
+        reservation.refresh_from_db()
+        self.assertEqual(path.status, before["status"])
+        self.assertEqual(path.first_production_at, before["first_production_at"])
+        self.assertEqual(path.day_entries.count(), before["entries"])
+        self.assertEqual(path.events.count(), before["events"])
+        self.assertEqual(reservation.status, before["reservation_status"])
+
+    def test_daily_entry_uses_canonical_calculation_and_first_transition(self):
+        path, _ = self.governed_path()
+        self.client.force_login(self.operator)
+        response = self.post_entry(path)
+        self.assertRedirects(response, reverse("execution_path_detail", args=[path.pk]))
+        entry = ProductionDayEntry.objects.get(execution_path=path)
+        self.assertEqual((entry.shots, entry.active_cavities), (50, 2))
+        self.assertEqual((entry.gross_pieces, entry.good_pieces, entry.scrap_quantity), (100, 90, 10))
+        path.refresh_from_db()
+        self.assertEqual(path.status, ProductionExecutionPath.Status.RUNNING)
+        self.assertIsNotNone(path.first_production_at)
+        self.assertEqual(
+            path.events.filter(
+                event_type=ProductionExecutionEvent.EventType.FIRST_PRODUCTION
+            ).count(),
+            1,
+        )
+
+    def test_subsequent_entry_and_duplicate_date_rejection_are_append_only(self):
+        path, _ = self.governed_path()
+        self.client.force_login(self.operator)
+        self.post_entry(path)
+        response = self.post_entry(
+            path,
+            date="1405/02/02",
+            shots=20,
+            active_cavities=1,
+            scrap_pieces=2,
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(path.day_entries.count(), 2)
+        accepted_before = path.events.filter(
+            event_type=ProductionExecutionEvent.EventType.PRODUCTION_ACCEPTED
+        ).count()
+        response = self.post_entry(path, date="1405/02/02")
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(path.day_entries.count(), 2)
+        self.assertEqual(
+            path.events.filter(
+                event_type=ProductionExecutionEvent.EventType.PRODUCTION_ACCEPTED
+            ).count(),
+            accepted_before,
+        )
+
+    def test_invalid_date_and_spoofed_calculations_are_rejected_or_ignored(self):
+        path, _ = self.governed_path()
+        self.client.force_login(self.operator)
+        response = self.post_entry(path, date="not-a-date")
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(path.day_entries.exists())
+        self.post_entry(path, gross_pieces=999999, good_pieces=999999)
+        entry = path.day_entries.get()
+        self.assertEqual(entry.gross_pieces, 100)
+        self.assertEqual(entry.good_pieces, 90)
+
+    def test_daily_mutation_requires_authentication_permission_post_and_csrf(self):
+        path, _ = self.governed_path()
+        url = reverse("execution_path_entry_create", args=[path.pk])
+        self.assertEqual(self.client.post(url, {}).status_code, 302)
+        self.client.force_login(self.operator)
+        self.assertEqual(self.client.get(url).status_code, 405)
+        csrf_client = Client(enforce_csrf_checks=True)
+        csrf_client.force_login(self.operator)
+        self.assertEqual(csrf_client.post(url, {"date": "1405/02/01"}).status_code, 403)
+        self.client.force_login(self.viewer)
+        self.assertEqual(self.post_entry(path).status_code, 403)
+        self.assertFalse(path.day_entries.exists())
+
+    def test_temporary_stop_and_resume_retain_reservation_and_do_not_duplicate_events(self):
+        path, reservation = self.governed_path()
+        self.client.force_login(self.operator)
+        self.post_entry(path)
+        stop_url = reverse("execution_path_temporary_stop", args=[path.pk])
+        stop_data = {
+            "reason": self.reason.pk,
+            "note": "توقف کنترل‌شده",
+            "ui_context": "execution_path_detail",
+        }
+        self.assertEqual(self.client.get(stop_url).status_code, 405)
+        self.assertEqual(self.client.post(stop_url, stop_data).status_code, 302)
+        self.assertEqual(self.client.post(stop_url, stop_data).status_code, 302)
+        path.refresh_from_db()
+        reservation.refresh_from_db()
+        self.assertEqual(path.status, ProductionExecutionPath.Status.TEMPORARY_STOP)
+        self.assertEqual(reservation.status, PhysicalMoldReservation.Status.ACTIVE)
+        self.assertEqual(
+            path.events.filter(
+                event_type=ProductionExecutionEvent.EventType.TEMPORARY_STOP
+            ).count(),
+            1,
+        )
+        self.assertEqual(self.post_entry(path, date="1405/02/02").status_code, 302)
+        self.assertEqual(path.day_entries.count(), 1)
+
+        resume_url = reverse("execution_path_resume", args=[path.pk])
+        resume_data = {"note": "ادامه تولید", "ui_context": "execution_path_detail"}
+        self.assertEqual(self.client.get(resume_url).status_code, 405)
+        self.assertEqual(self.client.post(resume_url, resume_data).status_code, 302)
+        self.assertEqual(self.client.post(resume_url, resume_data).status_code, 302)
+        path.refresh_from_db()
+        reservation.refresh_from_db()
+        self.assertEqual(path.status, ProductionExecutionPath.Status.RUNNING)
+        self.assertEqual(reservation.status, PhysicalMoldReservation.Status.ACTIVE)
+        self.assertEqual(
+            path.events.filter(event_type=ProductionExecutionEvent.EventType.RESUME).count(),
+            1,
+        )
+
+    def test_terminal_state_rejects_daily_entry(self):
+        path, _ = self.governed_path()
+        ProductionExecutionPath.objects.filter(pk=path.pk)._update_for_execution_service(
+            status=ProductionExecutionPath.Status.FULL_STOP,
+            status_changed_at=timezone.now(),
+        )
+        self.client.force_login(self.operator)
+        self.assertEqual(self.post_entry(path).status_code, 302)
+        self.assertFalse(path.day_entries.exists())
+
+    def test_detail_actions_are_permission_and_status_aware_without_legacy_mutation(self):
+        path, _ = self.governed_path()
+        legacy = ProductionProgram.objects.create(item=self.item)
+        detail_url = reverse("execution_path_detail", args=[path.pk])
+        entry_url = reverse("execution_path_entry_create", args=[path.pk])
+        self.client.force_login(self.viewer)
+        response = self.client.get(detail_url)
+        self.assertNotContains(response, entry_url)
+        self.client.force_login(self.operator)
+        response = self.client.get(detail_url)
+        self.assertContains(response, entry_url)
+        self.assertNotContains(response, reverse("execution_path_full_stop", args=[path.pk]))
+        self.assertNotContains(response, reverse("execution_path_statistics_complete", args=[path.pk]))
+        self.post_entry(path)
+        self.assertEqual(legacy.entries.count(), 0)
+
+    def test_legacy_compatible_path_never_exposes_governed_mutation_controls(self):
+        path, reservation = self.make_execution()
+        self.client.force_login(self.operator)
+        response = self.client.get(reverse("execution_path_detail", args=[path.pk]))
+        self.assertNotContains(
+            response, reverse("execution_path_entry_create", args=[path.pk])
+        )
+        self.assertContains(response, "فقط برای مسیر نهایی حاکمیتی معتبر")
+        self.assert_entry_rejected_without_side_effects(path, reservation)
+
+    def test_direct_post_rejects_governed_path_without_operational_approval(self):
+        path, reservation = self.make_execution()
+        self.make_governed_final(path, reservation, create_approval=False)
+        self.client.force_login(self.operator)
+        self.assert_entry_rejected_without_side_effects(path, reservation)
+
+    def test_direct_post_rejects_conflicting_operational_approvals(self):
+        path, reservation = self.make_execution(target=800)
+        conflicting_path = self.create_path(
+            physical_mold=self.mold_b,
+            planned_share_quantity=900,
+            sequence=2,
+        )
+        self.make_governed_final(path, reservation)
+        self.make_operational_approval(
+            path, reservation, planned_path=conflicting_path
+        )
+        self.client.force_login(self.operator)
+        self.assert_entry_rejected_without_side_effects(path, reservation)
+
+    def test_direct_post_rejects_invalid_final_revision_lineage(self):
+        path, reservation = self.governed_path()
+        FinalProgramRevision.objects.filter(
+            final_plan=self.plan
+        )._update_for_merge_service(
+            status=FinalProgramRevision.Status.SUPERSEDED,
+            superseded_at=timezone.now(),
+        )
+        self.client.force_login(self.operator)
+        self.assert_entry_rejected_without_side_effects(path, reservation)
+
+    def test_direct_post_rejects_incorrect_path_reservation_ownership(self):
+        path, reservation = self.make_execution(target=200)
+        unrelated_path = self.create_path(
+            physical_mold=self.mold_b,
+            planned_share_quantity=200,
+            sequence=2,
+        )
+        self.make_governed_final(path, reservation, create_approval=False)
+        self.make_operational_approval(
+            path, reservation, planned_path=unrelated_path
+        )
+        self.client.force_login(self.operator)
+        self.assert_entry_rejected_without_side_effects(path, reservation)

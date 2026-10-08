@@ -234,6 +234,7 @@ def register_path_production(
     actor,
     description="",
     using="default",
+    require_governed_lineage=False,
 ):
     _require_data_entry(actor, using=using)
     shots = int(shots)
@@ -258,6 +259,8 @@ def register_path_production(
         assert_operational_program_is_governed(
             current.requirement_program.requirement.item.plan, using=using
         )
+        if require_governed_lineage:
+            _assert_governed_production_lineage(current, using=using)
         if current.status not in {
             ProductionExecutionPath.Status.AWAITING,
             ProductionExecutionPath.Status.RUNNING,
@@ -313,3 +316,59 @@ def register_path_production(
         )
     path.refresh_from_db(using=using)
     return entry
+
+
+def _assert_governed_production_lineage(path, *, using):
+    """Fail closed unless ``path`` owns one active, approved Final-path reservation."""
+    from planning.models import PathOperationalApproval, PhysicalMoldReservation
+
+    from .target_semantics import RequiredGoodUnavailable, resolve_required_good
+
+    plan = path.requirement_program.requirement.item.plan
+    if plan.governance_cycle_id is None:
+        raise ValidationError(
+            "Governed production entry is unavailable for a legacy-compatible path."
+        )
+    try:
+        resolve_required_good(path, using=using)
+    except (RequiredGoodUnavailable, ValueError) as error:
+        raise ValidationError(str(error)) from error
+
+    approvals = list(
+        PathOperationalApproval.objects.using(using)
+        .filter(execution_path_id=path.pk)
+        .order_by("created_at", "pk")
+    )
+    planned_path_ids = {approval.planned_path_id for approval in approvals}
+    if not approvals or len(planned_path_ids) != 1:
+        raise ValidationError(
+            "Governed production entry requires one unambiguous approved path lineage."
+        )
+
+    reservations = list(
+        PhysicalMoldReservation.objects.using(using)
+        .filter(
+            execution_path_id=path.pk,
+            status=PhysicalMoldReservation.Status.ACTIVE,
+        )
+        .order_by("pk")
+    )
+    if len(reservations) != 1:
+        raise ValidationError(
+            "Governed production entry requires exactly one active path reservation."
+        )
+    reservation = reservations[0]
+    latest = approvals[-1]
+    if latest.action == PathOperationalApproval.Action.CANCELLED:
+        raise ValidationError("Cancelled path approval cannot register production.")
+    if (
+        reservation.source_path_id != latest.planned_path_id
+        or reservation.requirement_id != path.requirement_program.requirement_id
+        or reservation.machine_id != path.machine_id
+        or reservation.physical_mold_id != path.physical_mold_id
+        or latest.reservation_id != reservation.pk
+        or latest.execution_path_id != path.pk
+    ):
+        raise ValidationError(
+            "The active reservation and operational approval do not own this execution path."
+        )

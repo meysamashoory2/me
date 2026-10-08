@@ -13,6 +13,68 @@
 <div class="panel panel-compact conflict-banner"><b>نمایش محاسبات مسدود است.</b><p class="muted">{{ lineage_error }}</p></div>
 {% endif %}
 
+{% if can_operate_path and not lineage_error %}
+  {% if path.status == 'awaiting' or path.status == 'running' %}
+  <div class="panel">
+    <div class="panel-head"><h2>ثبت آمار روزانه مسیر</h2></div>
+    <div class="panel-body">
+      <p class="muted">هویت مسیر از نشانی همین صفحه تعیین می‌شود. تولید ناخالص و خوب فقط در سرور محاسبه و ثبت می‌شوند.</p>
+      <form method="post" action="{% url 'execution_path_entry_create' path.pk %}" data-governed-operation-form data-production-entry-form>
+        {% csrf_token %}
+        <div class="form-grid">
+          {% include "partials/form_fields.html" with form=production_entry_form %}
+        </div>
+        <div class="panel panel-compact" aria-live="polite">
+          <b>پیش‌نمایش محاسبه:</b>
+          ناخالص <span class="num" data-preview-gross>۰</span>،
+          خوب <span class="num" data-preview-good>۰</span>،
+          ضایعات <span class="num" data-preview-scrap>۰</span>
+        </div>
+        <div class="form-actions">
+          <button class="btn" type="submit">ثبت قطعی آمار تولید</button>
+        </div>
+      </form>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if path.status == 'running' and path.first_production_at %}
+  <div class="panel">
+    <div class="panel-head"><h2>توقف موقت تولید</h2></div>
+    <div class="panel-body">
+      <p class="muted">توقف موقت، رزرو و مالکیت قالب فیزیکی را آزاد نمی‌کند.</p>
+      <form method="post" action="{% url 'execution_path_temporary_stop' path.pk %}" data-governed-operation-form data-confirm-message="آیا از توقف موقت این مسیر تولید مطمئن هستید؟">
+        {% csrf_token %}
+        <input type="hidden" name="ui_context" value="execution_path_detail">
+        <div class="form-grid">
+          {% include "partials/form_fields.html" with form=temporary_stop_form %}
+        </div>
+        <div class="form-actions"><button class="btn" type="submit">تأیید توقف موقت</button></div>
+      </form>
+    </div>
+  </div>
+  {% elif path.status == 'temporary_stop' %}
+  <div class="panel">
+    <div class="panel-head"><h2>ازسرگیری تولید</h2></div>
+    <div class="panel-body">
+      <p class="muted">با ازسرگیری، رزرو قالب فیزیکی همین مسیر بدون تغییر حفظ می‌شود.</p>
+      <form method="post" action="{% url 'execution_path_resume' path.pk %}" data-governed-operation-form data-confirm-message="آیا تولید این مسیر از سر گرفته شود؟">
+        {% csrf_token %}
+        <input type="hidden" name="ui_context" value="execution_path_detail">
+        <div class="form-grid">
+          {% include "partials/form_fields.html" with form=resume_form %}
+        </div>
+        <div class="form-actions"><button class="btn" type="submit">ازسرگیری تولید</button></div>
+      </form>
+    </div>
+  </div>
+  {% endif %}
+{% elif not has_operation_permission %}
+<div class="panel panel-compact"><p class="muted">دسترسی شما برای مشاهده است و امکان ثبت یا تغییر عملیات تولید را ندارید.</p></div>
+{% elif lineage_classification != 'governed_final' %}
+<div class="panel panel-compact conflict-banner"><p class="muted">عملیات تولید مسیرمحور فقط برای مسیر نهایی حاکمیتی معتبر در دسترس است.</p></div>
+{% endif %}
+
 <div class="panel">
   <div class="panel-head"><h2>هویت و منشأ تغییرناپذیر</h2></div>
   <dl class="detail-grid">
@@ -72,4 +134,48 @@
 {% if deviations %}<div class="table-scroll"><table class="table"><thead><tr><th>زمان</th><th>دسته</th><th>دلیل</th><th>مقدار</th><th>عامل</th><th>توضیحات</th></tr></thead><tbody>
 {% for item in deviations %}<tr><td>{{ item.created_at }}</td><td>{{ item.get_category_display }}</td><td>{{ item.reason.label }}</td><td class="num">{{ item.explained_quantity|default:"—" }}</td><td>{{ item.actor }}</td><td>{{ item.note|default:"—" }}</td></tr>{% endfor %}
 </tbody></table></div>{% else %}<p class="empty">انحراف ثبت‌شده‌ای برای این مسیر وجود ندارد.</p>{% endif %}</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  var form = document.querySelector("[data-production-entry-form]");
+  if (form) {
+    var shots = form.querySelector("[name='shots']");
+    var cavities = form.querySelector("[name='active_cavities']");
+    var scrap = form.querySelector("[name='scrap_pieces']");
+    var grossOutput = form.querySelector("[data-preview-gross]");
+    var goodOutput = form.querySelector("[data-preview-good]");
+    var scrapOutput = form.querySelector("[data-preview-scrap]");
+    function numberValue(input) {
+      var value = Number((input && input.value) || 0);
+      return Number.isFinite(value) && value >= 0 ? value : 0;
+    }
+    function updatePreview() {
+      var gross = numberValue(shots) * numberValue(cavities);
+      var scrapValue = numberValue(scrap);
+      grossOutput.textContent = gross.toLocaleString("fa-IR");
+      goodOutput.textContent = Math.max(gross - scrapValue, 0).toLocaleString("fa-IR");
+      scrapOutput.textContent = scrapValue.toLocaleString("fa-IR");
+    }
+    [shots, cavities, scrap].forEach(function (input) {
+      if (input) input.addEventListener("input", updatePreview);
+    });
+    updatePreview();
+  }
+
+  document.querySelectorAll("[data-governed-operation-form]").forEach(function (operationForm) {
+    operationForm.addEventListener("submit", function (event) {
+      var message = operationForm.getAttribute("data-confirm-message");
+      if (message && !window.confirm(message)) {
+        event.preventDefault();
+        return;
+      }
+      operationForm.querySelectorAll("button[type='submit']").forEach(function (button) {
+        button.disabled = true;
+      });
+    });
+  });
+})();
+</script>
 {% endblock %}
