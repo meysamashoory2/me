@@ -4,6 +4,26 @@ from . import views
 
 urlpatterns = [
     path(
+        "execution-paths/<int:path_id>/temporary-stop/",
+        views.execution_path_temporary_stop,
+        name="execution_path_temporary_stop",
+    ),
+    path(
+        "execution-paths/<int:path_id>/resume/",
+        views.execution_path_resume,
+        name="execution_path_resume",
+    ),
+    path(
+        "execution-paths/<int:path_id>/full-stop/",
+        views.execution_path_full_stop,
+        name="execution_path_full_stop",
+    ),
+    path(
+        "execution-paths/<int:path_id>/statistics-complete/",
+        views.execution_path_statistics_complete,
+        name="execution_path_statistics_complete",
+    ),
+    path(
         "execution-paths/<int:path_id>/target-revisions/request/",
         views.target_revision_request,
         name="target_revision_request",

@@ -17,6 +17,9 @@ from catalog.models import Machine, Product, ProductionUnit
 _target_revision_creation_allowed = ContextVar(
     "target_revision_creation_allowed", default=False
 )
+_execution_event_creation_allowed = ContextVar(
+    "execution_event_creation_allowed", default=False
+)
 
 
 @contextmanager
@@ -27,6 +30,16 @@ def _target_revision_creation_scope():
         yield
     finally:
         _target_revision_creation_allowed.reset(token)
+
+
+@contextmanager
+def _execution_event_creation_scope():
+    """Internal, task-local authorization for canonical event insertion."""
+    token = _execution_event_creation_allowed.set(True)
+    try:
+        yield
+    finally:
+        _execution_event_creation_allowed.reset(token)
 
 
 def _apply_material_usage(record, product) -> None:
@@ -541,9 +554,24 @@ class ProductionExecutionEvent(models.Model):
         ]
 
     def save(self, *args, **kwargs):
+        if self._state.adding and not _execution_event_creation_allowed.get():
+            raise ValueError(
+                "Production execution events require the canonical execution service."
+            )
         if self.pk is not None:
             raise ValueError("Production execution events are immutable.")
         return super().save(*args, **kwargs)
+
+    def save_base(self, *args, **kwargs):
+        if (
+            self._state.adding
+            and not kwargs.get("raw")
+            and not _execution_event_creation_allowed.get()
+        ):
+            raise ValueError(
+                "Production execution events require the canonical execution service."
+            )
+        return super().save_base(*args, **kwargs)
 
     def delete(self, *args, **kwargs):
         raise ValueError("Production execution events are immutable.")

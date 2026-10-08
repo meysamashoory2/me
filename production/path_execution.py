@@ -12,6 +12,7 @@ from .models import (
     ProductionExecutionEvent,
     ProductionExecutionPath,
     ProductionRequirementProgram,
+    _execution_event_creation_scope,
 )
 
 
@@ -29,6 +30,14 @@ def _require_data_entry(user, *, using: str) -> None:
     profile = UserProfile.objects.using(using).filter(user_id=user.pk).first()
     if profile is None or not profile.can_enter_data:
         raise PermissionDenied("Production data-entry permission is required.")
+
+
+def _create_execution_event(*, using="default", **values):
+    """Create append-only lifecycle evidence inside the canonical scope."""
+    event = ProductionExecutionEvent(**values)
+    with _execution_event_creation_scope():
+        event.save(using=using, force_insert=True)
+    return event
 
 
 def get_or_create_requirement_program(requirement, *, actor=None, using="default"):
@@ -113,7 +122,8 @@ def activate_execution_path(path, *, actor=None, using="default"):
             status_changed_at=changed_at,
             updated_by=actor,
         )
-        event = ProductionExecutionEvent.objects.using(using).create(
+        event = _create_execution_event(
+            using=using,
             execution_path=current,
             event_type=ProductionExecutionEvent.EventType.ACTIVATED,
             occurred_at=changed_at,
@@ -142,7 +152,8 @@ def cancel_unstarted_execution_path(path, *, actor, reason="", using="default"):
             status_changed_at=changed_at,
             updated_by=actor,
         )
-        event = ProductionExecutionEvent.objects.using(using).create(
+        event = _create_execution_event(
+            using=using,
             execution_path=current,
             event_type=ProductionExecutionEvent.EventType.CANCELLED,
             occurred_at=changed_at,
@@ -173,7 +184,8 @@ def _edit_unstarted_execution_path(
             current_good_target=int(current_good_target),
             updated_by=actor,
         )
-        event = ProductionExecutionEvent.objects.using(using).create(
+        event = _create_execution_event(
+            using=using,
             execution_path=current,
             event_type=ProductionExecutionEvent.EventType.OPERATIONAL_EDIT,
             occurred_at=changed_at,
@@ -277,7 +289,8 @@ def register_path_production(
                 status_changed_at=accepted_at,
                 updated_by=actor,
             )
-            ProductionExecutionEvent.objects.using(using).create(
+            _create_execution_event(
+                using=using,
                 execution_path=current,
                 event_type=ProductionExecutionEvent.EventType.FIRST_PRODUCTION,
                 occurred_at=accepted_at,
@@ -287,7 +300,8 @@ def register_path_production(
                 new_status=ProductionExecutionPath.Status.RUNNING,
                 metadata={"production_day_entry_id": entry.pk},
             )
-        ProductionExecutionEvent.objects.using(using).create(
+        _create_execution_event(
+            using=using,
             execution_path=current,
             event_type=ProductionExecutionEvent.EventType.PRODUCTION_ACCEPTED,
             occurred_at=accepted_at,

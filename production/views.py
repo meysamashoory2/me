@@ -19,7 +19,17 @@ from .forms import (
     StoppageFormSetPipe,
     TargetRevisionDecisionForm,
     TargetRevisionRequestForm,
+    FullStopForm,
+    ResumeExecutionForm,
+    StatisticsCompletedForm,
+    TemporaryStopForm,
     pipe_field_map,
+)
+from .execution_lifecycle import (
+    complete_execution_statistics,
+    full_stop_execution_path,
+    resume_execution_path,
+    temporary_stop_execution_path,
 )
 from .target_revision_service import (
     decide_target_revision,
@@ -96,6 +106,80 @@ def target_revision_scrap_request(request, path_id):
     except (ValidationError, RequiredGoodUnavailable) as error:
         return _validation_error_response(error)
     return JsonResponse({"request_id": revision.pk, "state": "pending"}, status=201)
+
+
+@login_required
+@require_POST
+def execution_path_temporary_stop(request, path_id):
+    form = TemporaryStopForm(request.POST)
+    if not form.is_valid():
+        return _form_error_response(form)
+    try:
+        event = temporary_stop_execution_path(
+            path_id,
+            actor=request.user,
+            reason=form.cleaned_data["reason"],
+            note=form.cleaned_data["note"],
+        )
+    except ValidationError as error:
+        return _validation_error_response(error)
+    return JsonResponse({"event_id": event.pk, "status": event.new_status})
+
+
+@login_required
+@require_POST
+def execution_path_resume(request, path_id):
+    form = ResumeExecutionForm(request.POST)
+    if not form.is_valid():
+        return _form_error_response(form)
+    try:
+        event = resume_execution_path(
+            path_id, actor=request.user, note=form.cleaned_data["note"]
+        )
+    except ValidationError as error:
+        return _validation_error_response(error)
+    return JsonResponse({"event_id": event.pk, "status": event.new_status})
+
+
+@login_required
+@require_POST
+def execution_path_full_stop(request, path_id):
+    form = FullStopForm(request.POST)
+    if not form.is_valid():
+        return _form_error_response(form)
+    try:
+        result = full_stop_execution_path(
+            path_id,
+            actor=request.user,
+            shortfall_reason=form.cleaned_data.get("shortfall_reason"),
+            shortfall_note=form.cleaned_data["shortfall_note"],
+            overproduction_reason=form.cleaned_data.get("overproduction_reason"),
+            overproduction_note=form.cleaned_data["overproduction_note"],
+        )
+    except (ValidationError, RequiredGoodUnavailable) as error:
+        return _validation_error_response(error)
+    return JsonResponse(
+        {
+            "event_id": result.event.pk,
+            "status": result.path.status,
+            "reservation_id": result.reservation.pk,
+        }
+    )
+
+
+@login_required
+@require_POST
+def execution_path_statistics_complete(request, path_id):
+    form = StatisticsCompletedForm(request.POST)
+    if not form.is_valid():
+        return _form_error_response(form)
+    try:
+        event = complete_execution_statistics(
+            path_id, actor=request.user, note=form.cleaned_data["note"]
+        )
+    except ValidationError as error:
+        return _validation_error_response(error)
+    return JsonResponse({"event_id": event.pk, "status": event.new_status})
 from .models import (
     PipeProduction,
     ProductionDayEntry,

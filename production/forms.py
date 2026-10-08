@@ -37,6 +37,51 @@ class TargetRevisionDecisionForm(forms.Form):
         ):
             self.add_error("decided_target", "A modified decision requires a Counter Target.")
         return cleaned
+
+
+def _production_reason_queryset():
+    return DeviationReason.objects.filter(
+        is_active=True,
+        code__isnull=False,
+        applicability__in=[
+            DeviationReason.Applicability.PRODUCTION,
+            DeviationReason.Applicability.BOTH,
+        ],
+    )
+
+
+class TemporaryStopForm(forms.Form):
+    reason = forms.ModelChoiceField(queryset=DeviationReason.objects.none())
+    note = forms.CharField(required=False, widget=forms.Textarea)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["reason"].queryset = _production_reason_queryset()
+
+
+class ResumeExecutionForm(forms.Form):
+    note = forms.CharField(required=False, widget=forms.Textarea)
+
+
+class FullStopForm(forms.Form):
+    shortfall_reason = forms.ModelChoiceField(
+        queryset=DeviationReason.objects.none(), required=False
+    )
+    shortfall_note = forms.CharField(required=False, widget=forms.Textarea)
+    overproduction_reason = forms.ModelChoiceField(
+        queryset=DeviationReason.objects.none(), required=False
+    )
+    overproduction_note = forms.CharField(required=False, widget=forms.Textarea)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        reasons = _production_reason_queryset()
+        self.fields["shortfall_reason"].queryset = reasons
+        self.fields["overproduction_reason"].queryset = reasons
+
+
+class StatisticsCompletedForm(forms.Form):
+    note = forms.CharField(required=False, widget=forms.Textarea)
 from django.forms import inlineformset_factory
 from django_jalali import forms as jforms
 
