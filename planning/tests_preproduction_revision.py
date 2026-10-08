@@ -7,13 +7,14 @@ from django.test import TestCase
 
 from accounts.models import Role, UserProfile
 from catalog.models import Machine, MoldMachineCompatibility, MoldOption, PhysicalMold, Product, ProductGroup, ProductSubGroup, ProductionUnit
-from production.models import ProductionDeviation, ProductionTargetRevision
+from production.models import ProductionDeviation, ProductionTargetDecision, ProductionTargetRevision
 from production.path_execution import (
     edit_unstarted_execution_path,
     get_or_create_unstarted_execution_path,
     register_path_production,
 )
 from production.target_semantics import RequiredGoodUnavailable, snapshot_for_execution_path
+from production.target_revision_service import request_scrap_compensation
 
 from .final_merge import create_manual_final
 from .models import PhysicalMoldReservation, PlannedProductionPath, PlanningDeviation, PlanningRevision, WeeklyPlan, WeeklyPlanItem, WeeklyPlanLine
@@ -104,6 +105,30 @@ class PreProductionRevisionTests(TestCase):
         self.assertFalse(PlanningDeviation.objects.exists())
         self.assertFalse(ProductionDeviation.objects.exists())
         self.assertFalse(ProductionTargetRevision.objects.exists())
+
+    def test_scrap_compensation_creates_pending_request_without_mutation(self):
+        execution = self.approved.execution_path
+        register_path_production(
+            execution,
+            date=self.path.planned_start_date,
+            shots=200,
+            active_cavities=1,
+            scrap_pieces=100,
+            actor=self.expert,
+        )
+        revision = request_scrap_compensation(
+            execution,
+            actor=self.expert,
+            note="calculated compensation",
+        )
+        execution.refresh_from_db()
+        self.assertEqual(revision.source, ProductionTargetRevision.Source.SCRAP_COMPENSATION)
+        self.assertEqual(revision.state, ProductionTargetRevision.State.PENDING)
+        self.assertEqual(revision.requested_target, 300)
+        self.assertEqual(execution.current_good_target, 200)
+        self.assertEqual(execution.required_good_quantity, 200)
+        self.assertFalse(ProductionTargetDecision.objects.exists())
+        self.assertFalse(ProductionDeviation.objects.exists())
 
     def test_duplicate_approval_evidence_for_one_final_path_is_not_a_conflict(self):
         self.apply(target=250)

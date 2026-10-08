@@ -7,7 +7,13 @@ from django.utils import timezone
 
 from catalog.models import DeviationReason, Machine, MoldOption, PhysicalMold, Product, ProductGroup, ProductSubGroup, ProductionUnit
 from planning.models import WeeklyPlan, WeeklyPlanItem, WeeklyPlanLine
-from .models import ProductionDayEntry, ProductionDeviation, ProductionExecutionPath, ProductionRequirementProgram, ProductionTargetRevision
+from .models import ProductionDayEntry, ProductionDeviation, ProductionExecutionPath, ProductionRequirementProgram, ProductionTargetRevision, _target_revision_creation_scope
+
+
+def create_historical_target_revision(**kwargs):
+    """Build frozen B3-A fixtures through the trusted evidence insertion scope."""
+    with _target_revision_creation_scope():
+        return ProductionTargetRevision.objects.create(**kwargs)
 
 
 class ProductionEvidenceFoundationTests(TestCase):
@@ -33,7 +39,7 @@ class ProductionEvidenceFoundationTests(TestCase):
 
     def test_pending_target_revision_is_evidence_only_and_immutable(self):
         path = self.make_path()
-        revision = ProductionTargetRevision.objects.create(execution_path=path, original_target=100, previous_effective_target=100, requested_target=120, delta=20, source="manual", requester=self.user, reason=self.reason)
+        revision = create_historical_target_revision(execution_path=path, original_target=100, previous_effective_target=100, requested_target=120, delta=20, source="manual", requester=self.user, reason=self.reason)
         path.refresh_from_db()
         self.assertEqual(path.current_good_target, 100)
         with self.assertRaises(ValueError):
@@ -53,18 +59,18 @@ class ProductionEvidenceFoundationTests(TestCase):
 
     def test_approved_and_rejected_evidence_consistency(self):
         path = self.make_path()
-        ProductionTargetRevision.objects.create(execution_path=path, original_target=100, previous_effective_target=100, requested_target=120, approved_target=115, delta=15, source="manual", requester=self.user, approver=self.user, approved_at=timezone.now(), reason=self.reason, state="approved")
-        ProductionTargetRevision.objects.create(execution_path=path, original_target=100, previous_effective_target=100, requested_target=80, delta=-20, source="manual", requester=self.user, approver=self.user, approved_at=timezone.now(), reason=self.reason, state="rejected")
+        create_historical_target_revision(execution_path=path, original_target=100, previous_effective_target=100, requested_target=120, approved_target=115, delta=15, source="manual", requester=self.user, approver=self.user, approved_at=timezone.now(), reason=self.reason, state="approved")
+        create_historical_target_revision(execution_path=path, original_target=100, previous_effective_target=100, requested_target=80, delta=-20, source="manual", requester=self.user, approver=self.user, approved_at=timezone.now(), reason=self.reason, state="rejected")
         with self.assertRaises(ValidationError):
-            ProductionTargetRevision.objects.create(execution_path=path, original_target=100, previous_effective_target=100, requested_target=80, source="manual", requester=self.user, reason=self.reason, state="approved")
+            create_historical_target_revision(execution_path=path, original_target=100, previous_effective_target=100, requested_target=80, source="manual", requester=self.user, reason=self.reason, state="approved")
         with self.assertRaises(ValidationError):
-            ProductionTargetRevision.objects.create(execution_path=path, original_target=100, previous_effective_target=100, requested_target=120, approved_target=115, delta=20, source="manual", requester=self.user, approver=self.user, approved_at=timezone.now(), reason=self.reason, state="approved")
+            create_historical_target_revision(execution_path=path, original_target=100, previous_effective_target=100, requested_target=120, approved_target=115, delta=20, source="manual", requester=self.user, approver=self.user, approved_at=timezone.now(), reason=self.reason, state="approved")
 
     def test_deviation_rejects_cross_path_lineage_and_nonpositive_quantity(self):
         first = self.make_path()
         second_program = ProductionRequirementProgram.objects.get(pk=first.requirement_program_id)
         second = ProductionExecutionPath.objects.create(requirement_program=second_program, machine=self.machine, physical_mold=self.mold, initial_good_target=100, current_good_target=100, status="running", first_production_at=timezone.now())
-        target = ProductionTargetRevision.objects.create(execution_path=first, original_target=100, previous_effective_target=100, requested_target=110, delta=10, source="manual", requester=self.user, reason=self.reason)
+        target = create_historical_target_revision(execution_path=first, original_target=100, previous_effective_target=100, requested_target=110, delta=10, source="manual", requester=self.user, reason=self.reason)
         entry = ProductionDayEntry(execution_path=first, date=jdatetime.date(1405, 12, 1), shots=10, active_cavities=2, gross_pieces=20, scrap_quantity=1, good_pieces=19)
         entry._execution_service_create = True
         entry.save()

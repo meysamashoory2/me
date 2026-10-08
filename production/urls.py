@@ -3,6 +3,21 @@ from django.urls import path
 from . import views
 
 urlpatterns = [
+    path(
+        "execution-paths/<int:path_id>/target-revisions/request/",
+        views.target_revision_request,
+        name="target_revision_request",
+    ),
+    path(
+        "execution-paths/<int:path_id>/target-revisions/scrap-compensation/",
+        views.target_revision_scrap_request,
+        name="target_revision_scrap_request",
+    ),
+    path(
+        "target-revisions/<int:request_id>/decide/",
+        views.target_revision_decide,
+        name="target_revision_decide",
+    ),
     path("", views.production_list, name="production_list"),
     path("programs/", views.program_list, name="program_list"),
     path("history/", views.production_history, name="production_history"),

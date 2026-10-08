@@ -1,5 +1,7 @@
 """Daily production logging for fittings (عددی) and pipes (شاخه/کلاف/متر)."""
 
+from contextlib import contextmanager
+from contextvars import ContextVar
 from decimal import Decimal
 
 from django.conf import settings
@@ -10,6 +12,21 @@ from django.utils import timezone
 from django_jalali.db import models as jmodels
 
 from catalog.models import Machine, Product, ProductionUnit
+
+
+_target_revision_creation_allowed = ContextVar(
+    "target_revision_creation_allowed", default=False
+)
+
+
+@contextmanager
+def _target_revision_creation_scope():
+    """Internal, task-local authorization for canonical request insertion."""
+    token = _target_revision_creation_allowed.set(True)
+    try:
+        yield
+    finally:
+        _target_revision_creation_allowed.reset(token)
 
 
 def _apply_material_usage(record, product) -> None:
@@ -331,6 +348,13 @@ class ProductionExecutionPathQuerySet(models.QuerySet):
 
     def _update_for_execution_service(self, **kwargs):
         return super().update(**kwargs)
+
+    def _update_counter_target_for_revision(self, *, current_good_target, updated_by):
+        """Internal C2 hook; preserve every other started-path field."""
+        return super().update(
+            current_good_target=current_good_target,
+            updated_by=updated_by,
+        )
 
     def bulk_update(self, objs, fields, **kwargs):
         objs = tuple(objs)
@@ -668,6 +692,7 @@ class ProductionTargetRevision(models.Model):
         MANUAL = "manual", "Manual"
         PLANNING = "planning", "Planning"
         REALLOCATION = "reallocation", "Target reallocation"
+        SCRAP_COMPENSATION = "scrap_compensation", "Scrap compensation"
 
     class State(models.TextChoices):
         PENDING = "pending", "Pending"
@@ -680,7 +705,7 @@ class ProductionTargetRevision(models.Model):
     requested_target = models.PositiveIntegerField()
     approved_target = models.PositiveIntegerField(null=True, blank=True)
     delta = models.IntegerField(null=True, blank=True)
-    source = models.CharField(max_length=16, choices=Source.choices)
+    source = models.CharField(max_length=24, choices=Source.choices)
     requester = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="requested_target_revisions")
     requested_at = models.DateTimeField(default=timezone.now)
     approver = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True, related_name="decided_target_revisions")
@@ -725,18 +750,114 @@ class ProductionTargetRevision(models.Model):
                 raise ValidationError("This target revision reason requires a note.")
 
     def save(self, *args, **kwargs):
+        if self._state.adding and not _target_revision_creation_allowed.get():
+            raise ValueError("Target requests require the canonical target-revision service.")
         if self.pk is not None:
             raise ValueError("Production target revision evidence is immutable.")
         self.full_clean()
         return super().save(*args, **kwargs)
 
     def save_base(self, *args, **kwargs):
+        if self._state.adding and not _target_revision_creation_allowed.get():
+            raise ValueError("Target requests require the canonical target-revision service.")
         if kwargs.get("raw"):
             raise ValueError("Production target revision evidence cannot bypass validation through fixtures.")
         return super().save_base(*args, **kwargs)
 
     def delete(self, *args, **kwargs):
         raise ValueError("Production target revision evidence is immutable.")
+
+
+class ProductionTargetDecision(models.Model):
+    class Outcome(models.TextChoices):
+        APPROVED = "approved", "Approved"
+        MODIFIED = "modified", "Modified and approved"
+        REJECTED = "rejected", "Rejected"
+
+    request = models.OneToOneField(
+        ProductionTargetRevision,
+        on_delete=models.PROTECT,
+        related_name="decision",
+    )
+    outcome = models.CharField(max_length=12, choices=Outcome.choices)
+    decided_target = models.PositiveIntegerField(null=True, blank=True)
+    signed_delta = models.IntegerField(null=True, blank=True)
+    cumulative_gross_at_decision = models.PositiveIntegerField()
+    decided_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="target_revision_decisions",
+    )
+    decided_at = models.DateTimeField(default=timezone.now)
+    note = models.TextField(blank=True)
+    context = models.JSONField(default=dict, blank=True)
+
+    objects = RevisionEvidenceQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["decided_at", "id"]
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    models.Q(
+                        outcome__in=["approved", "modified"],
+                        decided_target__isnull=False,
+                        signed_delta__isnull=False,
+                    )
+                    | models.Q(
+                        outcome="rejected",
+                        decided_target__isnull=True,
+                        signed_delta__isnull=True,
+                    )
+                ),
+                name="target_decision_evidence_consistent",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(decided_target__isnull=True)
+                    | models.Q(decided_target__gt=0)
+                ),
+                name="target_decision_target_positive",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["outcome", "decided_at"],
+                name="target_decision_time_idx",
+            )
+        ]
+
+    def clean(self):
+        super().clean()
+        if self.request_id:
+            if self.request.state != ProductionTargetRevision.State.PENDING:
+                raise ValidationError("Only pending target requests may receive C2 decisions.")
+            if self.outcome == self.Outcome.APPROVED:
+                if self.decided_target != self.request.requested_target:
+                    raise ValidationError("Approved decisions must use the requested target.")
+            if self.outcome == self.Outcome.MODIFIED:
+                if self.decided_target == self.request.requested_target:
+                    raise ValidationError("Modified decisions must change the requested target.")
+            if self.decided_target is not None:
+                expected_delta = self.decided_target - self.request.previous_effective_target
+                if self.signed_delta != expected_delta:
+                    raise ValidationError("Decision delta is inconsistent with the observed target.")
+
+    def save(self, *args, **kwargs):
+        if self._state.adding and not getattr(self, "_target_revision_service_create", False):
+            raise ValueError("Target decisions require the canonical target-revision service.")
+        if self.pk is not None:
+            raise ValueError("Production target decision evidence is immutable.")
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def save_base(self, *args, **kwargs):
+        if kwargs.get("raw"):
+            raise ValueError("Production target decisions cannot bypass validation through fixtures.")
+        return super().save_base(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValueError("Production target decision evidence is immutable.")
 
 
 class ProductionDeviation(models.Model):
@@ -754,6 +875,13 @@ class ProductionDeviation(models.Model):
     note = models.TextField(blank=True)
     actor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="production_deviations")
     target_revision = models.ForeignKey(ProductionTargetRevision, on_delete=models.PROTECT, null=True, blank=True, related_name="deviations")
+    target_decision = models.OneToOneField(
+        ProductionTargetDecision,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="deviation",
+    )
     day_entry = models.ForeignKey(ProductionDayEntry, on_delete=models.PROTECT, null=True, blank=True, related_name="deviations")
     context = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -762,7 +890,14 @@ class ProductionDeviation(models.Model):
 
     class Meta:
         ordering = ["created_at", "id"]
-        constraints = [models.CheckConstraint(condition=models.Q(explained_quantity__isnull=True) | models.Q(explained_quantity__gt=0), name="production_deviation_quantity_positive")]
+        constraints = [
+            models.CheckConstraint(condition=models.Q(explained_quantity__isnull=True) | models.Q(explained_quantity__gt=0), name="production_deviation_quantity_positive"),
+            models.UniqueConstraint(
+                fields=["target_revision"],
+                condition=models.Q(category="target_change", target_revision__isnull=False),
+                name="uniq_target_change_deviation_per_request",
+            ),
+        ]
         indexes = [
             models.Index(fields=["execution_path", "created_at"], name="prod_dev_path_time_idx"),
             models.Index(fields=["category", "created_at"], name="prod_dev_category_time_idx"),
@@ -772,6 +907,13 @@ class ProductionDeviation(models.Model):
         super().clean()
         if self.target_revision_id and self.target_revision.execution_path_id != self.execution_path_id:
             raise ValidationError("Production deviation target revision must belong to its path.")
+        if self.target_decision_id:
+            if self.target_decision.request.execution_path_id != self.execution_path_id:
+                raise ValidationError("Production deviation target decision must belong to its path.")
+            if self.target_revision_id != self.target_decision.request_id:
+                raise ValidationError("Production deviation request and decision must match.")
+            if self.target_decision.outcome == ProductionTargetDecision.Outcome.REJECTED:
+                raise ValidationError("Rejected target decisions cannot create deviations.")
         if self.day_entry_id and self.day_entry.execution_path_id != self.execution_path_id:
             raise ValidationError("Production deviation day entry must belong to its path.")
         if self.explained_quantity is not None and self.explained_quantity <= 0:

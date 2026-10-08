@@ -1,4 +1,42 @@
 from django import forms
+
+from catalog.models import DeviationReason
+
+from .models import ProductionTargetDecision
+
+
+class TargetRevisionRequestForm(forms.Form):
+    requested_target = forms.IntegerField(min_value=1)
+    reason = forms.ModelChoiceField(
+        queryset=DeviationReason.objects.none()
+    )
+    note = forms.CharField(required=False, widget=forms.Textarea)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["reason"].queryset = DeviationReason.objects.filter(
+            is_active=True,
+            code__isnull=False,
+            applicability__in=[
+                DeviationReason.Applicability.PRODUCTION,
+                DeviationReason.Applicability.BOTH,
+            ],
+        )
+
+
+class TargetRevisionDecisionForm(forms.Form):
+    outcome = forms.ChoiceField(choices=ProductionTargetDecision.Outcome.choices)
+    decided_target = forms.IntegerField(min_value=1, required=False)
+    note = forms.CharField(required=False, widget=forms.Textarea)
+
+    def clean(self):
+        cleaned = super().clean()
+        if (
+            cleaned.get("outcome") == ProductionTargetDecision.Outcome.MODIFIED
+            and cleaned.get("decided_target") is None
+        ):
+            self.add_error("decided_target", "A modified decision requires a Counter Target.")
+        return cleaned
 from django.forms import inlineformset_factory
 from django_jalali import forms as jforms
 

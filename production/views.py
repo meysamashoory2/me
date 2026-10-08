@@ -2,10 +2,12 @@ import json
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.core.exceptions import PermissionDenied
+from django.core.exceptions import PermissionDenied, ValidationError
+from django.http import JsonResponse
 from django.db.models import Sum
 from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404, redirect, render
+from django.views.decorators.http import require_POST
 
 from accounts.permissions import get_profile
 
@@ -15,8 +17,85 @@ from .forms import (
     ProgramStartForm,
     ProgramStatusForm,
     StoppageFormSetPipe,
+    TargetRevisionDecisionForm,
+    TargetRevisionRequestForm,
     pipe_field_map,
 )
+from .target_revision_service import (
+    decide_target_revision,
+    request_scrap_compensation,
+    request_target_revision,
+)
+from .target_semantics import RequiredGoodUnavailable
+from .models import ProductionTargetRevision
+
+
+def _form_error_response(form):
+    return JsonResponse({"errors": form.errors.get_json_data()}, status=400)
+
+
+def _validation_error_response(error):
+    messages = error.messages if isinstance(error, ValidationError) else [str(error)]
+    return JsonResponse({"errors": messages}, status=400)
+
+
+@login_required
+@require_POST
+def target_revision_request(request, path_id):
+    form = TargetRevisionRequestForm(request.POST)
+    if not form.is_valid():
+        return _form_error_response(form)
+    try:
+        revision = request_target_revision(
+            path_id,
+            requested_target=form.cleaned_data["requested_target"],
+            reason=form.cleaned_data["reason"],
+            source=ProductionTargetRevision.Source.MANUAL,
+            note=form.cleaned_data["note"],
+            actor=request.user,
+        )
+    except ValidationError as error:
+        return _validation_error_response(error)
+    return JsonResponse({"request_id": revision.pk, "state": "pending"}, status=201)
+
+
+@login_required
+@require_POST
+def target_revision_decide(request, request_id):
+    form = TargetRevisionDecisionForm(request.POST)
+    if not form.is_valid():
+        return _form_error_response(form)
+    try:
+        result = decide_target_revision(
+            request_id,
+            outcome=form.cleaned_data["outcome"],
+            decided_target=form.cleaned_data.get("decided_target"),
+            note=form.cleaned_data["note"],
+            actor=request.user,
+        )
+    except ValidationError as error:
+        return _validation_error_response(error)
+    return JsonResponse(
+        {
+            "request_id": result.request.pk,
+            "decision_id": result.decision.pk,
+            "outcome": result.decision.outcome,
+        }
+    )
+
+
+@login_required
+@require_POST
+def target_revision_scrap_request(request, path_id):
+    try:
+        revision = request_scrap_compensation(
+            path_id,
+            actor=request.user,
+            note=request.POST.get("note", ""),
+        )
+    except (ValidationError, RequiredGoodUnavailable) as error:
+        return _validation_error_response(error)
+    return JsonResponse({"request_id": revision.pk, "state": "pending"}, status=201)
 from .models import (
     PipeProduction,
     ProductionDayEntry,

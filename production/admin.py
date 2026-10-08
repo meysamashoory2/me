@@ -11,6 +11,7 @@ from .models import (
     ProductionExecutionPath,
     ProductionExecutionEvent,
     ProductionDeviation,
+    ProductionTargetDecision,
     ProductionTargetRevision,
     ProductionStoppage,
 )
@@ -31,6 +32,12 @@ class ImmutableEvidenceAdmin(admin.ModelAdmin):
 class ProductionTargetRevisionAdmin(ImmutableEvidenceAdmin):
     list_display = ("execution_path", "state", "requested_target", "requester", "requested_at")
     readonly_fields = tuple(field.name for field in ProductionTargetRevision._meta.fields)
+
+
+@admin.register(ProductionTargetDecision)
+class ProductionTargetDecisionAdmin(ImmutableEvidenceAdmin):
+    list_display = ("request", "outcome", "decided_target", "decided_by", "decided_at")
+    readonly_fields = tuple(field.name for field in ProductionTargetDecision._meta.fields)
 
 
 @admin.register(ProductionDeviation)
