@@ -256,6 +256,7 @@ class DeviationReason(models.Model):
         MAINTENANCE = "maintenance", "Maintenance"
         SETUP_MOLD_CHANGE = "setup_mold_change", "Setup / mold change"
         TARGET_REALLOCATION = "target_reallocation", "Target reallocation"
+        SCRAP_COMPENSATION = "scrap_compensation", "Scrap compensation"
         OTHER = "other", "Other"
 
     class Applicability(models.TextChoices):

@@ -423,8 +423,36 @@ class ProductionExecutionPath(models.Model):
         return int(self.day_entries.aggregate(total=Sum("good_pieces"))["total"] or 0)
 
     @property
+    def cumulative_total_produced(self) -> int:
+        """Accepted production-counter output: cumulative Gross (Good + Scrap)."""
+        return int(self.day_entries.aggregate(total=Sum("gross_pieces"))["total"] or 0)
+
+    @property
+    def counter_remaining(self) -> int:
+        """Remaining production-counter quantity, never remaining required Good."""
+        return max(self.current_good_target - self.cumulative_total_produced, 0)
+
+    @property
+    def required_good_quantity(self) -> int:
+        """Immutable approved Final-path Good allocation, or explicit legacy fallback."""
+        from .target_semantics import resolve_required_good
+
+        return resolve_required_good(self)
+
+    @property
+    def good_shortage(self) -> int:
+        """Required Good not yet satisfied, independent of Counter Remaining."""
+        return max(self.required_good_quantity - self.cumulative_good, 0)
+
+    @property
+    def minimum_postproduction_counter_target(self) -> int:
+        """Floor for any future post-production Counter Target decision."""
+        return self.cumulative_total_produced
+
+    @property
     def good_remaining(self) -> int:
-        return max(self.current_good_target - self.cumulative_good, 0)
+        """Compatibility alias; historically misnamed, now Counter Remaining."""
+        return self.counter_remaining
 
     def __str__(self) -> str:
         return f"Path #{self.pk}" if self.pk else "Path #NEW"

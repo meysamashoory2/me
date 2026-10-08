@@ -113,7 +113,10 @@ class RegistrationAndQuantityTests(PathExecutionTestCase):
         self.assertEqual(path.events.filter(event_type=ProductionExecutionEvent.EventType.FIRST_PRODUCTION).count(), 1)
         self.assertEqual(path.events.filter(event_type=ProductionExecutionEvent.EventType.PRODUCTION_ACCEPTED).count(), 2)
         self.assertEqual(path.cumulative_good, 385)
-        self.assertEqual(path.good_remaining, 19615)
+        self.assertEqual(path.cumulative_total_produced, 400)
+        self.assertEqual(path.counter_remaining, 19600)
+        self.assertEqual(path.good_remaining, 19600)
+        self.assertEqual(path.good_shortage, 19615)
 
     def test_invalid_quantities_and_duplicate_day_are_rejected(self):
         path = self.active_path()

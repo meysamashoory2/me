@@ -8,11 +8,22 @@ from django.test import TestCase
 from accounts.models import Role, UserProfile
 from catalog.models import Machine, MoldMachineCompatibility, MoldOption, PhysicalMold, Product, ProductGroup, ProductSubGroup, ProductionUnit
 from production.models import ProductionDeviation, ProductionTargetRevision
-from production.path_execution import edit_unstarted_execution_path, register_path_production
+from production.path_execution import (
+    edit_unstarted_execution_path,
+    get_or_create_unstarted_execution_path,
+    register_path_production,
+)
+from production.target_semantics import RequiredGoodUnavailable, snapshot_for_execution_path
 
 from .final_merge import create_manual_final
 from .models import PhysicalMoldReservation, PlannedProductionPath, PlanningDeviation, PlanningRevision, WeeklyPlan, WeeklyPlanItem, WeeklyPlanLine
-from .operational_approval import StalePathApproval, approve_path, edit_path, preview_path_approval
+from .operational_approval import (
+    StalePathApproval,
+    _create_approval_evidence,
+    approve_path,
+    edit_path,
+    preview_path_approval,
+)
 from .preproduction_revision import ImpactLevel, RevisionImpactConflict, apply_preproduction_revision, preview_preproduction_revision
 from .program_governance import approve_manual_source, create_program_source, initialize_program_numbering
 from .reservation_integrity import PhysicalMoldReservationConflict
@@ -84,6 +95,8 @@ class PreProductionRevisionTests(TestCase):
         self.approved.execution_path.refresh_from_db()
         self.path.refresh_from_db()
         self.assertEqual(self.approved.execution_path.current_good_target, 250)
+        self.assertEqual(self.approved.execution_path.required_good_quantity, 200)
+        self.assertEqual(snapshot_for_execution_path(self.approved.execution_path).required_good, 200)
         self.assertEqual(self.path.planned_share_quantity, 200)
         self.assertEqual(result.revision.before_snapshot["planned_share_quantity"], 200)
         self.assertEqual(result.revision.after_snapshot["planned_share_quantity"], 250)
@@ -91,6 +104,123 @@ class PreProductionRevisionTests(TestCase):
         self.assertFalse(PlanningDeviation.objects.exists())
         self.assertFalse(ProductionDeviation.objects.exists())
         self.assertFalse(ProductionTargetRevision.objects.exists())
+
+    def test_duplicate_approval_evidence_for_one_final_path_is_not_a_conflict(self):
+        self.apply(target=250)
+        self.assertEqual(self.path.operational_approvals.count(), 2)
+        self.assertEqual(self.approved.execution_path.required_good_quantity, 200)
+
+    def test_final_path_without_operational_approval_has_no_required_good_fallback(self):
+        unapproved, _ = self.make_final_path(jdatetime.date(1406, 2, 1), mold=self.mold_b)
+        execution, _ = get_or_create_unstarted_execution_path(unapproved, actor=self.manager)
+        with self.assertRaisesRegex(RequiredGoodUnavailable, "no immutable path-approval"):
+            _ = execution.required_good_quantity
+
+    def _make_governed_source_execution_without_final(self, *, origin, date):
+        number = self.next_number
+        self.next_number += 1
+        source = create_program_source(
+            origin=origin,
+            program_date=date,
+            actor=self.manager,
+            requested_program_number=number,
+        )
+        item = WeeklyPlanItem.objects.create(
+            plan=source, subgroup=self.subgroup, unit=self.unit, machine=self.machine_b,
+            product=self.product, mold=self.mold_type, mold_change_weekday=0,
+            mold_change_date=date,
+        )
+        requirement = WeeklyPlanLine.objects.create(
+            item=item, mold=self.mold_type, quantity=200, cycle=30
+        )
+        planned = PlannedProductionPath.objects.create(
+            requirement=requirement, machine=self.machine_b, physical_mold=self.mold_b,
+            planned_share_quantity=200, planned_start_date=date,
+            planned_end_date=date + jdatetime.timedelta(days=2),
+            created_by=self.manager, updated_by=self.manager,
+        )
+        execution, _ = get_or_create_unstarted_execution_path(planned, actor=self.manager)
+        return source, execution
+
+    def test_governed_manual_source_without_final_fails_closed_without_side_effects(self):
+        source, execution = self._make_governed_source_execution_without_final(
+            origin=WeeklyPlan.PlanningMode.MANUAL,
+            date=jdatetime.date(1406, 2, 8),
+        )
+        original_target = execution.current_good_target
+        with self.assertRaisesRegex(RequiredGoodUnavailable, "Manual/System source"):
+            snapshot_for_execution_path(execution)
+        execution.refresh_from_db()
+        self.assertIsNotNone(source.governance_cycle_id)
+        self.assertEqual(execution.current_good_target, original_target)
+        self.assertFalse(execution.operational_approvals.exists())
+        self.assertFalse(ProductionTargetRevision.objects.filter(execution_path=execution).exists())
+        self.assertFalse(ProductionDeviation.objects.filter(execution_path=execution).exists())
+
+    def test_governed_system_source_without_final_fails_closed_without_side_effects(self):
+        source, execution = self._make_governed_source_execution_without_final(
+            origin=WeeklyPlan.PlanningMode.SYSTEMIC,
+            date=jdatetime.date(1406, 2, 15),
+        )
+        original_target = execution.current_good_target
+        with self.assertRaisesRegex(RequiredGoodUnavailable, "Manual/System source"):
+            snapshot_for_execution_path(execution)
+        execution.refresh_from_db()
+        self.assertIsNotNone(source.governance_cycle_id)
+        self.assertEqual(execution.current_good_target, original_target)
+        self.assertFalse(execution.operational_approvals.exists())
+        self.assertFalse(ProductionTargetRevision.objects.filter(execution_path=execution).exists())
+        self.assertFalse(ProductionDeviation.objects.filter(execution_path=execution).exists())
+
+    def test_conflicting_final_allocations_for_one_execution_fail_closed(self):
+        manual = create_program_source(
+            origin=WeeklyPlan.PlanningMode.MANUAL,
+            program_date=jdatetime.date(1406, 3, 1),
+            actor=self.manager,
+            requested_program_number=self.next_number,
+        )
+        self.next_number += 1
+        item = WeeklyPlanItem.objects.create(
+            plan=manual, subgroup=self.subgroup, unit=self.unit, machine=self.machine_b,
+            product=self.product, mold=self.mold_type, mold_change_weekday=0,
+            mold_change_date=manual.date,
+        )
+        line = WeeklyPlanLine.objects.create(
+            item=item, mold=self.mold_type, quantity=500, cycle=30
+        )
+        for sequence, share in ((1, 200), (2, 300)):
+            PlannedProductionPath.objects.create(
+                requirement=line, machine=self.machine_b, physical_mold=self.mold_b,
+                planned_share_quantity=share,
+                planned_start_date=manual.date + jdatetime.timedelta(days=sequence * 3),
+                planned_end_date=manual.date + jdatetime.timedelta(days=sequence * 3 + 1),
+                sequence=sequence, created_by=self.manager, updated_by=self.manager,
+            )
+        approve_manual_source(manual.pk, actor=self.manager)
+        revision, _ = create_manual_final(
+            cycle_id=manual.governance_cycle_id, actor=self.manager
+        )
+        paths = list(
+            revision.final_plan.items.get().lines.get().planned_paths.order_by("sequence")
+        )
+        approved = approve_path(
+            paths[0].pk,
+            submitted_fingerprint=preview_path_approval(paths[0]).fingerprint,
+            actor=self.manager,
+        )
+        _create_approval_evidence(
+            using="default",
+            planned_path=paths[1],
+            execution_path=approved.execution_path,
+            reservation=approved.reservation,
+            sequence=1,
+            action="approved",
+            path_fingerprint="conflicting-lineage-fixture",
+            after_snapshot={"planned_share_quantity": 300},
+            actor=self.manager,
+        )
+        with self.assertRaisesRegex(RequiredGoodUnavailable, "conflicting Good allocations"):
+            _ = approved.execution_path.required_good_quantity
 
     def test_noop_does_not_create_revision_or_replace_reservation(self):
         preview, values = self.preview()

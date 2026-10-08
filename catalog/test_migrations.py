@@ -21,6 +21,10 @@ CATALOG_B3_0029 = (
     "catalog",
     "0029_deviationreason_applicability_deviationreason_code_and_more",
 )
+CATALOG_B3C1_0030 = (
+    "catalog",
+    "0030_add_scrap_compensation_reason",
+)
 
 
 class CatalogMigrationTestCase(TransactionTestCase):
@@ -105,7 +109,7 @@ class Catalog0026ReconciliationTests(CatalogMigrationTestCase):
         loader = MigrationLoader(connection, ignore_no_migrations=True)
 
         self.assertEqual(loader.detect_conflicts(), {})
-        self.assertEqual(loader.graph.leaf_nodes("catalog"), [CATALOG_B3_0029])
+        self.assertEqual(loader.graph.leaf_nodes("catalog"), [CATALOG_B3C1_0030])
         merge_node = loader.graph.node_map[CATALOG_MERGE_0027]
         self.assertEqual(
             {parent.key for parent in merge_node.parents},
