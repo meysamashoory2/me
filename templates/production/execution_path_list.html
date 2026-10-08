@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block table_family %}operational{% endblock %}
+{% block title %}اجرای تولید مسیرمحور{% endblock %}
+{% block heading %}اجرای تولید مسیرمحور{% endblock %}
+{% block table_section %}governed_execution{% endblock %}
+{% block table_surface %}list{% endblock %}
+
+{% block content %}
+<div class="panel panel-compact">
+  <form method="get" class="filters inline-form">
+    <div class="field">
+      <label for="path-status">وضعیت اجرا</label>
+      <select id="path-status" name="status" class="input">
+        <option value="">همه وضعیت‌ها</option>
+        {% for value, label in status_choices %}
+        <option value="{{ value }}" {% if selected_status == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="path-machine">دستگاه</label>
+      <select id="path-machine" name="machine" class="input">
+        <option value="">همه دستگاه‌ها</option>
+        {% for machine in machines %}
+        <option value="{{ machine.pk }}" {% if selected_machine == machine.pk|stringformat:'s' %}selected{% endif %}>{{ machine }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <button class="btn btn-sm" type="submit">اعمال فیلتر</button>
+    <a class="btn btn-sm btn-ghost" href="{% url 'execution_path_list' %}">پاک کردن</a>
+  </form>
+</div>
+
+<div class="panel panel-list">
+  {% if rows %}
+  <div class="table-scroll">
+    <table class="table" id="execution-path-list">
+      <thead><tr>
+        <th>برنامه / مسیر نهایی</th><th>محصول / قطعه</th><th>دستگاه</th><th>قالب فیزیکی</th>
+        <th>وضعیت</th><th>مقدار خوب موردنیاز</th><th>هدف شمارنده</th><th>ناخالص</th>
+        <th>خوب</th><th>ضایعات</th><th>مانده شمارنده</th><th>کسری خوب</th><th>رزرو قالب</th><th></th>
+      </tr></thead>
+      <tbody>
+      {% for row in rows %}
+        <tr>
+          <td><b>{{ row.path.requirement_program.program_number }}</b><br><span class="muted">{{ row.path.requirement_program.requirement.item.plan.program_number }} / اجرای #{{ row.path.pk }}</span><br>
+            {% if row.lineage_classification == 'governed_final' %}<span class="badge status-active">مسیر نهایی حاکمیتی</span> <span class="muted">{% for approval in row.approvals %}#{{ approval.planned_path_id }}{% if not forloop.last %}، {% endif %}{% endfor %}</span>
+            {% elif row.lineage_classification == 'legacy_compatible' %}<span class="badge">مسیر سازگار قدیمی</span>
+            {% else %}<span class="badge status-warning">زنجیره حاکمیتی نامعتبر</span>{% endif %}
+          </td>
+          <td>{{ row.path.requirement_program.requirement.item.product.code }}<br><span class="muted">{{ row.path.requirement_program.requirement.item.product.name }}</span></td>
+          <td>{{ row.path.machine }}</td>
+          <td>{{ row.path.physical_mold }}</td>
+          <td><span class="badge status-{{ row.path.status }}">{{ row.path.get_status_display }}</span></td>
+          {% if row.metrics %}
+          <td class="num">{{ row.metrics.required_good }}</td>
+          <td class="num">{{ row.metrics.current_counter_target }}</td>
+          <td class="num">{{ row.metrics.cumulative_total_produced }}</td>
+          <td class="num">{{ row.metrics.cumulative_good }}</td>
+          <td class="num">{{ row.scrap }}</td>
+          <td class="num">{{ row.metrics.counter_remaining }}</td>
+          <td class="num">{{ row.metrics.good_shortage }}</td>
+          {% else %}
+          <td colspan="7"><span class="badge status-warning">مسدود: زنجیره تأیید نامعتبر</span><br><span class="muted">{{ row.lineage_error }}</span></td>
+          {% endif %}
+          <td>{% if row.reservation_state == 'multiple' %}<span class="badge status-warning">ناسازگار: چند رزرو فعال</span>{% elif row.reservation %}<span class="badge status-{{ row.reservation.status }}">{{ row.reservation.get_status_display }}</span>{% else %}<span class="muted">بدون رزرو فعال</span>{% endif %}</td>
+          <td><a class="link-edit" href="{% url 'execution_path_detail' row.path.pk %}">مشاهده</a></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if page_obj.has_other_pages %}
+  <div class="pagination">
+    {% if page_obj.has_previous %}<a class="btn btn-sm btn-ghost" href="?status={{ selected_status }}&machine={{ selected_machine }}&page={{ page_obj.previous_page_number }}">قبلی</a>{% endif %}
+    <span class="muted">صفحه {{ page_obj.number }} از {{ page_obj.paginator.num_pages }}</span>
+    {% if page_obj.has_next %}<a class="btn btn-sm btn-ghost" href="?status={{ selected_status }}&machine={{ selected_machine }}&page={{ page_obj.next_page_number }}">بعدی</a>{% endif %}
+  </div>
+  {% endif %}
+  {% else %}
+  <p class="empty">مسیر اجرای تولیدی مطابق فیلتر انتخاب‌شده وجود ندارد.</p>
+  {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% load planning_extras %}
+{% block table_family %}operational{% endblock %}
+{% block title %}جزئیات مسیر اجرای تولید{% endblock %}
+{% block heading %}جزئیات مسیر اجرای تولید #{{ path.pk }}{% endblock %}
+{% block table_section %}governed_execution{% endblock %}
+{% block table_surface %}detail{% endblock %}
+
+{% block topbar_actions %}<a class="btn btn-sm btn-ghost" href="{% url 'execution_path_list' %}">بازگشت به مسیرها</a>{% endblock %}
+
+{% block content %}
+{% if lineage_error %}
+<div class="panel panel-compact conflict-banner"><b>نمایش محاسبات مسدود است.</b><p class="muted">{{ lineage_error }}</p></div>
+{% endif %}
+
+<div class="panel">
+  <div class="panel-head"><h2>هویت و منشأ تغییرناپذیر</h2></div>
+  <dl class="detail-grid">
+    <div><dt>برنامه عملیاتی</dt><dd>{{ path.requirement_program.program_number }}</dd></div>
+    <div><dt>برنامه برنامه‌ریزی</dt><dd>{{ path.requirement_program.requirement.item.plan.program_number }}</dd></div>
+    <div><dt>نیاز تولید</dt><dd>#{{ path.requirement_program.requirement_id }}</dd></div>
+    <div><dt>محصول / قطعه</dt><dd>{{ path.requirement_program.requirement.item.product.code }} — {{ path.requirement_program.requirement.item.product.name }}</dd></div>
+    <div><dt>دستگاه</dt><dd>{{ path.machine }}</dd></div>
+    <div><dt>قالب فیزیکی</dt><dd>{{ path.physical_mold }}</dd></div>
+    <div><dt>وضعیت اجرا</dt><dd><span class="badge status-{{ path.status }}">{{ path.get_status_display }}</span></dd></div>
+    <div><dt>اولین تولید</dt><dd>{{ path.first_production_at|default:"—" }}</dd></div>
+  </dl>
+  <p>{% if lineage_classification == 'governed_final' %}<span class="badge status-active">مسیر نهایی حاکمیتی معتبر</span>{% elif lineage_classification == 'legacy_compatible' %}<span class="badge">مسیر اجرای سازگار قدیمی — فاقد هویت برنامه نهایی</span>{% else %}<span class="badge status-warning">زنجیره حاکمیتی نامعتبر یا ناقص</span>{% endif %}</p>
+</div>
+
+<div class="panel">
+  <div class="panel-head"><h2>زنجیره تأیید مسیر نهایی</h2></div>
+  {% if approvals %}<div class="table-scroll"><table class="table"><thead><tr><th>مسیر نهایی</th><th>ترتیب سند</th><th>اقدام</th><th>مدیر</th><th>زمان</th></tr></thead><tbody>
+  {% for item in approvals %}<tr><td>#{{ item.planned_path_id }}</td><td class="num">{{ item.sequence }}</td><td>{{ item.get_action_display }}</td><td>{{ item.actor }}</td><td>{{ item.created_at }}</td></tr>{% endfor %}
+  </tbody></table></div>{% else %}<p class="empty">زنجیره تأیید مسیر نهایی در دسترس نیست.</p>{% endif %}
+</div>
+
+<div class="cards cards-compact">
+  <article class="card"><p class="card-label">مقدار خوب موردنیاز</p><p class="card-value num">{% if metrics %}{{ metrics.required_good }}{% else %}—{% endif %}</p></article>
+  <article class="card"><p class="card-label">هدف شمارنده</p><p class="card-value num">{{ path.current_good_target }}</p></article>
+  <article class="card"><p class="card-label">تولید ناخالص</p><p class="card-value num">{{ gross }}</p></article>
+  <article class="card"><p class="card-label">تولید خوب</p><p class="card-value num">{{ good }}</p></article>
+  <article class="card"><p class="card-label">ضایعات</p><p class="card-value num">{{ scrap }}</p></article>
+  <article class="card"><p class="card-label">مانده شمارنده</p><p class="card-value num">{% if metrics %}{{ metrics.counter_remaining }}{% else %}—{% endif %}</p></article>
+  <article class="card"><p class="card-label">کسری تولید خوب</p><p class="card-value num">{% if metrics %}{{ metrics.good_shortage }}{% else %}—{% endif %}</p></article>
+</div>
+
+<div class="panel">
+  <div class="panel-head"><h2>رزرو قالب فیزیکی</h2></div>
+  {% if reservation_state == 'multiple' %}<div class="conflict-banner"><b>ناسازگاری داده:</b> بیش از یک رزرو قالب فعال به این مسیر متصل است؛ هیچ‌یک به‌عنوان رزرو مرجع نمایش داده نمی‌شود.</div>{% elif reservation_state == 'none' %}<p class="muted">این مسیر در حال حاضر رزرو قالب فعال ندارد.</p>{% endif %}
+  {% if reservations %}<div class="table-scroll"><table class="table"><thead><tr><th>قالب</th><th>دستگاه</th><th>بازه رزرو</th><th>وضعیت</th><th>فعال‌سازی</th><th>آزادسازی</th></tr></thead><tbody>
+  {% for item in reservations %}<tr><td>{{ item.physical_mold }}</td><td>{{ item.machine }}</td><td>{{ item.reserved_start_date|jdate }} تا {{ item.reserved_end_date|jdate }}</td><td><span class="badge status-{{ item.status }}">{{ item.get_status_display }}</span></td><td>{{ item.activated_at|default:"—" }}</td><td>{{ item.released_at|default:"—" }}</td></tr>{% endfor %}
+  </tbody></table></div>{% else %}<p class="empty">هیچ رزرو قالبی برای این مسیر ثبت نشده است.</p>{% endif %}
+</div>
+
+<div class="panel"><div class="panel-head"><h2>آمار روزانه تولید</h2></div>
+{% if entries %}<div class="table-scroll"><table class="table"><thead><tr><th>تاریخ</th><th>ضرب</th><th>حفره فعال</th><th>ناخالص</th><th>خوب</th><th>ضایعات</th><th>ثبت‌کننده</th><th>توضیحات</th></tr></thead><tbody>
+{% for item in entries %}<tr><td>{{ item.date|jdate }}</td><td class="num">{{ item.shots }}</td><td class="num">{{ item.active_cavities }}</td><td class="num">{{ item.gross_pieces }}</td><td class="num">{{ item.good_pieces }}</td><td class="num">{{ item.scrap_quantity }}</td><td>{{ item.created_by|default:"—" }}</td><td>{{ item.description|default:"—" }}</td></tr>{% endfor %}
+</tbody></table></div>{% else %}<p class="empty">هنوز آمار تولیدی برای این مسیر ثبت نشده است.</p>{% endif %}</div>
+
+<div class="panel"><div class="panel-head"><h2>رویدادهای چرخه اجرا</h2></div>
+{% if events %}<div class="table-scroll"><table class="table"><thead><tr><th>زمان</th><th>رویداد</th><th>وضعیت قبلی</th><th>وضعیت جدید</th><th>عامل</th></tr></thead><tbody>
+{% for item in events %}<tr><td>{{ item.occurred_at }}</td><td>{{ item.get_event_type_display }}</td><td>{{ item.get_old_status_display|default:"—" }}</td><td>{{ item.get_new_status_display|default:"—" }}</td><td>{{ item.actor_identifier_snapshot|default:item.actor|default:"—" }}</td></tr>{% endfor %}
+</tbody></table></div>{% else %}<p class="empty">رویدادی ثبت نشده است.</p>{% endif %}</div>
+
+<div class="panel"><div class="panel-head"><h2>درخواست‌ها و تصمیم‌های هدف شمارنده</h2></div>
+{% if target_revisions %}<div class="table-scroll"><table class="table"><thead><tr><th>زمان درخواست</th><th>منبع</th><th>هدف قبلی</th><th>هدف درخواستی</th><th>وضعیت سند درخواست</th><th>نتیجه تصمیم</th><th>هدف تصمیم‌گیری‌شده</th><th>تصمیم‌گیرنده / زمان</th><th>دلیل</th></tr></thead><tbody>
+{% for item in target_revisions %}<tr><td>{{ item.requested_at }}</td><td>{{ item.get_source_display }}</td><td class="num">{{ item.previous_effective_target }}</td><td class="num">{{ item.requested_target }}</td><td>{{ item.get_state_display }}</td><td>{% if item.decision %}{{ item.decision.get_outcome_display }}{% else %}<span class="badge status-warning">در انتظار تصمیم</span>{% endif %}</td><td class="num">{% if item.decision and item.decision.decided_target is not None %}{{ item.decision.decided_target }}{% else %}—{% endif %}</td><td>{% if item.decision %}{{ item.decision.decided_by }} / {{ item.decision.decided_at }}{% else %}—{% endif %}</td><td>{{ item.reason.label }}</td></tr>{% endfor %}
+</tbody></table></div>{% else %}<p class="empty">درخواست تغییر هدفی ثبت نشده است.</p>{% endif %}</div>
+
+<div class="panel"><div class="panel-head"><h2>سوابق انحراف تولید</h2></div>
+{% if deviations %}<div class="table-scroll"><table class="table"><thead><tr><th>زمان</th><th>دسته</th><th>دلیل</th><th>مقدار</th><th>عامل</th><th>توضیحات</th></tr></thead><tbody>
+{% for item in deviations %}<tr><td>{{ item.created_at }}</td><td>{{ item.get_category_display }}</td><td>{{ item.reason.label }}</td><td class="num">{{ item.explained_quantity|default:"—" }}</td><td>{{ item.actor }}</td><td>{{ item.note|default:"—" }}</td></tr>{% endfor %}
+</tbody></table></div>{% else %}<p class="empty">انحراف ثبت‌شده‌ای برای این مسیر وجود ندارد.</p>{% endif %}</div>
+{% endblock %}

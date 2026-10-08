@@ -4,7 +4,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.http import JsonResponse
-from django.db.models import Sum
+from django.db.models import Prefetch, Sum
 from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
@@ -36,8 +36,151 @@ from .target_revision_service import (
     request_scrap_compensation,
     request_target_revision,
 )
-from .target_semantics import RequiredGoodUnavailable
-from .models import ProductionTargetRevision
+from .target_semantics import (
+    RequiredGoodUnavailable,
+    calculate_counter_target_snapshot,
+    resolve_required_good,
+)
+from .models import ProductionExecutionPath, ProductionTargetRevision
+
+
+def _governed_path_queryset():
+    from planning.models import PathOperationalApproval, PhysicalMoldReservation
+
+    approvals = PathOperationalApproval.objects.select_related(
+        "planned_path__requirement__item__plan",
+        "planned_path__requirement__item__plan__final_revision",
+        "actor",
+    ).order_by("planned_path_id", "sequence", "pk")
+    reservations = PhysicalMoldReservation.objects.select_related(
+        "physical_mold", "machine"
+    ).order_by("-activated_at", "-pk")
+    return (
+        ProductionExecutionPath.objects.select_related(
+            "requirement_program__requirement__item__plan__final_revision",
+            "requirement_program__requirement__item__product",
+            "machine__unit",
+            "physical_mold__mold_type",
+        )
+        .prefetch_related(
+            Prefetch("operational_approvals", queryset=approvals),
+            Prefetch("reservation_snapshots", queryset=reservations),
+        )
+        .annotate(
+            ui_gross=Coalesce(Sum("day_entries__gross_pieces"), 0),
+            ui_good=Coalesce(Sum("day_entries__good_pieces"), 0),
+            ui_scrap=Coalesce(Sum("day_entries__scrap_quantity"), 0),
+        )
+    )
+
+
+def _path_read_model(path):
+    gross = int(path.ui_gross or 0)
+    good = int(path.ui_good or 0)
+    scrap = int(path.ui_scrap or 0)
+    try:
+        required_good = resolve_required_good(path)
+        metrics = calculate_counter_target_snapshot(
+            required_good=required_good,
+            current_counter_target=path.current_good_target,
+            cumulative_total_produced=gross,
+            cumulative_good=good,
+        )
+        lineage_error = ""
+    except (RequiredGoodUnavailable, ValueError) as error:
+        metrics = None
+        lineage_error = str(error)
+    reservations = list(path.reservation_snapshots.all())
+    approvals = list(path.operational_approvals.all())
+    active_reservations = [
+        item for item in reservations if item.status == item.Status.ACTIVE
+    ]
+    if len(active_reservations) == 1:
+        reservation = active_reservations[0]
+        reservation_state = "single"
+    elif len(active_reservations) > 1:
+        reservation = None
+        reservation_state = "multiple"
+    else:
+        reservation = None
+        reservation_state = "none"
+    if lineage_error:
+        lineage_classification = "invalid"
+    elif approvals:
+        lineage_classification = "governed_final"
+    else:
+        lineage_classification = "legacy_compatible"
+    return {
+        "path": path,
+        "metrics": metrics,
+        "gross": gross,
+        "good": good,
+        "scrap": scrap,
+        "lineage_error": lineage_error,
+        "reservation": reservation,
+        "active_reservations": active_reservations,
+        "reservation_state": reservation_state,
+        "approvals": approvals,
+        "lineage_classification": lineage_classification,
+    }
+
+
+@login_required
+def execution_path_list(request):
+    queryset = _governed_path_queryset().order_by("status", "machine_id", "pk")
+    selected_status = (request.GET.get("status") or "").strip()
+    selected_machine = (request.GET.get("machine") or "").strip()
+    valid_statuses = {value for value, _label in ProductionExecutionPath.Status.choices}
+    if selected_status in valid_statuses:
+        queryset = queryset.filter(status=selected_status)
+    else:
+        selected_status = ""
+    if selected_machine.isdigit():
+        queryset = queryset.filter(machine_id=int(selected_machine))
+    else:
+        selected_machine = ""
+    from django.core.paginator import Paginator
+
+    page_obj = Paginator(queryset, 50).get_page(request.GET.get("page"))
+    rows = [_path_read_model(path) for path in page_obj.object_list]
+    from catalog.models import Machine
+
+    return render(
+        request,
+        "production/execution_path_list.html",
+        {
+            "rows": rows,
+            "page_obj": page_obj,
+            "status_choices": ProductionExecutionPath.Status.choices,
+            "machines": Machine.objects.filter(
+                production_execution_paths__isnull=False
+            ).distinct().select_related("unit").order_by("unit_id", "number"),
+            "selected_status": selected_status,
+            "selected_machine": selected_machine,
+        },
+    )
+
+
+@login_required
+def execution_path_detail(request, path_id):
+    path = get_object_or_404(_governed_path_queryset(), pk=path_id)
+    row = _path_read_model(path)
+    row.update(
+        {
+            "entries": path.day_entries.select_related("created_by").order_by("date", "pk"),
+            "events": path.events.select_related("actor").order_by("occurred_at", "pk"),
+            "target_revisions": path.target_revisions.select_related(
+                "requester", "approver", "reason", "decision", "decision__decided_by"
+            ).order_by("requested_at", "pk"),
+            "deviations": path.deviations.select_related(
+                "reason", "actor", "target_revision", "target_decision", "day_entry"
+            ).order_by("created_at", "pk"),
+            "reservations": path.reservation_snapshots.select_related(
+                "physical_mold", "machine"
+            ).order_by("-activated_at", "-pk"),
+        }
+    )
+    return render(request, "production/execution_path_detail.html", row)
 
 
 def _form_error_response(form):

@@ -80,19 +80,48 @@ def resolve_required_good(execution_path, *, using=None) -> int:
     from planning.models import FinalProgramRevision, PathOperationalApproval
 
     using = using or execution_path._state.db or "default"
-    approvals = list(
-        PathOperationalApproval.objects.using(using)
-        .filter(execution_path_id=execution_path.pk)
-        .select_related(
-            "planned_path__requirement__item__plan",
-            "planned_path__requirement__item__plan__final_revision",
+    prefetched = getattr(execution_path, "_prefetched_objects_cache", {})
+    if (
+        "operational_approvals" in prefetched
+        and execution_path._state.db == using
+    ):
+        approvals = sorted(
+            prefetched["operational_approvals"],
+            key=lambda approval: (
+                approval.planned_path_id,
+                approval.sequence,
+                approval.pk,
+            ),
         )
-        .order_by("planned_path_id", "sequence", "pk")
-    )
+    else:
+        approvals = list(
+            PathOperationalApproval.objects.using(using)
+            .filter(execution_path_id=execution_path.pk)
+            .select_related(
+                "planned_path__requirement__item__plan",
+                "planned_path__requirement__item__plan__final_revision",
+            )
+            .order_by("planned_path_id", "sequence", "pk")
+        )
     if not approvals:
         plan = execution_path.requirement_program.requirement.item.plan
         plan_id = plan.pk
-        if FinalProgramRevision.objects.using(using).filter(final_plan_id=plan_id).exists():
+        final_revision_cached = (
+            plan._state.db == using
+            and "final_revision" in plan._state.fields_cache
+        )
+        if final_revision_cached:
+            try:
+                plan.final_revision
+            except FinalProgramRevision.DoesNotExist:
+                has_final_revision = False
+            else:
+                has_final_revision = True
+        else:
+            has_final_revision = FinalProgramRevision.objects.using(using).filter(
+                final_plan_id=plan_id
+            ).exists()
+        if has_final_revision:
             raise RequiredGoodUnavailable(
                 "A governed execution path has no immutable path-approval lineage."
             )

@@ -90,6 +90,17 @@ NAV_SECTIONS: tuple[NavSection, ...] = (
                 ),
             ),
             _item(
+                "governed_execution",
+                "اجرای تولید مسیرمحور",
+                "execution_path_list",
+                "governed_execution",
+                match=("execution_path_list", "execution_path_detail"),
+                surfaces=(
+                    NavSurface("list", "اجرای تولید مسیرمحور", "execution_path_list", "table#execution-path-list"),
+                    NavSurface("detail", "جزئیات مسیر اجرای تولید", "execution_path_detail", "[data-table-section='governed_execution']"),
+                ),
+            ),
+            _item(
                 "programs",
                 "ثبت و کنترل تولید",
                 "program_list",
@@ -244,6 +255,7 @@ LAYOUT_SECTIONS: tuple[tuple[str, str], ...] = tuple(
 MENU_CONFIG_ITEMS: tuple[tuple[str, str], ...] = (
     ("planning", "برنامه‌ریزی هفتگی"),
     ("systemic", "برنامه‌ریزی هوشمند"),
+    ("governed_execution", "اجرای تولید مسیرمحور"),
     ("programs", "ثبت و کنترل تولید"),
     ("history", "سوابق تولید"),
     ("pipe_calc", "محاسبات تولید"),

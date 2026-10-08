@@ -3,6 +3,12 @@ from django.urls import path
 from . import views
 
 urlpatterns = [
+    path("execution-paths/", views.execution_path_list, name="execution_path_list"),
+    path(
+        "execution-paths/<int:path_id>/",
+        views.execution_path_detail,
+        name="execution_path_detail",
+    ),
     path(
         "execution-paths/<int:path_id>/temporary-stop/",
         views.execution_path_temporary_stop,
