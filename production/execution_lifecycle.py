@@ -18,7 +18,11 @@ from .models import (
     ProductionExecutionPath,
     ProductionTargetRevision,
 )
-from .path_execution import _actor_snapshot, _create_execution_event
+from .path_execution import (
+    _actor_snapshot,
+    _create_execution_event,
+    assert_governed_production_lineage,
+)
 from .target_semantics import resolve_required_good
 
 
@@ -145,6 +149,26 @@ def _closeout_snapshot(path, *, using):
     )
 
 
+def preview_execution_closeout(path_or_id, *, actor, using="default"):
+    """Return an advisory closeout snapshot without locking or writing evidence."""
+    _require_manager(actor, using=using)
+    path_id = _identity(path_or_id, ProductionExecutionPath, "Execution path")
+    path = ProductionExecutionPath.objects.using(using).get(pk=path_id)
+    if path.status not in {
+        ProductionExecutionPath.Status.RUNNING,
+        ProductionExecutionPath.Status.TEMPORARY_STOP,
+    }:
+        raise ValidationError(
+            "Closeout preview requires a RUNNING or TEMPORARY_STOP path."
+        )
+    if path.first_production_at is None or not path.day_entries.using(using).exists():
+        raise ValidationError("Closeout preview requires accepted production.")
+    assert_governed_production_lineage(path, using=using)
+    if _pending_target_requests(path, using=using):
+        raise ValidationError("Closeout is blocked by an unresolved target request.")
+    return _closeout_snapshot(path, using=using)
+
+
 def _owned_active_reservation(path, *, using):
     """Lock and verify the one active reservation owned by this path."""
     lock_physical_molds([path.physical_mold_id], using=using)
@@ -266,6 +290,7 @@ def full_stop_execution_path(
     overproduction_reason=None,
     overproduction_note="",
     using="default",
+    require_governed_lineage=False,
 ):
     _require_manager(actor, using=using)
     path_id = _identity(path_or_id, ProductionExecutionPath, "Execution path")
@@ -276,6 +301,8 @@ def full_stop_execution_path(
             .select_related("requirement_program__requirement")
             .get(pk=path_id)
         )
+        if require_governed_lineage:
+            assert_governed_production_lineage(path, using=using)
         if path.status not in {
             ProductionExecutionPath.Status.RUNNING,
             ProductionExecutionPath.Status.TEMPORARY_STOP,
@@ -371,7 +398,14 @@ def full_stop_execution_path(
     return FullStopResult(path, event, reservation, tuple(deviations), snapshot)
 
 
-def complete_execution_statistics(path_or_id, *, actor, note="", using="default"):
+def complete_execution_statistics(
+    path_or_id,
+    *,
+    actor,
+    note="",
+    using="default",
+    require_governed_lineage=False,
+):
     _require_manager(actor, using=using)
     path_id = _identity(path_or_id, ProductionExecutionPath, "Execution path")
     with transaction.atomic(using=using):
@@ -380,6 +414,12 @@ def complete_execution_statistics(path_or_id, *, actor, note="", using="default"
             .select_for_update()
             .get(pk=path_id)
         )
+        if require_governed_lineage:
+            assert_governed_production_lineage(
+                path,
+                using=using,
+                reservation_status=PhysicalMoldReservation.Status.RELEASED,
+            )
         if path.status != ProductionExecutionPath.Status.FULL_STOP:
             raise ValidationError("Statistics may be completed only after Full Stop.")
         if _pending_target_requests(path, using=using, lock=True):

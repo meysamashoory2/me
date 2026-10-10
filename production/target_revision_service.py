@@ -18,6 +18,7 @@ from .models import (
 )
 from .target_semantics import snapshot_for_execution_path
 from .target_semantics import RequiredGoodUnavailable
+from .path_execution import assert_governed_production_lineage
 
 
 class StaleTargetRevision(ValidationError):
@@ -149,6 +150,7 @@ def request_target_revision(
     note="",
     context=None,
     using="default",
+    require_governed_lineage=False,
 ):
     _require_request_permission(actor, using=using)
     requested_target = int(requested_target)
@@ -167,6 +169,8 @@ def request_target_revision(
             .select_for_update()
             .get(pk=path_id)
         )
+        if require_governed_lineage:
+            assert_governed_production_lineage(path, using=using)
         reason = DeviationReason.objects.using(using).get(pk=reason_id)
         return _create_request_for_locked_path(
             path,
@@ -188,6 +192,7 @@ def decide_target_revision(
     decided_target=None,
     note="",
     using="default",
+    require_governed_lineage=False,
 ):
     _require_decision_permission(actor, using=using)
     if outcome not in ProductionTargetDecision.Outcome.values:
@@ -204,6 +209,8 @@ def decide_target_revision(
             .select_for_update()
             .get(pk=request_identity.execution_path_id)
         )
+        if require_governed_lineage:
+            assert_governed_production_lineage(path, using=using)
         request = (
             ProductionTargetRevision.objects.using(using)
             .select_for_update()
@@ -276,7 +283,14 @@ def decide_target_revision(
         return TargetDecisionResult(request, decision, deviation)
 
 
-def request_scrap_compensation(path_or_id, *, actor, note="", using="default"):
+def request_scrap_compensation(
+    path_or_id,
+    *,
+    actor,
+    note="",
+    using="default",
+    require_governed_lineage=False,
+):
     _require_request_permission(actor, using=using)
     path_id = _model_identity(path_or_id, ProductionExecutionPath, "Execution path")
     with transaction.atomic(using=using):
@@ -285,6 +299,8 @@ def request_scrap_compensation(path_or_id, *, actor, note="", using="default"):
             .select_for_update()
             .get(pk=path_id)
         )
+        if require_governed_lineage:
+            assert_governed_production_lineage(path, using=using)
         if not path.operational_approvals.using(using).filter(
             planned_path__requirement__item__plan__final_revision__isnull=False
         ).exists():

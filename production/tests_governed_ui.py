@@ -26,6 +26,8 @@ from .models import (
     ProductionExecutionPath,
     ProductionProgram,
     ProductionRequirementProgram,
+    ProductionTargetDecision,
+    ProductionTargetRevision,
 )
 from .path_execution import register_path_production
 from .target_revision_service import decide_target_revision, request_target_revision
@@ -651,3 +653,205 @@ class GovernedProductionReadOnlyUITests(PathFoundationTestCase):
         )
         self.client.force_login(self.operator)
         self.assert_entry_rejected_without_side_effects(path, reservation)
+
+    def running_governed_path(self, *, target=200, scrap=10):
+        path, reservation = self.governed_path(target=target)
+        self.client.force_login(self.operator)
+        self.post_entry(path, scrap_pieces=scrap)
+        path.refresh_from_db()
+        return path, reservation
+
+    def test_governed_target_request_and_all_manager_decisions(self):
+        path, _ = self.running_governed_path()
+        required_good = resolve_required_good(path)
+        request_url = reverse("governed_target_revision_request", args=[path.pk])
+        response = self.client.post(
+            request_url,
+            {"requested_target": 220, "reason": self.reason.pk, "note": "افزایش"},
+        )
+        self.assertRedirects(response, reverse("execution_path_detail", args=[path.pk]))
+        first = path.target_revisions.get()
+        path.refresh_from_db()
+        self.assertEqual(path.current_good_target, 200)
+        self.assertEqual(resolve_required_good(path), required_good)
+
+        self.client.force_login(self.user)
+        decide_url = reverse("governed_target_revision_decide", args=[first.pk])
+        self.client.post(decide_url, {"outcome": "approved", "note": "تأیید"})
+        path.refresh_from_db()
+        self.assertEqual(path.current_good_target, 220)
+
+        self.client.force_login(self.operator)
+        self.client.post(
+            request_url,
+            {"requested_target": 240, "reason": self.reason.pk},
+        )
+        second = path.target_revisions.order_by("pk").last()
+        self.client.force_login(self.user)
+        self.client.post(
+            reverse("governed_target_revision_decide", args=[second.pk]),
+            {"outcome": "modified", "decided_target": 230, "note": "اصلاح"},
+        )
+        path.refresh_from_db()
+        self.assertEqual(path.current_good_target, 230)
+
+        self.client.force_login(self.operator)
+        self.client.post(
+            request_url,
+            {"requested_target": 250, "reason": self.reason.pk},
+        )
+        third = path.target_revisions.order_by("pk").last()
+        self.client.force_login(self.user)
+        self.client.post(
+            reverse("governed_target_revision_decide", args=[third.pk]),
+            {"outcome": "rejected", "note": "رد"},
+        )
+        path.refresh_from_db()
+        self.assertEqual(path.current_good_target, 230)
+        self.assertEqual(resolve_required_good(path), required_good)
+        self.assertEqual(
+            list(path.target_revisions.order_by("pk").values_list("decision__outcome", flat=True)),
+            ["approved", "modified", "rejected"],
+        )
+        decision_count = ProductionTargetDecision.objects.count()
+        self.client.post(
+            reverse("governed_target_revision_decide", args=[third.pk]),
+            {"outcome": "approved"},
+        )
+        self.assertEqual(ProductionTargetDecision.objects.count(), decision_count)
+
+    def test_scrap_compensation_request_is_evidence_only(self):
+        path, _ = self.running_governed_path(target=200, scrap=60)
+        before_target = path.current_good_target
+        self.client.force_login(self.operator)
+        response = self.client.post(
+            reverse("governed_scrap_compensation_request", args=[path.pk]),
+            {"note": "درخواست بر اساس کسری خوب"},
+        )
+        self.assertEqual(response.status_code, 302)
+        revision = path.target_revisions.get()
+        path.refresh_from_db()
+        self.assertEqual(revision.source, ProductionTargetRevision.Source.SCRAP_COMPENSATION)
+        self.assertEqual(revision.state, ProductionTargetRevision.State.PENDING)
+        self.assertEqual(path.current_good_target, before_target)
+        self.assertFalse(ProductionTargetDecision.objects.exists())
+
+    def test_closeout_preview_is_read_only_and_full_stop_recomputes_and_releases(self):
+        path, reservation = self.running_governed_path()
+        self.client.force_login(self.user)
+        before = (path.events.count(), path.deviations.count(), reservation.status)
+        response = self.client.get(reverse("execution_path_detail", args=[path.pk]))
+        preview = response.context["closeout_preview"]
+        self.assertEqual(preview.cumulative_gross, 100)
+        self.assertEqual(preview.cumulative_good, 90)
+        self.assertEqual(preview.cumulative_scrap, 10)
+        reservation.refresh_from_db()
+        self.assertEqual(
+            (path.events.count(), path.deviations.count(), reservation.status), before
+        )
+
+        response = self.client.post(
+            reverse("governed_execution_path_full_stop", args=[path.pk]),
+            {"shortfall_reason": self.reason.pk, "shortfall_note": "تطبیق نهایی"},
+        )
+        self.assertEqual(response.status_code, 302)
+        path.refresh_from_db()
+        reservation.refresh_from_db()
+        self.assertEqual(path.status, ProductionExecutionPath.Status.FULL_STOP)
+        self.assertEqual(reservation.status, PhysicalMoldReservation.Status.RELEASED)
+        event = path.events.get(event_type=ProductionExecutionEvent.EventType.FULL_STOP)
+        self.assertEqual(event.metadata["reconciliation"]["cumulative_gross"], 100)
+        self.assertEqual(event.metadata["reservation_id"], reservation.pk)
+
+    def test_statistics_completion_and_repeated_transitions_fail_closed(self):
+        path, reservation = self.running_governed_path()
+        self.client.force_login(self.user)
+        full_stop_url = reverse("governed_execution_path_full_stop", args=[path.pk])
+        self.client.post(
+            full_stop_url,
+            {"shortfall_reason": self.reason.pk, "shortfall_note": "توقف"},
+        )
+        full_stop_events = path.events.filter(
+            event_type=ProductionExecutionEvent.EventType.FULL_STOP
+        ).count()
+        self.client.post(
+            full_stop_url,
+            {"shortfall_reason": self.reason.pk, "shortfall_note": "تکرار"},
+        )
+        self.assertEqual(
+            path.events.filter(event_type=ProductionExecutionEvent.EventType.FULL_STOP).count(),
+            full_stop_events,
+        )
+        statistics_url = reverse(
+            "governed_execution_path_statistics_complete", args=[path.pk]
+        )
+        self.client.post(statistics_url, {"note": "تکمیل"})
+        path.refresh_from_db()
+        reservation.refresh_from_db()
+        self.assertEqual(path.status, ProductionExecutionPath.Status.STATISTICS_COMPLETED)
+        self.assertEqual(reservation.status, PhysicalMoldReservation.Status.RELEASED)
+        completed_count = path.events.filter(
+            event_type=ProductionExecutionEvent.EventType.STATISTICS_COMPLETED
+        ).count()
+        self.client.post(statistics_url, {"note": "تکرار"})
+        self.assertEqual(
+            path.events.filter(
+                event_type=ProductionExecutionEvent.EventType.STATISTICS_COMPLETED
+            ).count(),
+            completed_count,
+        )
+
+    def test_governed_closeout_endpoints_are_post_only_csrf_and_manager_protected(self):
+        path, _ = self.running_governed_path()
+        target_url = reverse("governed_target_revision_request", args=[path.pk])
+        full_stop_url = reverse("governed_execution_path_full_stop", args=[path.pk])
+        statistics_url = reverse(
+            "governed_execution_path_statistics_complete", args=[path.pk]
+        )
+        self.assertEqual(self.client.get(target_url).status_code, 405)
+        self.assertEqual(self.client.get(full_stop_url).status_code, 405)
+        self.assertEqual(self.client.get(statistics_url).status_code, 405)
+        self.assertEqual(
+            self.client.post(
+                full_stop_url,
+                {"shortfall_reason": self.reason.pk, "shortfall_note": "ممنوع"},
+            ).status_code,
+            403,
+        )
+        csrf_client = Client(enforce_csrf_checks=True)
+        csrf_client.force_login(self.user)
+        self.assertEqual(
+            csrf_client.post(
+                full_stop_url,
+                {"shortfall_reason": self.reason.pk, "shortfall_note": "بدون توکن"},
+            ).status_code,
+            403,
+        )
+        path.refresh_from_db()
+        self.assertEqual(path.status, ProductionExecutionPath.Status.RUNNING)
+
+    def test_governed_target_direct_post_rejects_legacy_and_missing_lineage(self):
+        path, reservation = self.make_execution(target=200)
+        register_path_production(
+            path,
+            date=jdatetime.date(1405, 2, 1),
+            shots=100,
+            active_cavities=1,
+            scrap_pieces=10,
+            actor=self.operator,
+        )
+        self.client.force_login(self.operator)
+        url = reverse("governed_target_revision_request", args=[path.pk])
+        self.client.post(
+            url, {"requested_target": 220, "reason": self.reason.pk}
+        )
+        self.assertFalse(path.target_revisions.exists())
+        self.make_governed_final(path, reservation, create_approval=False)
+        self.client.post(
+            url, {"requested_target": 220, "reason": self.reason.pk}
+        )
+        path.refresh_from_db()
+        reservation.refresh_from_db()
+        self.assertFalse(path.target_revisions.exists())
+        self.assertEqual(path.status, ProductionExecutionPath.Status.RUNNING)
+        self.assertEqual(reservation.status, PhysicalMoldReservation.Status.ACTIVE)

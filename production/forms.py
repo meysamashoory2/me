@@ -6,11 +6,13 @@ from .models import ProductionTargetDecision
 
 
 class TargetRevisionRequestForm(forms.Form):
-    requested_target = forms.IntegerField(min_value=1)
+    requested_target = forms.IntegerField(label="هدف شمارنده درخواستی", min_value=1)
     reason = forms.ModelChoiceField(
-        queryset=DeviationReason.objects.none()
+        label="دلیل ساختاریافته", queryset=DeviationReason.objects.none()
     )
-    note = forms.CharField(required=False, widget=forms.Textarea)
+    note = forms.CharField(
+        label="توضیحات", required=False, widget=forms.Textarea(attrs={"rows": 2})
+    )
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -22,12 +24,28 @@ class TargetRevisionRequestForm(forms.Form):
                 DeviationReason.Applicability.BOTH,
             ],
         )
+        style_fields(self)
 
 
 class TargetRevisionDecisionForm(forms.Form):
-    outcome = forms.ChoiceField(choices=ProductionTargetDecision.Outcome.choices)
-    decided_target = forms.IntegerField(min_value=1, required=False)
-    note = forms.CharField(required=False, widget=forms.Textarea)
+    outcome = forms.ChoiceField(
+        label="تصمیم مدیر",
+        choices=[
+            (ProductionTargetDecision.Outcome.APPROVED, "تأیید درخواست"),
+            (ProductionTargetDecision.Outcome.MODIFIED, "تأیید با هدف اصلاح‌شده"),
+            (ProductionTargetDecision.Outcome.REJECTED, "رد درخواست"),
+        ],
+    )
+    decided_target = forms.IntegerField(
+        label="هدف اصلاح‌شده", min_value=1, required=False
+    )
+    note = forms.CharField(
+        label="توضیحات تصمیم", required=False, widget=forms.Textarea(attrs={"rows": 2})
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        style_fields(self)
 
     def clean(self):
         cleaned = super().clean()
@@ -37,6 +55,18 @@ class TargetRevisionDecisionForm(forms.Form):
         ):
             self.add_error("decided_target", "A modified decision requires a Counter Target.")
         return cleaned
+
+
+class ScrapCompensationRequestForm(forms.Form):
+    note = forms.CharField(
+        label="توضیحات درخواست جبران ضایعات",
+        required=False,
+        widget=forms.Textarea(attrs={"rows": 2}),
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        style_fields(self)
 
 
 def _production_reason_queryset():
@@ -78,10 +108,21 @@ class FullStopForm(forms.Form):
         reasons = _production_reason_queryset()
         self.fields["shortfall_reason"].queryset = reasons
         self.fields["overproduction_reason"].queryset = reasons
+        self.fields["shortfall_reason"].label = "دلیل کسری"
+        self.fields["shortfall_note"].label = "توضیحات کسری"
+        self.fields["overproduction_reason"].label = "دلیل مازاد"
+        self.fields["overproduction_note"].label = "توضیحات مازاد"
+        style_fields(self)
 
 
 class StatisticsCompletedForm(forms.Form):
-    note = forms.CharField(required=False, widget=forms.Textarea)
+    note = forms.CharField(
+        label="توضیحات نهایی", required=False, widget=forms.Textarea(attrs={"rows": 2})
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        style_fields(self)
 from django.forms import inlineformset_factory
 from django_jalali import forms as jforms
 

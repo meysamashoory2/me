@@ -22,6 +22,7 @@ from .forms import (
     FullStopForm,
     GovernedProductionEntryForm,
     ResumeExecutionForm,
+    ScrapCompensationRequestForm,
     StatisticsCompletedForm,
     TemporaryStopForm,
     pipe_field_map,
@@ -29,6 +30,7 @@ from .forms import (
 from .execution_lifecycle import (
     complete_execution_statistics,
     full_stop_execution_path,
+    preview_execution_closeout,
     resume_execution_path,
     temporary_stop_execution_path,
 )
@@ -169,6 +171,25 @@ def execution_path_detail(request, path_id):
     row = _path_read_model(path)
     profile = get_profile(request.user)
     has_operation_permission = bool(profile and profile.can_enter_data)
+    has_manager_permission = bool(profile and profile.can_approve_plans)
+    governed_final = row["lineage_classification"] == "governed_final"
+    closeout_preview = None
+    closeout_preview_error = ""
+    if (
+        has_manager_permission
+        and governed_final
+        and path.status
+        in {
+            ProductionExecutionPath.Status.RUNNING,
+            ProductionExecutionPath.Status.TEMPORARY_STOP,
+        }
+    ):
+        try:
+            closeout_preview = preview_execution_closeout(
+                path, actor=request.user
+            )
+        except (ValidationError, RequiredGoodUnavailable) as error:
+            closeout_preview_error = str(error)
     row.update(
         {
             "entries": path.day_entries.select_related("created_by").order_by("date", "pk"),
@@ -185,11 +206,28 @@ def execution_path_detail(request, path_id):
             "has_operation_permission": has_operation_permission,
             "can_operate_path": (
                 has_operation_permission
-                and row["lineage_classification"] == "governed_final"
+                and governed_final
             ),
+            "can_manage_path": has_manager_permission and governed_final,
+            "can_request_target": (
+                has_operation_permission
+                and governed_final
+                and path.status
+                in {
+                    ProductionExecutionPath.Status.RUNNING,
+                    ProductionExecutionPath.Status.TEMPORARY_STOP,
+                }
+            ),
+            "closeout_preview": closeout_preview,
+            "closeout_preview_error": closeout_preview_error,
             "production_entry_form": GovernedProductionEntryForm(),
             "temporary_stop_form": TemporaryStopForm(),
             "resume_form": ResumeExecutionForm(),
+            "target_request_form": TargetRevisionRequestForm(),
+            "scrap_compensation_form": ScrapCompensationRequestForm(),
+            "target_decision_form": TargetRevisionDecisionForm(),
+            "full_stop_form": FullStopForm(),
+            "statistics_completed_form": StatisticsCompletedForm(),
         }
     )
     return render(request, "production/execution_path_detail.html", row)
@@ -210,6 +248,120 @@ def _form_error_messages(form):
 def _redirect_with_errors(request, path_id, errors):
     for error in errors:
         messages.error(request, error)
+    return redirect("execution_path_detail", path_id=path_id)
+
+
+def _validation_messages(error):
+    return error.messages if isinstance(error, ValidationError) else [str(error)]
+
+
+@login_required
+@require_POST
+def governed_target_revision_request(request, path_id):
+    form = TargetRevisionRequestForm(request.POST)
+    if not form.is_valid():
+        return _redirect_with_errors(request, path_id, _form_error_messages(form))
+    try:
+        request_target_revision(
+            path_id,
+            requested_target=form.cleaned_data["requested_target"],
+            reason=form.cleaned_data["reason"],
+            source=ProductionTargetRevision.Source.MANUAL,
+            note=form.cleaned_data["note"],
+            actor=request.user,
+            require_governed_lineage=True,
+        )
+    except (ValidationError, RequiredGoodUnavailable) as error:
+        return _redirect_with_errors(request, path_id, _validation_messages(error))
+    messages.success(request, "درخواست تغییر هدف شمارنده برای تصمیم مدیر ثبت شد.")
+    return redirect("execution_path_detail", path_id=path_id)
+
+
+@login_required
+@require_POST
+def governed_scrap_compensation_request(request, path_id):
+    form = ScrapCompensationRequestForm(request.POST)
+    if not form.is_valid():
+        return _redirect_with_errors(request, path_id, _form_error_messages(form))
+    try:
+        request_scrap_compensation(
+            path_id,
+            actor=request.user,
+            note=form.cleaned_data["note"],
+            require_governed_lineage=True,
+        )
+    except (ValidationError, RequiredGoodUnavailable) as error:
+        return _redirect_with_errors(request, path_id, _validation_messages(error))
+    messages.success(
+        request,
+        "درخواست جبران ضایعات برای تصمیم مدیر ثبت شد؛ هدف هنوز تغییر نکرده است.",
+    )
+    return redirect("execution_path_detail", path_id=path_id)
+
+
+@login_required
+@require_POST
+def governed_target_revision_decide(request, request_id):
+    revision = get_object_or_404(
+        ProductionTargetRevision.objects.only("execution_path_id"), pk=request_id
+    )
+    path_id = revision.execution_path_id
+    form = TargetRevisionDecisionForm(request.POST)
+    if not form.is_valid():
+        return _redirect_with_errors(request, path_id, _form_error_messages(form))
+    try:
+        decide_target_revision(
+            request_id,
+            outcome=form.cleaned_data["outcome"],
+            decided_target=form.cleaned_data.get("decided_target"),
+            note=form.cleaned_data["note"],
+            actor=request.user,
+            require_governed_lineage=True,
+        )
+    except (ValidationError, RequiredGoodUnavailable) as error:
+        return _redirect_with_errors(request, path_id, _validation_messages(error))
+    messages.success(request, "تصمیم مدیر با حفظ سند درخواست ثبت شد.")
+    return redirect("execution_path_detail", path_id=path_id)
+
+
+@login_required
+@require_POST
+def governed_execution_path_full_stop(request, path_id):
+    form = FullStopForm(request.POST)
+    if not form.is_valid():
+        return _redirect_with_errors(request, path_id, _form_error_messages(form))
+    try:
+        full_stop_execution_path(
+            path_id,
+            actor=request.user,
+            shortfall_reason=form.cleaned_data.get("shortfall_reason"),
+            shortfall_note=form.cleaned_data["shortfall_note"],
+            overproduction_reason=form.cleaned_data.get("overproduction_reason"),
+            overproduction_note=form.cleaned_data["overproduction_note"],
+            require_governed_lineage=True,
+        )
+    except (ValidationError, RequiredGoodUnavailable) as error:
+        return _redirect_with_errors(request, path_id, _validation_messages(error))
+    messages.success(request, "توقف کامل ثبت و رزرو قالب متعلق به این مسیر آزاد شد.")
+    return redirect("execution_path_detail", path_id=path_id)
+
+
+@login_required
+@require_POST
+def governed_execution_path_statistics_complete(request, path_id):
+    form = StatisticsCompletedForm(request.POST)
+    if not form.is_valid():
+        return _redirect_with_errors(request, path_id, _form_error_messages(form))
+    try:
+        complete_execution_statistics(
+            path_id,
+            actor=request.user,
+            note=form.cleaned_data["note"],
+            require_governed_lineage=True,
+        )
+    except (ValidationError, RequiredGoodUnavailable) as error:
+        return _redirect_with_errors(request, path_id, _validation_messages(error))
+    messages.success(request, "تکمیل نهایی آمار تولید با موفقیت ثبت شد.")
     return redirect("execution_path_detail", path_id=path_id)
 
 
@@ -297,11 +449,14 @@ def target_revision_decide(request, request_id):
 @login_required
 @require_POST
 def target_revision_scrap_request(request, path_id):
+    form = ScrapCompensationRequestForm(request.POST)
+    if not form.is_valid():
+        return _form_error_response(form)
     try:
         revision = request_scrap_compensation(
             path_id,
             actor=request.user,
-            note=request.POST.get("note", ""),
+            note=form.cleaned_data["note"],
         )
     except (ValidationError, RequiredGoodUnavailable) as error:
         return _validation_error_response(error)

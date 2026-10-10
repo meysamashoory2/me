@@ -107,6 +107,75 @@
   <article class="card"><p class="card-label">کسری تولید خوب</p><p class="card-value num">{% if metrics %}{{ metrics.good_shortage }}{% else %}—{% endif %}</p></article>
 </div>
 
+{% if can_request_target %}
+<div class="panel">
+  <div class="panel-head"><h2>درخواست تغییر هدف شمارنده</h2></div>
+  <div class="panel-body">
+    <p class="muted">این درخواست هدف مؤثر را تغییر نمی‌دهد و فقط پس از تصمیم مدیر اعمال می‌شود. مقدار خوب موردنیاز ثابت می‌ماند.</p>
+    <form method="post" action="{% url 'governed_target_revision_request' path.pk %}" data-governed-operation-form>
+      {% csrf_token %}
+      <div class="form-grid">{% include "partials/form_fields.html" with form=target_request_form %}</div>
+      <div class="form-actions"><button class="btn" type="submit">ثبت درخواست برای مدیر</button></div>
+    </form>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-head"><h2>درخواست جبران ضایعات</h2></div>
+  <div class="panel-body">
+    {% if metrics and metrics.scrap_compensation_needed %}
+    <p class="muted">پیشنهاد محاسباتی هدف: <b class="num">{{ metrics.potential_proposed_target }}</b>. ثبت درخواست به‌تنهایی هدف شمارنده را تغییر نمی‌دهد.</p>
+    <form method="post" action="{% url 'governed_scrap_compensation_request' path.pk %}" data-governed-operation-form>
+      {% csrf_token %}
+      <div class="form-grid">{% include "partials/form_fields.html" with form=scrap_compensation_form %}</div>
+      <div class="form-actions"><button class="btn" type="submit">ارسال درخواست جبران ضایعات</button></div>
+    </form>
+    {% else %}
+    <p class="muted">در وضعیت فعلی، محاسبات رسمی نیاز به جبران ضایعات را نشان نمی‌دهد.</p>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
+{% if can_manage_path and path.status == 'running' or can_manage_path and path.status == 'temporary_stop' %}
+<div class="panel">
+  <div class="panel-head"><h2>پیش‌نمایش تطبیق توقف کامل</h2></div>
+  <div class="panel-body">
+    {% if closeout_preview %}
+    <div class="cards cards-compact">
+      <article class="card"><p class="card-label">خوب موردنیاز</p><p class="card-value num">{{ closeout_preview.required_good }}</p></article>
+      <article class="card"><p class="card-label">هدف شمارنده</p><p class="card-value num">{{ closeout_preview.current_counter_target }}</p></article>
+      <article class="card"><p class="card-label">ناخالص</p><p class="card-value num">{{ closeout_preview.cumulative_gross }}</p></article>
+      <article class="card"><p class="card-label">خوب</p><p class="card-value num">{{ closeout_preview.cumulative_good }}</p></article>
+      <article class="card"><p class="card-label">ضایعات</p><p class="card-value num">{{ closeout_preview.cumulative_scrap }}</p></article>
+      <article class="card"><p class="card-label">مانده شمارنده</p><p class="card-value num">{{ closeout_preview.counter_remaining }}</p></article>
+      <article class="card"><p class="card-label">کسری خوب</p><p class="card-value num">{{ closeout_preview.good_shortage }}</p></article>
+    </div>
+    <p class="muted">این پیش‌نمایش فقط مشورتی است؛ هنگام ثبت توقف کامل، محاسبات رسمی داخل تراکنش دوباره انجام می‌شود.</p>
+    <form method="post" action="{% url 'governed_execution_path_full_stop' path.pk %}" data-governed-operation-form data-confirm-message="توقف کامل غیرقابل بازگشت عادی است و رزرو قالب این مسیر را آزاد می‌کند. ادامه می‌دهید؟">
+      {% csrf_token %}
+      <div class="form-grid">{% include "partials/form_fields.html" with form=full_stop_form %}</div>
+      <div class="form-actions"><button class="btn" type="submit">ثبت توقف کامل و آزادسازی قالب</button></div>
+    </form>
+    {% else %}
+    <div class="conflict-banner"><b>توقف کامل مسدود است.</b><p class="muted">{{ closeout_preview_error }}</p></div>
+    {% endif %}
+  </div>
+</div>
+{% elif can_manage_path and path.status == 'full_stop' %}
+<div class="panel">
+  <div class="panel-head"><h2>تکمیل نهایی آمار تولید</h2></div>
+  <div class="panel-body">
+    <p class="muted">این اقدام فقط پس از توقف کامل معتبر، آزادسازی قالب و تکمیل شواهد تطبیق قابل ثبت است.</p>
+    <form method="post" action="{% url 'governed_execution_path_statistics_complete' path.pk %}" data-governed-operation-form data-confirm-message="آیا آمار این مسیر به‌صورت نهایی تکمیل شود؟">
+      {% csrf_token %}
+      <div class="form-grid">{% include "partials/form_fields.html" with form=statistics_completed_form %}</div>
+      <div class="form-actions"><button class="btn" type="submit">ثبت تکمیل نهایی آمار</button></div>
+    </form>
+  </div>
+</div>
+{% endif %}
+
 <div class="panel">
   <div class="panel-head"><h2>رزرو قالب فیزیکی</h2></div>
   {% if reservation_state == 'multiple' %}<div class="conflict-banner"><b>ناسازگاری داده:</b> بیش از یک رزرو قالب فعال به این مسیر متصل است؛ هیچ‌یک به‌عنوان رزرو مرجع نمایش داده نمی‌شود.</div>{% elif reservation_state == 'none' %}<p class="muted">این مسیر در حال حاضر رزرو قالب فعال ندارد.</p>{% endif %}
@@ -126,8 +195,8 @@
 </tbody></table></div>{% else %}<p class="empty">رویدادی ثبت نشده است.</p>{% endif %}</div>
 
 <div class="panel"><div class="panel-head"><h2>درخواست‌ها و تصمیم‌های هدف شمارنده</h2></div>
-{% if target_revisions %}<div class="table-scroll"><table class="table"><thead><tr><th>زمان درخواست</th><th>منبع</th><th>هدف قبلی</th><th>هدف درخواستی</th><th>وضعیت سند درخواست</th><th>نتیجه تصمیم</th><th>هدف تصمیم‌گیری‌شده</th><th>تصمیم‌گیرنده / زمان</th><th>دلیل</th></tr></thead><tbody>
-{% for item in target_revisions %}<tr><td>{{ item.requested_at }}</td><td>{{ item.get_source_display }}</td><td class="num">{{ item.previous_effective_target }}</td><td class="num">{{ item.requested_target }}</td><td>{{ item.get_state_display }}</td><td>{% if item.decision %}{{ item.decision.get_outcome_display }}{% else %}<span class="badge status-warning">در انتظار تصمیم</span>{% endif %}</td><td class="num">{% if item.decision and item.decision.decided_target is not None %}{{ item.decision.decided_target }}{% else %}—{% endif %}</td><td>{% if item.decision %}{{ item.decision.decided_by }} / {{ item.decision.decided_at }}{% else %}—{% endif %}</td><td>{{ item.reason.label }}</td></tr>{% endfor %}
+{% if target_revisions %}<div class="table-scroll"><table class="table"><thead><tr><th>زمان درخواست</th><th>منبع</th><th>هدف قبلی</th><th>هدف درخواستی</th><th>وضعیت سند درخواست</th><th>نتیجه تصمیم</th><th>هدف تصمیم‌گیری‌شده</th><th>تصمیم‌گیرنده / زمان</th><th>دلیل</th>{% if can_manage_path %}<th>اقدام مدیر</th>{% endif %}</tr></thead><tbody>
+  {% for item in target_revisions %}<tr><td>{{ item.requested_at }}</td><td>{{ item.get_source_display }}</td><td class="num">{{ item.previous_effective_target }}</td><td class="num">{{ item.requested_target }}</td><td>{{ item.get_state_display }}</td><td>{% if item.decision %}{{ item.decision.get_outcome_display }}{% else %}<span class="badge status-warning">در انتظار تصمیم</span>{% endif %}</td><td class="num">{% if item.decision and item.decision.decided_target is not None %}{{ item.decision.decided_target }}{% else %}—{% endif %}</td><td>{% if item.decision %}{{ item.decision.decided_by }} / {{ item.decision.decided_at }}{% else %}—{% endif %}</td><td>{{ item.reason.label }}</td>{% if can_manage_path %}<td>{% if not item.decision %}<form method="post" action="{% url 'governed_target_revision_decide' item.pk %}" data-governed-operation-form data-confirm-message="تصمیم هدف شمارنده ثبت شود؟">{% csrf_token %}<div class="form-grid">{% include "partials/form_fields.html" with form=target_decision_form %}</div><button class="btn btn-sm" type="submit">ثبت تصمیم</button></form>{% else %}<span class="muted">ثبت‌شده</span>{% endif %}</td>{% endif %}</tr>{% endfor %}
 </tbody></table></div>{% else %}<p class="empty">درخواست تغییر هدفی ثبت نشده است.</p>{% endif %}</div>
 
 <div class="panel"><div class="panel-head"><h2>سوابق انحراف تولید</h2></div>

@@ -260,7 +260,7 @@ def register_path_production(
             current.requirement_program.requirement.item.plan, using=using
         )
         if require_governed_lineage:
-            _assert_governed_production_lineage(current, using=using)
+            assert_governed_production_lineage(current, using=using)
         if current.status not in {
             ProductionExecutionPath.Status.AWAITING,
             ProductionExecutionPath.Status.RUNNING,
@@ -318,8 +318,10 @@ def register_path_production(
     return entry
 
 
-def _assert_governed_production_lineage(path, *, using):
-    """Fail closed unless ``path`` owns one active, approved Final-path reservation."""
+def assert_governed_production_lineage(
+    path, *, using="default", reservation_status="active"
+):
+    """Fail closed unless ``path`` owns one approved Final-path reservation."""
     from planning.models import PathOperationalApproval, PhysicalMoldReservation
 
     from .target_semantics import RequiredGoodUnavailable, resolve_required_good
@@ -345,17 +347,22 @@ def _assert_governed_production_lineage(path, *, using):
             "Governed production entry requires one unambiguous approved path lineage."
         )
 
+    if reservation_status not in {
+        PhysicalMoldReservation.Status.ACTIVE,
+        PhysicalMoldReservation.Status.RELEASED,
+    }:
+        raise ValueError("Unsupported governed reservation status.")
     reservations = list(
         PhysicalMoldReservation.objects.using(using)
         .filter(
             execution_path_id=path.pk,
-            status=PhysicalMoldReservation.Status.ACTIVE,
+            status=reservation_status,
         )
         .order_by("pk")
     )
     if len(reservations) != 1:
         raise ValidationError(
-            "Governed production entry requires exactly one active path reservation."
+            "Governed execution requires exactly one reservation in the expected state."
         )
     reservation = reservations[0]
     latest = approvals[-1]
@@ -372,3 +379,15 @@ def _assert_governed_production_lineage(path, *, using):
         raise ValidationError(
             "The active reservation and operational approval do not own this execution path."
         )
+    if reservation_status == PhysicalMoldReservation.Status.RELEASED and (
+        PhysicalMoldReservation.objects.using(using)
+        .filter(
+            execution_path_id=path.pk,
+            status=PhysicalMoldReservation.Status.ACTIVE,
+        )
+        .exists()
+    ):
+        raise ValidationError(
+            "A completed closeout cannot retain an active path reservation."
+        )
+    return reservation

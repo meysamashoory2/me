@@ -15,6 +15,31 @@ urlpatterns = [
         name="execution_path_entry_create",
     ),
     path(
+        "execution-paths/<int:path_id>/governed-target-request/",
+        views.governed_target_revision_request,
+        name="governed_target_revision_request",
+    ),
+    path(
+        "execution-paths/<int:path_id>/governed-scrap-compensation/",
+        views.governed_scrap_compensation_request,
+        name="governed_scrap_compensation_request",
+    ),
+    path(
+        "execution-paths/target-revisions/<int:request_id>/governed-decision/",
+        views.governed_target_revision_decide,
+        name="governed_target_revision_decide",
+    ),
+    path(
+        "execution-paths/<int:path_id>/governed-full-stop/",
+        views.governed_execution_path_full_stop,
+        name="governed_execution_path_full_stop",
+    ),
+    path(
+        "execution-paths/<int:path_id>/governed-statistics-complete/",
+        views.governed_execution_path_statistics_complete,
+        name="governed_execution_path_statistics_complete",
+    ),
+    path(
         "execution-paths/<int:path_id>/temporary-stop/",
         views.execution_path_temporary_stop,
         name="execution_path_temporary_stop",
